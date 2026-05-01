@@ -25,6 +25,15 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [renderScale, setRenderScale] = useState(scale);
+
+  // Use a debounced update for the render scale to avoid heavy PDF.js calls during gesture
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setRenderScale(scale);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [scale]);
 
   useEffect(() => {
     const checkOrientation = () => {
@@ -236,7 +245,7 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
               e.touches[0].pageX - e.touches[1].pageX,
               e.touches[0].pageY - e.touches[1].pageY
             );
-            const newScale = Math.min(3, Math.max(0.5, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
+            const newScale = Math.min(5, Math.max(0.2, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
             setScale(newScale);
           }
         }}
@@ -315,13 +324,13 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
                     <>
                       {direction === 'rtl' ? (
                         <>
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} side="left" isLandscape={isLandscape} />
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} side="right" isLandscape={isLandscape} />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
                         </>
                       ) : (
                         <>
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} side="left" isLandscape={isLandscape} />
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} side="right" isLandscape={isLandscape} />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
                         </>
                       )}
                     </>
@@ -334,7 +343,7 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
                         aspectRatio: '0.707'
                       }}
                     >
-                      <PDFPage pageNumber={pageIndex + 1} pdf={pdf!} scale={scale} />
+                      <PDFPage pageNumber={pageIndex + 1} pdf={pdf!} scale={renderScale} />
                     </div>
                   )}
                 </div>
@@ -367,7 +376,7 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
   );
 }
 
-function SpreadPage({ pdf, pageNumber, numPages, scale, side, isLandscape }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, side: 'left' | 'right', isLandscape?: boolean }) {
+function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLandscape }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, renderScale: number, side: 'left' | 'right', isLandscape?: boolean }) {
   if (pageNumber > numPages) return <div className="flex-shrink-0" style={{ width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`, aspectRatio: '0.707' }} />;
   
   return (
@@ -386,7 +395,7 @@ function SpreadPage({ pdf, pageNumber, numPages, scale, side, isLandscape }: { p
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} scale={scale} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} scale={renderScale} />
     </div>
   );
 }

@@ -68,29 +68,33 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
     >
       {/* Interaction Layer */}
       <motion.div 
-        className="absolute inset-0 z-10"
+        className="absolute inset-0 z-10 touch-none"
         onPanEnd={(e, info) => {
+          const velocity = info.velocity.x;
+          const offset = info.offset.x;
           const swipeThreshold = 50;
-          if (info.offset.x < -swipeThreshold && selectedIndex < books.length - 1) {
+          
+          if ((offset < -swipeThreshold || velocity < -500) && selectedIndex < books.length - 1) {
             onChange(selectedIndex + 1);
-          } else if (info.offset.x > swipeThreshold && selectedIndex > 0) {
+          } else if ((offset > swipeThreshold || velocity > 500) && selectedIndex > 0) {
             onChange(selectedIndex - 1);
           }
         }}
       />
 
       <div className="absolute inset-0 flex items-center justify-center preserve-3d pointer-events-none">
-        <AnimatePresence initial={false}>
+        <AnimatePresence initial={false} mode="popLayout">
           {books.map((book, index) => {
             const distance = index - selectedIndex;
-            const isActive = distance === 0;
-            const isVisible = Math.abs(distance) <= 2;
+            const isActive = index === selectedIndex;
+            const isVisible = Math.abs(distance) <= 3;
 
             if (!isVisible) return null;
 
             return (
               <motion.div
                 key={book.id}
+                layoutId={`book-${book.id}`}
                 initial={{ opacity: 0, scale: 0.5, rotateY: distance * 45, z: -500 }}
                 animate={{ 
                   scale: isActive ? 1 : 0.82 - Math.abs(distance) * 0.08,
@@ -102,20 +106,24 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
                 }}
                 exit={{ 
                   opacity: 0, 
-                  scale: 0.5,
-                  x: distance * width
+                  scale: 0.5, 
+                  x: distance > 0 ? 500 : -500,
+                  rotateY: distance > 0 ? -90 : 90
                 }}
                 transition={{ 
                   type: 'spring', 
-                  stiffness: 280, 
+                  stiffness: 260, 
                   damping: 24,
                   mass: 0.8
                 }}
                 className={cn(
-                  "absolute w-52 h-72 rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.5)] dark:shadow-[0_30px_60px_rgba(255,255,255,0.08)] overflow-hidden cursor-pointer preserve-3d transition-filter duration-300 pointer-events-auto",
-                  isActive ? "ring-1 ring-white/30" : "grayscale-[0.3]"
+                  "absolute w-52 h-72 rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.5)] dark:shadow-[0_30px_60px_rgba(255,255,255,0.08)] overflow-hidden cursor-pointer preserve-3d transition-all duration-300 pointer-events-auto",
+                  isActive ? "ring-1 ring-white/30" : "grayscale-[0.3] brightness-75"
                 )}
-                onClick={() => handleTap(index)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleTap(index);
+                }}
               >
                 {book.coverUrl ? (
                   <img 
