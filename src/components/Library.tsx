@@ -170,8 +170,11 @@ function BookLibraryItem({
         className="group relative"
       >
         <div 
-          onClick={() => setIsOverlayOpen(!isOverlayOpen)}
-          className="aspect-[2/3] rounded-2xl overflow-hidden shadow-lg border border-[#141414]/5 dark:border-white/5 mb-2 relative cursor-pointer"
+          onClick={() => {
+            if (showConfirm) return;
+            setIsOverlayOpen(!isOverlayOpen);
+          }}
+          className="aspect-[2/3] rounded-2xl overflow-hidden shadow-lg border border-[#141414]/5 dark:border-white/5 mb-2 relative cursor-pointer touch-manipulation"
         >
           {book.coverUrl ? (
             <img src={book.coverUrl} className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
@@ -189,37 +192,39 @@ function BookLibraryItem({
           {/* Quick Actions Overlay (Hidden until hover/tap) */}
           <div className={cn(
             "absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 backdrop-blur-[2px]",
-            isOverlayOpen ? "opacity-100" : "opacity-0 lg:group-hover:opacity-100"
+            (isOverlayOpen || showConfirm) ? "opacity-100 pointer-events-auto" : "opacity-0 lg:group-hover:opacity-100 pointer-events-none lg:group-hover:pointer-events-auto"
           )}>
             {showConfirm ? (
-              <div className="flex flex-col items-center gap-2 px-4 text-center">
-                <p className="text-[10px] text-white font-bold uppercase tracking-widest">Delete?</p>
-                <div className="flex gap-2">
+              <div className="flex flex-col items-center gap-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                <p className="text-[11px] text-white font-bold uppercase tracking-[0.2em] mb-1">Delete Book?</p>
+                <div className="flex gap-4">
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDelete(); }} 
-                    className="px-4 py-2 bg-red-500 text-white text-[10px] rounded-full font-bold active:scale-90 transition-transform"
+                    className="w-12 h-12 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-75 transition-transform"
+                    aria-label="Confirm Delete"
                   >
-                    YES
+                    <Trash2 className="w-5 h-5" />
                   </button>
                   <button 
-                    onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} 
-                    className="px-4 py-2 bg-white/20 text-white text-[10px] rounded-full font-bold active:scale-90 transition-transform"
+                    onClick={(e) => { e.stopPropagation(); setShowConfirm(false); setIsOverlayOpen(false); }} 
+                    className="w-12 h-12 bg-white/20 text-white rounded-full flex items-center justify-center backdrop-blur-md active:scale-75 transition-transform"
+                    aria-label="Cancel"
                   >
-                    NO
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="flex gap-4">
+              <div className="flex gap-5" onClick={(e) => e.stopPropagation()}>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onUpdateStatus(); }} 
-                  className="p-3 bg-white text-black rounded-full hover:scale-110 active:scale-90 transition-transform shadow-xl"
+                  className="w-14 h-14 bg-white text-black rounded-full flex items-center justify-center active:scale-75 transition-transform shadow-2xl"
                 >
-                  <PlayCircle className="w-7 h-7" />
+                  <PlayCircle className="w-8 h-8" />
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }} 
-                  className="p-3 bg-red-500 text-white rounded-full hover:scale-110 active:scale-90 transition-transform shadow-xl"
+                  className="w-14 h-14 bg-red-500 text-white rounded-full flex items-center justify-center active:scale-75 transition-transform shadow-2xl"
                 >
                   <Trash2 className="w-6 h-6" />
                 </button>
@@ -239,7 +244,7 @@ function BookLibraryItem({
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
-      className="bg-white/40 dark:bg-white/5 p-3 rounded-2xl border border-[#141414]/5 dark:border-white/5 flex gap-4 items-center overflow-hidden relative"
+      className="bg-white/40 dark:bg-white/5 p-3 rounded-2xl border border-[#141414]/5 dark:border-white/5 flex gap-4 items-center overflow-hidden relative touch-manipulation"
       onClick={() => setIsOverlayOpen(!isOverlayOpen)}
     >
       <div className="w-16 h-20 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
@@ -260,37 +265,37 @@ function BookLibraryItem({
         </div>
       </div>
       <div className={cn(
-        "flex flex-col gap-1 z-10 transition-opacity",
-        isOverlayOpen ? "opacity-100" : "opacity-40 lg:opacity-30 lg:group-hover:opacity-100"
+        "flex items-center gap-2 z-10 transition-opacity",
+        (isOverlayOpen || showConfirm) ? "opacity-100" : "opacity-0 lg:group-hover:opacity-100"
       )}>
         {showConfirm ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
              <button 
               onClick={(e) => { e.stopPropagation(); onDelete(); }} 
-              className="p-2 bg-red-500 text-white rounded-xl active:scale-90"
+              className="p-3 bg-red-500 text-white rounded-full active:scale-75 transition-transform"
              >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-5 h-5" />
              </button>
              <button 
-              onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} 
-              className="p-2 bg-black/5 dark:bg-white/5 rounded-xl active:scale-90"
+              onClick={(e) => { e.stopPropagation(); setShowConfirm(false); setIsOverlayOpen(false); }} 
+              className="p-3 bg-black/10 dark:bg-white/10 rounded-full active:scale-75 transition-transform"
              >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
              </button>
           </div>
         ) : (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             <button 
               onClick={(e) => { e.stopPropagation(); onUpdateStatus(); }} 
-              className="p-2 hover:text-blue-500 transition-all active:scale-90"
+              className="p-3 bg-white dark:bg-white/10 text-black dark:text-white rounded-full shadow-lg active:scale-75 transition-transform"
             >
-              <Edit2 className="w-4 h-4" />
+              <Edit2 className="w-5 h-5" />
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }} 
-              className="p-2 hover:text-red-500 transition-all active:scale-90"
+              className="p-3 bg-red-500 text-white rounded-full shadow-lg active:scale-75 transition-transform"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-5 h-5" />
             </button>
           </div>
         )}

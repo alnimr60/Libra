@@ -23,6 +23,26 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
   const [pageIndex, setPageIndex] = useState(0); // 0-based for internal math
   const [slideDirection, setSlideDirection] = useState(0); // -1 for left, 1 for right
   const [error, setError] = useState<string | null>(null);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      setIsLandscape(window.innerWidth > window.innerHeight && window.innerHeight < 600);
+    };
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    return () => window.removeEventListener('resize', checkOrientation);
+  }, []);
+
+  useEffect(() => {
+    if (isLandscape) {
+      const timer = setTimeout(() => setShowControls(false), 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowControls(true);
+    }
+  }, [isLandscape, pageIndex]);
 
   useEffect(() => {
     async function loadPDF() {
@@ -144,13 +164,19 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
       )}
     >
       {/* Reader Controls Top */}
-      <div className="flex items-center justify-between gap-4 p-4 text-white/70 border-b border-white/5 bg-zinc-900/80 backdrop-blur-xl z-[310]">
-        <div className="flex items-center gap-4">
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-            <X className="w-6 h-6" />
+      <motion.div 
+        animate={{ y: showControls ? 0 : -100 }}
+        className={cn(
+          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all",
+          isLandscape ? "p-2" : "p-4"
+        )}
+      >
+        <div className="flex items-center gap-2 md:gap-4">
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors active:scale-75">
+            <X className={cn(isLandscape ? "w-5 h-5" : "w-6 h-6")} />
           </button>
-          <div className="h-4 w-px bg-white/10" />
-          <div className="text-xs font-mono tracking-tighter">
+          <div className="h-4 w-px bg-white/10 hidden sm:block" />
+          <div className="text-[10px] md:text-xs font-mono tracking-tighter">
             <span className="text-white font-bold">
               {viewMode === 'double' ? `${(pageIndex * 2) + 1}${ (pageIndex * 2) + 2 <= numPages ? '-' + ((pageIndex * 2) + 2) : '' }` : pageIndex + 1}
             </span> 
@@ -159,37 +185,41 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
           </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-white/5 rounded-full px-2 py-1 pointer-events-auto border border-white/10 shadow-lg">
+        <div className={cn(
+          "flex items-center gap-1 bg-white/5 rounded-full border border-white/10 shadow-lg pointer-events-auto",
+          isLandscape ? "px-1 py-0.5 scale-90" : "px-2 py-1"
+        )}>
           <button 
             onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
-            className="p-2.5 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+            className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
             title="Zoom Out"
           >
-            <Minus className="w-5 h-5" />
+            <Minus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
           </button>
-          <div className="flex flex-col items-center">
-            <span className="text-[9px] font-mono leading-none text-white/40 mb-0.5">ZOOM</span>
-            <span className="text-[11px] font-mono font-bold leading-none w-10 text-center select-none text-white">{Math.round(scale * 100)}%</span>
+          <div className="flex flex-col items-center min-w-[32px]">
+            <span className="text-[8px] font-mono leading-none text-white/40 mb-0.5">ZOOM</span>
+            <span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">{Math.round(scale * 100)}%</span>
           </div>
           <button 
             onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
-            className="p-2.5 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+            className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
             title="Zoom In"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
           </button>
         </div>
 
         <button 
           onClick={() => setIsFullscreen(!isFullscreen)} 
-          className={cn("p-2 rounded-full transition-colors", isFullscreen ? "bg-orange-500 text-white" : "hover:bg-white/10")}
+          className={cn("p-2 rounded-full transition-colors active:scale-75", isFullscreen ? "bg-orange-500 text-white" : "hover:bg-white/10")}
         >
           {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
         </button>
-      </div>
+      </motion.div>
 
       {/* Main Viewport */}
       <div 
+        onClick={() => isLandscape && setShowControls(!showControls)}
         className="flex-1 relative flex items-center justify-center bg-zinc-900/40 overflow-hidden"
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
@@ -285,13 +315,13 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
                     <>
                       {direction === 'rtl' ? (
                         <>
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} side="left" />
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} side="right" />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} side="left" isLandscape={isLandscape} />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} side="right" isLandscape={isLandscape} />
                         </>
                       ) : (
                         <>
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} side="left" />
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} side="right" />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} side="left" isLandscape={isLandscape} />
+                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} side="right" isLandscape={isLandscape} />
                         </>
                       )}
                     </>
@@ -299,7 +329,8 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
                     <div 
                       className="flex-shrink-0 h-auto shadow-2xl bg-white relative transition-all duration-300"
                       style={{ 
-                        width: `${85 * scale}vw`,
+                        width: isLandscape ? `${(scale * 100) * 0.707}vh` : `${85 * scale}vw`,
+                        maxHeight: '90vh',
                         aspectRatio: '0.707'
                       }}
                     >
@@ -315,7 +346,10 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
 
       {/* Progress Footer */}
       {!isLoading && !error && (
-        <div className="p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]">
+        <motion.div 
+          animate={{ y: showControls ? 0 : 100 }}
+          className="p-2 md:p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
+        >
           <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
             <motion.div 
               className="absolute inset-y-0 bg-orange-500"
@@ -327,14 +361,14 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             />
           </div>
-        </div>
+        </motion.div>
       )}
     </motion.div>
   );
 }
 
-function SpreadPage({ pdf, pageNumber, numPages, scale, side }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, side: 'left' | 'right' }) {
-  if (pageNumber > numPages) return <div className="flex-shrink-0" style={{ width: `${45 * scale}vw`, aspectRatio: '0.707' }} />;
+function SpreadPage({ pdf, pageNumber, numPages, scale, side, isLandscape }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, side: 'left' | 'right', isLandscape?: boolean }) {
+  if (pageNumber > numPages) return <div className="flex-shrink-0" style={{ width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`, aspectRatio: '0.707' }} />;
   
   return (
     <div 
@@ -343,7 +377,7 @@ function SpreadPage({ pdf, pageNumber, numPages, scale, side }: { pdf: pdfjs.PDF
         side === 'left' ? "rounded-l-sm" : "rounded-r-sm"
       )}
       style={{ 
-        width: `${45 * scale}vw`,
+        width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`,
         aspectRatio: '0.707'
       }}
     >

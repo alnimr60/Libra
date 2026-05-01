@@ -60,9 +60,26 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[1500px]"
+      className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[1500px] touch-none"
+      onPointerDown={(e) => {
+        // Track initial touch for manual swipe detection if needed
+        // but Motion's onPan is better
+      }}
     >
-      <div className="absolute inset-0 flex items-center justify-center preserve-3d">
+      {/* Interaction Layer */}
+      <motion.div 
+        className="absolute inset-0 z-10"
+        onPanEnd={(e, info) => {
+          const swipeThreshold = 50;
+          if (info.offset.x < -swipeThreshold && selectedIndex < books.length - 1) {
+            onChange(selectedIndex + 1);
+          } else if (info.offset.x > swipeThreshold && selectedIndex > 0) {
+            onChange(selectedIndex - 1);
+          }
+        }}
+      />
+
+      <div className="absolute inset-0 flex items-center justify-center preserve-3d pointer-events-none">
         <AnimatePresence initial={false}>
           {books.map((book, index) => {
             const distance = index - selectedIndex;
@@ -94,16 +111,11 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
                   damping: 24,
                   mass: 0.8
                 }}
-                drag={isActive ? "x" : false}
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0.1}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onTap={() => handleTap(index)}
                 className={cn(
-                  "absolute w-52 h-72 rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.5)] dark:shadow-[0_30px_60px_rgba(255,255,255,0.08)] overflow-hidden cursor-pointer preserve-3d",
+                  "absolute w-52 h-72 rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.5)] dark:shadow-[0_30px_60px_rgba(255,255,255,0.08)] overflow-hidden cursor-pointer preserve-3d transition-filter duration-300 pointer-events-auto",
                   isActive ? "ring-1 ring-white/30" : "grayscale-[0.3]"
                 )}
+                onClick={() => handleTap(index)}
               >
                 {book.coverUrl ? (
                   <img 
