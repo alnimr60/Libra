@@ -157,6 +157,7 @@ function BookLibraryItem({
   key?: string // Added to avoid TS error when passing in map
 }) {
   const [showConfirm, setShowConfirm] = useState(false);
+  const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const progress = (book.currentPage / book.totalPages) * 100;
 
   if (viewMode === 'grid') {
@@ -168,7 +169,10 @@ function BookLibraryItem({
         exit={{ opacity: 0, scale: 0.9 }}
         className="group relative"
       >
-        <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-lg border border-[#141414]/5 dark:border-white/5 mb-2 relative">
+        <div 
+          onClick={() => setIsOverlayOpen(!isOverlayOpen)}
+          className="aspect-[2/3] rounded-2xl overflow-hidden shadow-lg border border-[#141414]/5 dark:border-white/5 mb-2 relative cursor-pointer"
+        >
           {book.coverUrl ? (
             <img src={book.coverUrl} className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
           ) : (
@@ -183,38 +187,41 @@ function BookLibraryItem({
           </div>
 
           {/* Quick Actions Overlay (Hidden until hover/tap) */}
-          <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 backdrop-blur-[2px]">
+          <div className={cn(
+            "absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 backdrop-blur-[2px]",
+            isOverlayOpen ? "opacity-100" : "opacity-0 lg:group-hover:opacity-100"
+          )}>
             {showConfirm ? (
               <div className="flex flex-col items-center gap-2 px-4 text-center">
                 <p className="text-[10px] text-white font-bold uppercase tracking-widest">Delete?</p>
                 <div className="flex gap-2">
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDelete(); }} 
-                    className="px-3 py-1 bg-red-500 text-white text-[10px] rounded-full font-bold"
+                    className="px-4 py-2 bg-red-500 text-white text-[10px] rounded-full font-bold active:scale-90 transition-transform"
                   >
                     YES
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} 
-                    className="px-3 py-1 bg-white/20 text-white text-[10px] rounded-full font-bold"
+                    className="px-4 py-2 bg-white/20 text-white text-[10px] rounded-full font-bold active:scale-90 transition-transform"
                   >
                     NO
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="flex gap-3">
+              <div className="flex gap-4">
                 <button 
                   onClick={(e) => { e.stopPropagation(); onUpdateStatus(); }} 
-                  className="p-2 bg-white text-black rounded-full hover:scale-110 transition-transform"
+                  className="p-3 bg-white text-black rounded-full hover:scale-110 active:scale-90 transition-transform shadow-xl"
                 >
-                  <PlayCircle className="w-6 h-6" />
+                  <PlayCircle className="w-7 h-7" />
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }} 
-                  className="p-2 bg-red-500 text-white rounded-full hover:scale-110 transition-transform"
+                  className="p-3 bg-red-500 text-white rounded-full hover:scale-110 active:scale-90 transition-transform shadow-xl"
                 >
-                  <Trash2 className="w-5 h-5" />
+                  <Trash2 className="w-6 h-6" />
                 </button>
               </div>
             )}
@@ -233,6 +240,7 @@ function BookLibraryItem({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
       className="bg-white/40 dark:bg-white/5 p-3 rounded-2xl border border-[#141414]/5 dark:border-white/5 flex gap-4 items-center overflow-hidden relative"
+      onClick={() => setIsOverlayOpen(!isOverlayOpen)}
     >
       <div className="w-16 h-20 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
         {book.coverUrl ? (
@@ -251,31 +259,40 @@ function BookLibraryItem({
            <span className="text-[10px] font-mono opacity-40">{Math.round(progress)}%</span>
         </div>
       </div>
-      <div className="flex flex-col gap-1 z-10">
+      <div className={cn(
+        "flex flex-col gap-1 z-10 transition-opacity",
+        isOverlayOpen ? "opacity-100" : "opacity-40 lg:opacity-30 lg:group-hover:opacity-100"
+      )}>
         {showConfirm ? (
           <div className="flex flex-col gap-1">
              <button 
-              onClick={onDelete} 
-              className="p-2 bg-red-500 text-white rounded-xl"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }} 
+              className="p-2 bg-red-500 text-white rounded-xl active:scale-90"
              >
                 <Trash2 className="w-4 h-4" />
              </button>
              <button 
-              onClick={() => setShowConfirm(false)} 
-              className="p-2 bg-black/5 dark:bg-white/5 rounded-xl"
+              onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} 
+              className="p-2 bg-black/5 dark:bg-white/5 rounded-xl active:scale-90"
              >
                 <X className="w-4 h-4" />
              </button>
           </div>
         ) : (
-          <>
-            <button onClick={onUpdateStatus} className="p-2 opacity-30 hover:opacity-100 hover:text-blue-500 transition-all">
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={(e) => { e.stopPropagation(); onUpdateStatus(); }} 
+              className="p-2 hover:text-blue-500 transition-all active:scale-90"
+            >
               <Edit2 className="w-4 h-4" />
             </button>
-            <button onClick={() => setShowConfirm(true)} className="p-2 opacity-30 hover:opacity-100 hover:text-red-500 transition-all">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }} 
+              className="p-2 hover:text-red-500 transition-all active:scale-90"
+            >
               <Trash2 className="w-4 h-4" />
             </button>
-          </>
+          </div>
         )}
       </div>
     </motion.div>

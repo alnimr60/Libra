@@ -21,10 +21,12 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
       setWidth(containerRef.current.offsetWidth);
     }
     
-    // Resize observer to update width
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
-        setWidth(entry.contentRect.width);
+        // Cap the effective width for spacing calculation to prevent books 
+        // from being pushed too far apart on wide screens
+        const cappedWidth = Math.min(1200, entry.contentRect.width);
+        setWidth(cappedWidth);
       }
     });
     
@@ -74,11 +76,11 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
                 key={book.id}
                 initial={{ opacity: 0, scale: 0.5, rotateY: distance * 45, z: -500 }}
                 animate={{ 
-                  scale: isActive ? 1 : 0.85 - Math.abs(distance) * 0.1,
-                  x: distance * (width * 0.38) - (distance * distance * 15 * Math.sign(distance)),
-                  z: -Math.abs(distance) * 350,
-                  rotateY: distance * -45,
-                  opacity: 1 - Math.abs(distance) * 0.45,
+                  scale: isActive ? 1 : 0.82 - Math.abs(distance) * 0.08,
+                  x: distance * (width * 0.32) - (distance * distance * 10 * Math.sign(distance)),
+                  z: -Math.abs(distance) * 400 - (isActive ? 0 : 50),
+                  rotateY: distance * -35,
+                  opacity: 1 - Math.abs(distance) * 0.4,
                   zIndex: 100 - Math.abs(distance),
                 }}
                 exit={{ 
