@@ -37,16 +37,22 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
         setPdf(pdfDoc);
         setNumPages(pdfDoc.numPages);
 
-        // Detect Direction (RTL vs LTR)
+        // Improved Direction Detection
         try {
-          const firstPage = await pdfDoc.getPage(1);
-          const textContent = await firstPage.getTextContent();
-          const text = textContent.items.map((item: any) => item.str).join('');
-          // Detect Arabic, Hebrew, etc.
-          const rtlRegex = /[\u0600-\u06FF\u0590-\u05FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-          if (rtlRegex.test(text)) {
-            setDirection('rtl');
+          let detectedDirection: 'ltr' | 'rtl' = 'ltr';
+          // Check first few pages to be sure
+          const pagesToCheck = Math.min(3, pdfDoc.numPages);
+          for (let i = 1; i <= pagesToCheck; i++) {
+            const page = await pdfDoc.getPage(i);
+            const textContent = await page.getTextContent();
+            const text = textContent.items.map((item: any) => (item as any).str).join('');
+            const rtlRegex = /[\u0600-\u06FF\u0590-\u05FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+            if (rtlRegex.test(text)) {
+              detectedDirection = 'rtl';
+              break;
+            }
           }
+          setDirection(detectedDirection);
         } catch (e) {
           console.warn('PDFReader: Direction detection failed, defaulting to LTR');
         }
@@ -83,7 +89,9 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
     if (safeIndex === pageIndex) return;
     
-    setSlideDirection(newIndex > pageIndex ? 1 : -1);
+    // In RTL, the "next" page should come from the left
+    const rawDir = newIndex > pageIndex ? 1 : -1;
+    setSlideDirection(direction === 'rtl' ? -rawDir : rawDir);
     setPageIndex(safeIndex);
     
     // Calculate display page for parent progress tracking
@@ -97,15 +105,18 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
   const onSwipe = (offset: number, velocity: number) => {
     if (scale > 1.1) return; // Disable swipe-to-turn when zoomed in to prioritize panning
     
-    const swipe = swipePower(offset, velocity);
-    if (swipe < swipeConfidenceThreshold) return;
+    const threshold = 30; // More sensitive
+    const velocityThreshold = 400;
+
+    if (Math.abs(offset) < threshold && Math.abs(velocity) < velocityThreshold) return;
 
     if (direction === 'ltr') {
       if (offset < 0) handlePageChange(pageIndex + 1);
       else handlePageChange(pageIndex - 1);
     } else {
+      // RTL: Swiping Right pulling from left (positive offset) -> Next page
       if (offset > 0) handlePageChange(pageIndex + 1);
-      else handlePageChange(pageIndex - 1);
+      else if (offset < 0) handlePageChange(pageIndex - 1);
     }
   };
 
@@ -119,6 +130,8 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pageIndex, totalSheets, direction, viewMode]);
+
+  const touchStateRef = useRef({ initialDist: 0, initialScale: 1 });
 
   return (
     <motion.div
@@ -146,13 +159,24 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
           </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-white/5 rounded-full px-2 py-1">
-          <button onClick={() => setScale(s => Math.max(0.5, s - 0.2))} className="p-2 hover:bg-white/10 rounded-full">
-            <Minus className="w-4 h-4" />
+        <div className="flex items-center gap-2 bg-white/5 rounded-full px-2 py-1 pointer-events-auto border border-white/10 shadow-lg">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
+            className="p-2.5 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+            title="Zoom Out"
+          >
+            <Minus className="w-5 h-5" />
           </button>
-          <span className="text-[10px] font-mono w-10 text-center">{Math.round(scale * 100)}%</span>
-          <button onClick={() => setScale(s => Math.min(3, s + 0.2))} className="p-2 hover:bg-white/10 rounded-full">
-            <Plus className="w-4 h-4" />
+          <div className="flex flex-col items-center">
+            <span className="text-[9px] font-mono leading-none text-white/40 mb-0.5">ZOOM</span>
+            <span className="text-[11px] font-mono font-bold leading-none w-10 text-center select-none text-white">{Math.round(scale * 100)}%</span>
+          </div>
+          <button 
+            onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
+            className="p-2.5 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+            title="Zoom In"
+          >
+            <Plus className="w-5 h-5" />
           </button>
         </div>
 
@@ -165,7 +189,31 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
       </div>
 
       {/* Main Viewport */}
-      <div className="flex-1 relative flex items-center justify-center bg-zinc-900/40 overflow-hidden">
+      <div 
+        className="flex-1 relative flex items-center justify-center bg-zinc-900/40 overflow-hidden"
+        onTouchStart={(e) => {
+          if (e.touches.length === 2) {
+            const dist = Math.hypot(
+              e.touches[0].pageX - e.touches[1].pageX,
+              e.touches[0].pageY - e.touches[1].pageY
+            );
+            touchStateRef.current = { initialDist: dist, initialScale: scale };
+          }
+        }}
+        onTouchMove={(e) => {
+          if (e.touches.length === 2 && touchStateRef.current.initialDist > 0) {
+            const dist = Math.hypot(
+              e.touches[0].pageX - e.touches[1].pageX,
+              e.touches[0].pageY - e.touches[1].pageY
+            );
+            const newScale = Math.min(3, Math.max(0.5, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
+            setScale(newScale);
+          }
+        }}
+        onTouchEnd={() => {
+          touchStateRef.current.initialDist = 0;
+        }}
+      >
         {isLoading ? (
           <div className="flex flex-col items-center gap-4 text-white/40">
             <Loader2 className="w-12 h-12 animate-spin" />
@@ -221,15 +269,16 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
                   opacity: { duration: 0.2 }
                 }}
                 className={cn(
-                  "absolute inset-0 flex items-center justify-center p-4 md:p-8 overflow-auto custom-scrollbar",
-                  viewMode === 'double' ? "flex-row gap-0 lg:gap-4" : "flex-col",
-                  scale > 1.1 ? "cursor-auto" : "cursor-grab active:cursor-grabbing"
+                  "absolute inset-0 flex p-4 md:p-8 overflow-auto custom-scrollbar",
+                  viewMode === 'double' ? "flex-row" : "flex-col",
+                  scale > 1.1 ? "items-start justify-start cursor-move" : "items-center justify-center cursor-grab active:cursor-grabbing"
                 )}
               >
                 <div 
                   className={cn(
-                    "flex flex-shrink-0 items-start justify-center gap-0 lg:gap-4 my-auto",
-                    viewMode === 'double' ? "flex-row" : "flex-col"
+                    "flex flex-shrink-0 gap-0 lg:gap-4 my-auto",
+                    viewMode === 'double' ? "flex-row" : "flex-col",
+                    scale > 1.1 ? "m-auto" : "mx-auto"
                   )}
                 >
                   {viewMode === 'double' ? (
