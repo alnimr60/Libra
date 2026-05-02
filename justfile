@@ -6,8 +6,10 @@ export_path := "build/ipa"
 
 # Build web code & sync to iOS
 sync:
+    @echo "Building web assets..."
     npm run build
-    ./node_modules/.bin/cap sync ios
+    @echo "Syncing to iOS..."
+    npx cap sync ios
 
 # Archive (Runs on Mac)
 archive: sync
