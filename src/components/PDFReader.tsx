@@ -128,7 +128,9 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/standard_fonts/',
       stopAtErrors: false,
       enableXfa: true,
-      disableFontFace: false
+      disableFontFace: false,
+      disableRange: true,
+      disableStream: true
     });
         const pdfDoc = await loadingTask.promise;
         setPdf(pdfDoc);
@@ -509,11 +511,15 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
         // Higher base scale for better resolution, capped for performance
         const viewport = page.getViewport({ scale: Math.max(1.5, Math.min(3, scale * 2)) });
         const canvas = canvasRef.current;
-        const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
+        const context = canvas.getContext('2d', { alpha: false });
 
         if (context) {
           canvas.height = viewport.height;
           canvas.width = viewport.width;
+
+          // Clear with white background explicitly
+          context.fillStyle = 'white';
+          context.fillRect(0, 0, canvas.width, canvas.height);
 
           if (renderTaskRef.current) {
             renderTaskRef.current.cancel();
@@ -522,7 +528,8 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           renderTaskRef.current = page.render({
             canvasContext: context,
             viewport: viewport,
-            intent: 'display'
+            intent: 'display',
+            background: 'white'
           } as any);
           
           await renderTaskRef.current.promise;

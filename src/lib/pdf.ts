@@ -23,7 +23,9 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
     standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/standard_fonts/',
     stopAtErrors: false,
     enableXfa: true,
-    disableFontFace: false
+    disableFontFace: false,
+    disableRange: true,
+    disableStream: true
   });
   const pdf = await loadingTask.promise;
 
