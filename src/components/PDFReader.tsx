@@ -121,7 +121,12 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
         const data = await get(fileDataId);
         if (!data) throw new Error('This book\'s PDF file could not be found. Try re-adding the book.');
         
-        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(data) });
+    const loadingTask = pdfjs.getDocument({ 
+      data: new Uint8Array(data),
+      cMapUrl: 'https://unpkg.com/pdfjs-dist@5.7.284/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@5.7.284/standard_fonts/'
+    });
         const pdfDoc = await loadingTask.promise;
         setPdf(pdfDoc);
         setNumPages(pdfDoc.numPages);

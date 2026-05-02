@@ -13,7 +13,12 @@ export interface PDFMetadata {
 
 export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+  const loadingTask = pdfjs.getDocument({ 
+    data: arrayBuffer,
+    cMapUrl: 'https://unpkg.com/pdfjs-dist@5.7.284/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@5.7.284/standard_fonts/'
+  });
   const pdf = await loadingTask.promise;
 
   const metadata: PDFMetadata = {
