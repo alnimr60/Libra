@@ -121,7 +121,17 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
         const data = await get(fileDataId);
         if (!data) throw new Error('This book\'s PDF file could not be found. Try re-adding the book.');
         
-        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(data) });
+    const loadingTask = pdfjs.getDocument({ 
+      data: new Uint8Array(data),
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/standard_fonts/',
+      stopAtErrors: false,
+      enableXfa: true,
+      disableFontFace: false,
+      disableRange: true,
+      disableStream: true
+    });
         const pdfDoc = await loadingTask.promise;
         setPdf(pdfDoc);
         setNumPages(pdfDoc.numPages);
@@ -483,9 +493,13 @@ interface PDFPageProps {
 const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
+  const [isRendering, setIsRendering] = useState(true);
+  const [renderError, setRenderError] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
+    setIsRendering(true);
+    setRenderError(false);
 
     const render = async () => {
       if (!canvasRef.current) return;
@@ -494,7 +508,8 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
         const page = await pdf.getPage(pageNumber);
         if (!isMounted || !canvasRef.current) return;
 
-        const viewport = page.getViewport({ scale: Math.min(3, scale * 1.5) });
+        // Higher base scale for better resolution, capped for performance
+        const viewport = page.getViewport({ scale: Math.max(1.5, Math.min(3, scale * 2)) });
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d', { alpha: false });
 
@@ -502,7 +517,10 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           canvas.height = viewport.height;
           canvas.width = viewport.width;
 
-          // If there's an ongoing task, cancel it
+          // Clear with white background explicitly
+          context.fillStyle = 'white';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+
           if (renderTaskRef.current) {
             renderTaskRef.current.cancel();
           }
@@ -510,13 +528,20 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           renderTaskRef.current = page.render({
             canvasContext: context,
             viewport: viewport,
+            intent: 'display',
+            background: 'white'
           } as any);
           
           await renderTaskRef.current.promise;
+          if (isMounted) setIsRendering(false);
         }
       } catch (error: any) {
         if (error.name === 'RenderingCancelledException') return;
         console.error(`Error rendering page ${pageNumber}:`, error);
+        if (isMounted) {
+          setRenderError(true);
+          setIsRendering(false);
+        }
       }
     };
 
@@ -531,10 +556,24 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
   }, [pdf, pageNumber, scale]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center overflow-hidden">
+    <div className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5">
+      {isRendering && (
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
+          <Loader2 className="w-6 h-6 animate-spin text-white/20" />
+        </div>
+      )}
+      {renderError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-red-500/50 p-4 text-center z-10">
+          <X className="w-8 h-8 mb-2" />
+          <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
+        </div>
+      )}
       <canvas 
         ref={canvasRef} 
-        className="w-full h-auto"
+        className={cn(
+          "w-full h-auto transition-opacity duration-300",
+          isRendering ? "opacity-0" : "opacity-100"
+        )}
       />
     </div>
   );

@@ -1,9 +1,12 @@
 import * as pdfjs from 'pdfjs-dist';
 
-// For PDF.js 5+, we must use matching versions for the main lib and the worker.
-// Using the .mjs version as the error indicated a dynamic import attempt.
+// Use Vite's URL import for the worker to ensure version matching and local serving
 // @ts-ignore
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.7.284/build/pdf.worker.mjs`;
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+// For PDF.js 5+, we must use matching versions for the main lib and the worker.
+// @ts-ignore
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 export { pdfjs };
 export interface PDFMetadata {
@@ -13,7 +16,17 @@ export interface PDFMetadata {
 
 export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+  const loadingTask = pdfjs.getDocument({ 
+    data: arrayBuffer,
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/standard_fonts/',
+    stopAtErrors: false,
+    enableXfa: true,
+    disableFontFace: false,
+    disableRange: true,
+    disableStream: true
+  });
   const pdf = await loadingTask.promise;
 
   const metadata: PDFMetadata = {
