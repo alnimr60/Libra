@@ -55,7 +55,7 @@ jobs:
         run: |
           # Clone fortress branch fresh to avoid worktree issues
           rm -rf fortress-sync
-          git clone https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git fortress-sync
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git fortress-sync
           cd fortress-sync
           git checkout fortress
           
