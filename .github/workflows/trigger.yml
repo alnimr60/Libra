@@ -14,24 +14,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ≡اؤةي╕ Restore Fortress Infrastructure
+      - name: 🛡️ Restore Fortress Infrastructure
         run: |
           git checkout origin/fortress -- ios justfile capacitor.config.ts package-lock.json
 
-      - name: ≡اôخ Setup & Install
+      - name: 📦 Setup & Install
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
 
-      - name: ≡اùي╕ Build App
+      - name: 🏗️ Build App
         run: |
           npm install
           brew install just
           just archive
           just export-unsigned
 
-      - name: ≡اأ Create GitHub Release
+      - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
@@ -40,7 +40,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: ≡ا¤ Sync Game Logic back to Fortress
+      - name: 🔄 Sync Game Logic back to Fortress
         run: |
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
@@ -50,5 +50,5 @@ jobs:
           git checkout main -- src public index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
           
           git add .
-          git commit -m "≡اأ Sync latest game code to Fortress" || echo "No changes"
+          git commit -m "🚀 Sync latest game code to Fortress" || echo "No changes"
           git push origin fortress
