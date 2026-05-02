@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, useAnimation, AnimatePresence } from 'motion/react';
+import * as React from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { motion, useMotionValue, useTransform, useSpring, animate, AnimatePresence } from 'motion/react';
 import { Book } from '../types';
 import { cn } from '../lib/utils';
 
@@ -12,9 +13,16 @@ interface BookCarouselProps {
 export default function BookCarousel({ books, selectedIndex, onChange }: BookCarouselProps) {
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const x = useMotionValue(0);
-
   const [isDragging, setIsDragging] = useState(false);
+  
+  // The "source of truth" for the current position in the carousel
+  const virtualIndex = useMotionValue(selectedIndex);
+  // A spring to make the snapping motion smooth
+  const smoothIndex = useSpring(virtualIndex, {
+    stiffness: 250,
+    damping: 30,
+    mass: 1
+  });
 
   useEffect(() => {
     if (containerRef.current) {
@@ -23,8 +31,6 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
     
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
-        // Cap the effective width for spacing calculation to prevent books 
-        // from being pushed too far apart on wide screens
         const cappedWidth = Math.min(1200, entry.contentRect.width);
         setWidth(cappedWidth);
       }
@@ -34,33 +40,46 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
     return () => observer.disconnect();
   }, []);
 
-  const dragX = useMotionValue(0);
+  // Sync virtualIndex with prop changes (when user clicks dots or external buttons)
+  useEffect(() => {
+    if (!isDragging) {
+      animate(virtualIndex, selectedIndex, {
+        type: 'spring',
+        stiffness: 300,
+        damping: 35
+      });
+    }
+  }, [selectedIndex, isDragging, virtualIndex]);
 
   const handleDragStart = () => setIsDragging(true);
 
   const handleDragEnd = (_: any, info: any) => {
-    const swipeThreshold = 40;
-    const velocityThreshold = 400;
+    const spacing = width * 0.35;
     const offset = info.offset.x;
     const velocity = info.velocity.x;
-
-    if ((offset < -swipeThreshold || velocity < -velocityThreshold) && selectedIndex < books.length - 1) {
-      onChange(selectedIndex + 1);
-    } else if ((offset > swipeThreshold || velocity > velocityThreshold) && selectedIndex > 0) {
-      onChange(selectedIndex - 1);
-    }
     
-    // Reset drag visuals
-    dragX.set(0);
+    // Calculate final index based on position and momentum
+    const dragOffset = -offset / spacing;
+    const predictedOffset = -(offset + velocity * 0.2) / spacing;
     
-    // Reset dragging with slight delay to prevent phantom taps
-    setTimeout(() => setIsDragging(false), 50);
+    let nextIndex = selectedIndex + Math.round(predictedOffset);
+    nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
+    
+    setIsDragging(false);
+    onChange(nextIndex);
+    
+    // Animate to final position
+    animate(virtualIndex, nextIndex, {
+      type: 'spring',
+      stiffness: 300,
+      damping: 30,
+      velocity: -velocity / spacing // Pass drag velocity for natural feel
+    });
   };
 
-  const handleTap = (index: number) => {
-    if (!isDragging) {
-      onChange(index);
-    }
+  const handleDrag = (_: any, info: any) => {
+    const spacing = width * 0.35 || 100;
+    virtualIndex.set(selectedIndex - info.offset.x / spacing);
   };
 
   return (
@@ -72,89 +91,96 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
       <motion.div 
         className="absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-none"
         drag="x"
-        style={{ x: dragX }}
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.05}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onDrag={handleDrag}
         onTap={(_, info) => {
           if (isDragging) return;
-          
           const rect = containerRef.current?.getBoundingClientRect();
           if (!rect) return;
-          
           const clickX = info.point.x - rect.left;
           const center = rect.width / 2;
-          const bookWidth = 100; // narrow center target
+          const bookWidth = 100;
           
           if (clickX < center - bookWidth) {
             if (selectedIndex > 0) onChange(selectedIndex - 1);
           } else if (clickX > center + bookWidth) {
             if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
           } else {
-            handleTap(selectedIndex);
+            // Clicked active book
+            const tapTargetIndex = selectedIndex;
+            onChange(tapTargetIndex);
           }
         }}
       />
 
       <div className="absolute inset-0 flex items-center justify-center preserve-3d pointer-events-none">
-        <AnimatePresence initial={false}>
-          {books.map((book, index) => {
-            const distance = index - selectedIndex;
-            const isActive = index === selectedIndex;
-            const isVisible = Math.abs(distance) <= 3; 
-
-            if (!isVisible) return null;
-
-            return (
-              <motion.div
-                key={book.id}
-                initial={{ opacity: 0, scale: 0.5, rotateY: distance * 40, z: -500 }}
-                animate={{ 
-                  scale: isActive ? 1 : 0.85 - Math.abs(distance) * 0.05,
-                  x: distance * (width * 0.32),
-                  z: -Math.abs(distance) * 350 - (isActive ? 0 : 50),
-                  rotateY: distance * -25, // Relaxed rotation to remove "pressure"
-                  opacity: 1 - Math.abs(distance) * 0.3,
-                  zIndex: 100 - Math.abs(distance),
-                }}
-                exit={{ 
-                  opacity: 0, 
-                  scale: 0.5, 
-                  x: distance > 0 ? 400 : -400,
-                  rotateY: distance > 0 ? -60 : 60
-                }}
-                transition={{ 
-                  type: 'spring', 
-                  stiffness: 240, 
-                  damping: 24,
-                  mass: 0.8
-                }}
-                className={cn(
-                  "absolute w-44 md:w-52 h-64 md:h-72 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] dark:shadow-[0_20px_50px_rgba(255,255,255,0.05)] overflow-hidden preserve-3d transition-filter duration-300 pointer-events-none",
-                  isActive ? "ring-1 ring-white/40" : "grayscale-[0.3] brightness-90"
-                )}
-              >
-                {book.coverUrl ? (
-                  <img 
-                    src={book.coverUrl} 
-                    alt={book.title} 
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center p-6 text-center">
-                    <span className="text-white font-serif text-lg leading-tight uppercase tracking-widest">{book.title}</span>
-                  </div>
-                )}
-                
-                {/* Mirroring effect light */}
-                <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-transparent to-black/20 pointer-events-none" />
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+        {books.map((book, index) => (
+          <CarouselBook 
+            key={book.id} 
+            book={book} 
+            index={index} 
+            virtualIndex={smoothIndex} 
+            width={width}
+            isActive={index === selectedIndex}
+          />
+        ))}
       </div>
     </div>
   );
 }
+
+function CarouselBook({ book, index, virtualIndex, width, isActive }: { 
+  book: Book, 
+  index: number, 
+  virtualIndex: any, 
+  width: number,
+  isActive: boolean,
+  key?: React.Key
+}) {
+  // Compute distance from current virtual focus
+  const distance = useTransform(virtualIndex, (v: number) => index - v);
+  
+  // Transform distance into visual properties
+  const x = useTransform(distance, (d: number) => d * (width * 0.32));
+  const z = useTransform(distance, (d: number) => -Math.abs(d) * 350 - (Math.abs(d) < 0.1 ? 0 : 50));
+  const rotateY = useTransform(distance, (d: number) => d * -25);
+  const opacity = useTransform(distance, [-3, -2, -1, 0, 1, 2, 3], [0, 0.4, 0.7, 1, 0.7, 0.4, 0]);
+  const scale = useTransform(distance, [-1, 0, 1], [0.85, 1, 0.85]);
+  const zIndex = useTransform(distance, (d: number) => Math.round(100 - Math.abs(d) * 10));
+
+  return (
+    <motion.div
+      style={{
+        x,
+        z,
+        rotateY,
+        opacity,
+        scale,
+        zIndex,
+      }}
+      className={cn(
+        "absolute w-44 md:w-52 h-64 md:h-72 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] dark:shadow-[0_20px_50px_rgba(255,255,255,0.05)] overflow-hidden preserve-3d pointer-events-none transition-all duration-300",
+        isActive ? "ring-1 ring-white/40" : "grayscale-[0.2] brightness-90"
+      )}
+    >
+      {book.coverUrl ? (
+        <img 
+          src={book.coverUrl} 
+          alt={book.title} 
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
+      ) : (
+        <div className="w-full h-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center p-6 text-center">
+          <span className="text-white font-serif text-lg leading-tight uppercase tracking-widest">{book.title}</span>
+        </div>
+      )}
+      
+      <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-transparent to-black/20 pointer-events-none" />
+    </motion.div>
+  );
+}
+
