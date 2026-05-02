@@ -62,8 +62,11 @@ jobs:
           # Move into fortress temp
           cd fortress-temp
           
-          # Remove old tracked game files from fortress
-          git rm -r --cached src index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml 2>/dev/null || true
+          # Remove old game files from both index and disk
+          git rm -r --cached src 2>/dev/null || true
+          rm -rf src
+          git rm --cached index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml 2>/dev/null || true
+          rm -f index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml
           
           # Checkout fresh copies from the triggering commit (main)
           git checkout ${{ github.sha }} -- src index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml
