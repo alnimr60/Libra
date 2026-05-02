@@ -17,27 +17,27 @@
 
 @layer base {
   :root {
-    --sat: env(safe-area-inset-top);
-    --sab: env(safe-area-inset-bottom);
-    --sal: env(safe-area-inset-left);
-    --sar: env(safe-area-inset-right);
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
   }
 }
 
 @utility pt-safe {
-  padding-top: env(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 @utility pb-safe {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @utility mt-safe {
-  margin-top: env(safe-area-inset-top);
+  margin-top: env(safe-area-inset-top, 0px);
 }
 
 @utility mb-safe {
-  margin-bottom: env(safe-area-inset-bottom);
+  margin-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body {
