@@ -8,8 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit",
-    "cap": "cap"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@capacitor/cli": "^8.3.1",
