@@ -11,7 +11,7 @@ interface SettingsProps {
 
 export default function Settings({ settings, setSettings }: SettingsProps) {
   return (
-    <div className="px-6 pt-12 flex flex-col h-full bg-[#fdfaf5] dark:bg-[#080605]">
+    <div className="px-6 pt-[calc(3rem+env(safe-area-inset-top))] flex flex-col h-full bg-[#fdfaf5] dark:bg-[#080605]">
       <div className="mb-10">
         <h1 className="text-3xl font-serif font-medium tracking-tight">Settings</h1>
         <p className="text-sm opacity-50 uppercase tracking-widest mt-1">Configure your experience</p>
