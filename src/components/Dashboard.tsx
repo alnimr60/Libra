@@ -59,7 +59,7 @@ export default function Dashboard({ books, updateBook }: DashboardProps) {
   const progress = currentBook ? (currentBook.currentPage / currentBook.totalPages) * 100 : 0;
 
   return (
-    <div className="flex flex-col h-full pt-[calc(3rem+env(safe-area-inset-top))]">
+    <div className="flex flex-col h-full pt-[calc(4rem+env(safe-area-inset-top,24px))]">
       <div className="px-6 mb-8">
         <h1 className="text-3xl font-serif font-medium tracking-tight">Currently Reading</h1>
         <p className="text-sm opacity-50 uppercase tracking-widest mt-1">Keep it up, you're doing great</p>
