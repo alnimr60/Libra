@@ -59,18 +59,15 @@ jobs:
           # Checkout fortress into a temp worktree
           git worktree add fortress-temp origin/fortress
           
-          # Remove old game code directories before copying fresh ones
-          rm -rf fortress-temp/src
-          
-          # Copy updated game code from current workspace to fortress temp
-          cp -r ./src fortress-temp/src
-          cp -f ./index.html fortress-temp/index.html
-          cp -f ./tsconfig.json fortress-temp/tsconfig.json
-          cp -f ./vite.config.ts fortress-temp/vite.config.ts
-          cp -f ./.github/workflows/trigger.yml fortress-temp/.github/workflows/trigger.yml
-          
-          # Commit and push from fortress temp
+          # Move into fortress temp
           cd fortress-temp
+          
+          # Remove old tracked game files from fortress
+          git rm -r --cached src index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml 2>/dev/null || true
+          
+          # Checkout fresh copies from the triggering commit (main)
+          git checkout ${{ github.sha }} -- src index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml
+          
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
           git add .
