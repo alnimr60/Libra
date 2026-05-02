@@ -1,0 +1,38 @@
+name: Build iOS IPA
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      
+      - name: Install Dependencies
+        run: |
+          npm install
+          brew install just
+          
+      - name: Build and Export
+        run: |
+          just archive
+          just export-unsigned
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push'
+        with:
+          tag_name: latest
+          name: Latest iOS Build
+          files: build/ipa/*.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

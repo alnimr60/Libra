@@ -1,0 +1,20 @@
+name: Guardian - Restore Native Files
+on:
+  push:
+    branches: [ main ]
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Check & Restore
+        run: |
+          if [ ! -f "justfile" ] || [ ! -d "ios" ]; then
+            git checkout HEAD@{1} -- ios justfile .github capacitor.config.ts
+            git config user.name "Guardian Bot"
+            git config user.email "actions@github.com"
+            git commit -m "🤖 Guardian: Restored native files"
+            git push origin main
+          fi
