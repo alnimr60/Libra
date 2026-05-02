@@ -46,16 +46,12 @@ jobs:
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
           
-          # Copy latest game code from main
-          cp -r ${{ github.workspace }}/src ./src
-          cp -r ${{ github.workspace }}/public ./public 2>/dev/null || true
-          cp ${{ github.workspace }}/index.html ./index.html
-          cp ${{ github.workspace }}/tsconfig.json ./tsconfig.json
-          cp ${{ github.workspace }}/vite.config.ts ./vite.config.ts
-          cp ${{ github.workspace }}/package.json ./package.json
-          cp ${{ github.workspace }}/package-lock.json ./package-lock.json
-          cp ${{ github.workspace }}/.github/workflows/trigger.yml .github/workflows/trigger.yml
-
+          # Switch to fortress branch and pull latest game code from main
+          git checkout fortress
+          
+          # Use git checkout to bring files from main (preserves history, avoids cp issues)
+          git checkout main -- src public index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
+          
           git add .
           git commit -m "🚀 Sync latest game code to Fortress" || echo "No changes"
           git push origin fortress
