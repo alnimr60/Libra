@@ -14,12 +14,13 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const baseIndex = useRef(selectedIndex);
   
   // The "source of truth" for the current position in the carousel
   const virtualIndex = useMotionValue(selectedIndex);
   // A spring to make the snapping motion smooth
   const smoothIndex = useSpring(virtualIndex, {
-    stiffness: 250,
+    stiffness: 280,
     damping: 30,
     mass: 1
   });
@@ -51,18 +52,21 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
     }
   }, [selectedIndex, isDragging, virtualIndex]);
 
-  const handleDragStart = () => setIsDragging(true);
+  const handlePanStart = () => {
+    setIsDragging(true);
+    baseIndex.current = virtualIndex.get();
+  };
 
-  const handleDragEnd = (_: any, info: any) => {
-    const spacing = width * 0.35;
+  const handlePanEnd = (_: any, info: any) => {
+    const spacing = width * 0.35 || 100;
     const offset = info.offset.x;
     const velocity = info.velocity.x;
     
     // Calculate final index based on position and momentum
-    const dragOffset = -offset / spacing;
-    const predictedOffset = -(offset + velocity * 0.2) / spacing;
+    // Reduced multiplier for more controlled momentum
+    const predictedOffset = -(offset + velocity * 0.12) / spacing;
     
-    let nextIndex = selectedIndex + Math.round(predictedOffset);
+    let nextIndex = Math.round(baseIndex.current + predictedOffset);
     nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
     
     setIsDragging(false);
@@ -72,16 +76,15 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
     animate(virtualIndex, nextIndex, {
       type: 'spring',
       stiffness: 300,
-      damping: 30,
-      velocity: -velocity / spacing // Pass drag velocity for natural feel
+      damping: 32,
+      velocity: -velocity / spacing 
     });
   };
 
-  const handleDrag = (_: any, info: any) => {
+  const handlePan = (_: any, info: any) => {
     const spacing = width * 0.35 || 100;
-    // Calculate how many indices we've moved
     const dragProgress = info.offset.x / spacing;
-    virtualIndex.set(selectedIndex - dragProgress);
+    virtualIndex.set(baseIndex.current - dragProgress);
   };
 
   return (
@@ -92,12 +95,9 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
       {/* Interaction Layer */}
       <motion.div 
         className="absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-none"
-        drag="x"
-        dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.05}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDrag={handleDrag}
+        onPanStart={handlePanStart}
+        onPan={handlePan}
+        onPanEnd={handlePanEnd}
         onTap={(_, info) => {
           if (isDragging) return;
           const rect = containerRef.current?.getBoundingClientRect();
@@ -112,8 +112,7 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
             if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
           } else {
             // Clicked active book
-            const tapTargetIndex = selectedIndex;
-            onChange(tapTargetIndex);
+            onChange(selectedIndex);
           }
         }}
       />
@@ -164,7 +163,7 @@ function CarouselBook({ book, index, virtualIndex, width, isActive }: {
         zIndex,
       }}
       className={cn(
-        "absolute w-44 md:w-52 h-64 md:h-72 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] dark:shadow-[0_20px_50px_rgba(255,255,255,0.05)] overflow-hidden preserve-3d pointer-events-none transition-all duration-300",
+        "absolute w-44 md:w-52 h-64 md:h-72 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] dark:shadow-[0_20px_50px_rgba(255,255,255,0.05)] overflow-hidden preserve-3d pointer-events-none transition-[filter,brightness,ring,box-shadow] duration-500",
         isActive ? "ring-1 ring-white/40" : "grayscale-[0.2] brightness-90"
       )}
     >
