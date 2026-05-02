@@ -35,13 +35,12 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
   }, []);
 
   const dragX = useMotionValue(0);
-  const dragRotation = useTransform(dragX, [-200, 200], [25, -25]);
 
   const handleDragStart = () => setIsDragging(true);
 
   const handleDragEnd = (_: any, info: any) => {
-    const swipeThreshold = 50;
-    const velocityThreshold = 500;
+    const swipeThreshold = 40;
+    const velocityThreshold = 400;
     const offset = info.offset.x;
     const velocity = info.velocity.x;
 
@@ -67,18 +66,18 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[1500px] touch-none"
+      className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[2000px] touch-none"
     >
-      {/* Interaction Layer - Top level to catch everything */}
+      {/* Interaction Layer */}
       <motion.div 
         className="absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-none"
         drag="x"
-        _dragX={dragX}
+        style={{ x: dragX }}
         dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.4}
+        dragElastic={0.05}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        onTap={(e, info) => {
+        onTap={(_, info) => {
           if (isDragging) return;
           
           const rect = containerRef.current?.getBoundingClientRect();
@@ -86,58 +85,54 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
           
           const clickX = info.point.x - rect.left;
           const center = rect.width / 2;
-          const bookWidth = 140; // tighter tap target for active book
+          const bookWidth = 100; // narrow center target
           
           if (clickX < center - bookWidth) {
             if (selectedIndex > 0) onChange(selectedIndex - 1);
           } else if (clickX > center + bookWidth) {
             if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
           } else {
-            // Clicked active book area
             handleTap(selectedIndex);
           }
         }}
       />
 
-      <motion.div 
-        style={{ rotateY: dragRotation }}
-        className="absolute inset-0 flex items-center justify-center preserve-3d pointer-events-none transition-transform duration-500 ease-out"
-      >
+      <div className="absolute inset-0 flex items-center justify-center preserve-3d pointer-events-none">
         <AnimatePresence initial={false}>
           {books.map((book, index) => {
             const distance = index - selectedIndex;
             const isActive = index === selectedIndex;
-            const isVisible = Math.abs(distance) <= 2; 
+            const isVisible = Math.abs(distance) <= 3; 
 
             if (!isVisible) return null;
 
             return (
               <motion.div
                 key={book.id}
-                initial={{ opacity: 0, scale: 0.5, rotateY: distance * 45, z: -500 }}
+                initial={{ opacity: 0, scale: 0.5, rotateY: distance * 40, z: -500 }}
                 animate={{ 
-                  scale: isActive ? 1 : 0.85 - Math.abs(distance) * 0.1,
-                  x: distance * (width * 0.35) - (distance * distance * 10 * Math.sign(distance)),
-                  z: -Math.abs(distance) * 400 - (isActive ? 0 : 50),
-                  rotateY: distance * -40,
-                  opacity: 1 - Math.abs(distance) * 0.5,
+                  scale: isActive ? 1 : 0.85 - Math.abs(distance) * 0.05,
+                  x: distance * (width * 0.32),
+                  z: -Math.abs(distance) * 350 - (isActive ? 0 : 50),
+                  rotateY: distance * -25, // Relaxed rotation to remove "pressure"
+                  opacity: 1 - Math.abs(distance) * 0.3,
                   zIndex: 100 - Math.abs(distance),
                 }}
                 exit={{ 
                   opacity: 0, 
                   scale: 0.5, 
-                  x: distance > 0 ? 500 : -500,
-                  rotateY: distance > 0 ? -90 : 90
+                  x: distance > 0 ? 400 : -400,
+                  rotateY: distance > 0 ? -60 : 60
                 }}
                 transition={{ 
                   type: 'spring', 
-                  stiffness: 300, 
-                  damping: 30,
-                  mass: 1
+                  stiffness: 240, 
+                  damping: 24,
+                  mass: 0.8
                 }}
                 className={cn(
-                  "absolute w-44 md:w-52 h-64 md:h-72 rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.4)] dark:shadow-[0_20px_40px_rgba(255,255,255,0.05)] overflow-hidden preserve-3d transition-filter duration-500 pointer-events-none",
-                  isActive ? "ring-1 ring-white/30" : "grayscale-[0.4] brightness-75 blur-[1px]"
+                  "absolute w-44 md:w-52 h-64 md:h-72 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] dark:shadow-[0_20px_50px_rgba(255,255,255,0.05)] overflow-hidden preserve-3d transition-filter duration-300 pointer-events-none",
+                  isActive ? "ring-1 ring-white/40" : "grayscale-[0.3] brightness-90"
                 )}
               >
                 {book.coverUrl ? (
@@ -159,7 +154,7 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
             );
           })}
         </AnimatePresence>
-      </motion.div>
+      </div>
     </div>
   );
 }
