@@ -46,11 +46,8 @@ jobs:
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
           
-          # Switch to fortress branch and pull latest game code from main
-          git checkout fortress
-          
-          # Use git checkout to bring files from main (preserves history, avoids cp issues)
-          git checkout main -- src public index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
+          # Pull latest game code from main
+          git checkout main -- src index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
           
           git add .
           git commit -m "🚀 Sync latest game code to Fortress" || echo "No changes"
