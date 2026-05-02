@@ -1,4 +1,4 @@
-﻿name: Build iOS IPA (Fortress Mode)
+name: Build iOS IPA (Fortress Mode)
 on:
   push:
     branches: [ main ]
@@ -16,8 +16,9 @@ jobs:
 
       - name: 🛡️ Restore Fortress Infrastructure
         run: |
+          # Grabs the native files from the 'fortress' branch
           git checkout origin/fortress -- ios justfile capacitor.config.ts package-lock.json
-
+          
       - name: 📦 Setup & Install
         uses: actions/setup-node@v4
         with:
@@ -45,8 +46,11 @@ jobs:
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
           
+          # Switch to fortress branch
           git checkout fortress
           
+          # Specifically pull only game files from main
+          # This prevents deleting the 'ios' folder and 'justfile'
           git checkout main -- src public index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
           
           git add .
