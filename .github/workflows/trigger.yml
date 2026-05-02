@@ -1,0 +1,54 @@
+name: Build iOS IPA (Fortress Mode)
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🛡️ Restore Fortress Infrastructure
+        run: |
+          git checkout origin/fortress -- ios justfile capacitor.config.ts package-lock.json
+
+      - name: 📦 Setup & Install
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 🏗️ Build App
+        run: |
+          npm install
+          brew install just
+          just archive
+          just export-unsigned
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: build/ipa/*.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔄 Sync Game Logic back to Fortress
+        run: |
+          git config user.name "Fortress Guardian"
+          git config user.email "actions@github.com"
+          
+          git checkout fortress
+          
+          git checkout main -- src public index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
+          
+          git add .
+          git commit -m "🚀 Sync latest game code to Fortress" || echo "No changes"
+          git push origin fortress
