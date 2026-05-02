@@ -314,7 +314,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
             </button>
           </div>
         ) : (
-          <div 
+          <motion.div 
             className="relative w-full h-full"
             onPanStart={handlePanStart}
             onPan={handlePanMove}
@@ -339,7 +339,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
                 />
               );
             })}
-          </div>
+          </motion.div>
         )}
       </div>
 
