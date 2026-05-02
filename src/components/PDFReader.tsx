@@ -1,18 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
 import { X, Maximize2, Minimize2, Loader2, Plus, Minus } from 'lucide-react';
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
+import { Book } from '../types';
 
 interface PDFReaderProps {
-  fileDataId: string;
+  book: Book;
   initialPage: number;
   onPageChange: (page: number) => void;
   onClose: () => void;
 }
 
-export default function PDFReader({ fileDataId, initialPage, onPageChange, onClose }: PDFReaderProps) {
+export default function PDFReader({ book, initialPage, onPageChange, onClose }: PDFReaderProps) {
+  const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1.0);
@@ -21,14 +23,71 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
   const [direction, setDirection] = useState<'ltr' | 'rtl'>('ltr');
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
   const [pageIndex, setPageIndex] = useState(0); // 0-based for internal math
-  const [slideDirection, setSlideDirection] = useState(0); // -1 for left, 1 for right
+  const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [renderScale, setRenderScale] = useState(scale);
   const visualScale = useRef(scale);
+  
+  const virtualPage = useMotionValue(pageIndex);
+  const smoothPage = useSpring(virtualPage, {
+    stiffness: 300,
+    damping: 35,
+    mass: 0.8
+  });
 
-  // Smooth zoom transition for the container while resolution catches up
+  // Keep virtualPage in sync with state
+  useEffect(() => {
+    if (!isDragging) {
+      animate(virtualPage, pageIndex, {
+        type: 'spring',
+        stiffness: 300,
+        damping: 35
+      });
+    }
+  }, [pageIndex, isDragging, virtualPage]);
+
+  const handlePanStart = () => {
+    if (scale > 1.1) return;
+    setIsDragging(true);
+  };
+
+  const handlePanMove = (_: any, info: any) => {
+    if (scale > 1.1 || !isDragging) return;
+    const scrollWidth = window.innerWidth;
+    const progress = info.offset.x / scrollWidth;
+    
+    if (direction === 'rtl') {
+      virtualPage.set(pageIndex + progress);
+    } else {
+      virtualPage.set(pageIndex - progress);
+    }
+  };
+
+  const handlePanEnd = (_: any, info: any) => {
+    if (scale > 1.1 || !isDragging) return;
+    setIsDragging(false);
+    
+    const scrollWidth = window.innerWidth;
+    const offset = info.offset.x;
+    const velocity = info.velocity.x;
+    
+    const threshold = 50;
+    const velocityThreshold = 500;
+    
+    let nextIndex = pageIndex;
+    
+    if (direction === 'ltr') {
+      if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
+      else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
+    } else {
+      if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex + 1;
+      else if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex - 1;
+    }
+    
+    handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
+  };
   useEffect(() => {
     const timer = setTimeout(() => {
       setRenderScale(scale);
@@ -69,17 +128,20 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
 
         // Improved Direction Detection
         try {
-          let detectedDirection: 'ltr' | 'rtl' = 'ltr';
-          // Check first few pages to be sure
-          const pagesToCheck = Math.min(3, pdfDoc.numPages);
-          for (let i = 1; i <= pagesToCheck; i++) {
-            const page = await pdfDoc.getPage(i);
-            const textContent = await page.getTextContent();
-            const text = textContent.items.map((item: any) => (item as any).str).join('');
-            const rtlRegex = /[\u0600-\u06FF\u0590-\u05FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-            if (rtlRegex.test(text)) {
-              detectedDirection = 'rtl';
-              break;
+          const rtlRegex = /[\u0600-\u06FF\u0590-\u05FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+          let detectedDirection: 'ltr' | 'rtl' = rtlRegex.test(book.title) ? 'rtl' : 'ltr';
+          
+          if (detectedDirection === 'ltr') {
+            // Check first few pages to be sure
+            const pagesToCheck = Math.min(3, pdfDoc.numPages);
+            for (let i = 1; i <= pagesToCheck; i++) {
+              const page = await pdfDoc.getPage(i);
+              const textContent = await page.getTextContent();
+              const text = textContent.items.map((item: any) => (item as any).str).join('');
+              if (rtlRegex.test(text)) {
+                detectedDirection = 'rtl';
+                break;
+              }
             }
           }
           setDirection(detectedDirection);
@@ -119,35 +181,11 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
     if (safeIndex === pageIndex) return;
     
-    // In RTL, the "next" page should come from the left
-    const rawDir = newIndex > pageIndex ? 1 : -1;
-    setSlideDirection(direction === 'rtl' ? -rawDir : rawDir);
     setPageIndex(safeIndex);
     
     // Calculate display page for parent progress tracking
     const displayPage = viewMode === 'double' ? (safeIndex * 2) + 1 : safeIndex + 1;
     onPageChange(Math.min(displayPage, numPages));
-  };
-
-  const swipePower = (offset: number, velocity: number) => Math.abs(offset) * Math.abs(velocity);
-  const swipeConfidenceThreshold = 10000;
-
-  const onSwipe = (offset: number, velocity: number) => {
-    if (scale > 1.1) return; // Disable swipe-to-turn when zoomed in to prioritize panning
-    
-    const threshold = 30; // More sensitive
-    const velocityThreshold = 400;
-
-    if (Math.abs(offset) < threshold && Math.abs(velocity) < velocityThreshold) return;
-
-    if (direction === 'ltr') {
-      if (offset < 0) handlePageChange(pageIndex + 1);
-      else handlePageChange(pageIndex - 1);
-    } else {
-      // RTL: Swiping Right pulling from left (positive offset) -> Next page
-      if (offset > 0) handlePageChange(pageIndex + 1);
-      else if (offset < 0) handlePageChange(pageIndex - 1);
-    }
   };
 
   // Keyboard navigation
@@ -276,81 +314,31 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
             </button>
           </div>
         ) : (
-          <div className="relative w-full h-full">
-            <AnimatePresence initial={false} custom={slideDirection}>
-              <motion.div
-                key={pageIndex}
-                custom={slideDirection}
-                drag={scale > 1.1 ? false : "x"}
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0.2}
-                onDragEnd={(e, { offset, velocity }) => onSwipe(offset.x, velocity.x)}
-                variants={{
-                  enter: (dir: number) => ({
-                    x: dir > 0 ? '100%' : '-100%',
-                    opacity: 0,
-                  }),
-                  center: {
-                    x: 0,
-                    opacity: 1,
-                    zIndex: 1
-                  },
-                  exit: (dir: number) => ({
-                    x: dir < 0 ? '100%' : '-100%',
-                    opacity: 0,
-                    zIndex: 0
-                  })
-                }}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{
-                  x: { type: "spring", stiffness: 300, damping: 30 },
-                  opacity: { duration: 0.2 }
-                }}
-                className={cn(
-                  "absolute inset-0 flex p-4 md:p-8 overflow-auto custom-scrollbar",
-                  viewMode === 'double' ? "flex-row" : "flex-col",
-                  scale > 1.1 ? "items-start justify-start cursor-move" : "items-center justify-center cursor-grab active:cursor-grabbing"
-                )}
-              >
-                <div 
-                  className={cn(
-                    "flex flex-shrink-0 gap-0 lg:gap-4 my-auto",
-                    viewMode === 'double' ? "flex-row" : "flex-col",
-                    scale > 1.1 ? "m-auto" : "mx-auto"
-                  )}
-                >
-                  {viewMode === 'double' ? (
-                    <>
-                      {direction === 'rtl' ? (
-                        <>
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
-                        </>
-                      ) : (
-                        <>
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
-                          <SpreadPage pdf={pdf!} pageNumber={(pageIndex * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <div 
-                      className="flex-shrink-0 h-auto shadow-2xl bg-white relative"
-                      style={{ 
-                        width: isLandscape ? `${(scale * 100) * 0.707}vh` : `${85 * scale}vw`,
-                        maxHeight: '90vh',
-                        aspectRatio: '0.707',
-                        transition: 'width 0.1s ease-out' // Fast width transition for zoom feel
-                      }}
-                    >
-                      <PDFPage pageNumber={pageIndex + 1} pdf={pdf!} scale={renderScale} />
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            </AnimatePresence>
+          <div 
+            className="relative w-full h-full"
+            onPanStart={handlePanStart}
+            onPan={handlePanMove}
+            onPanEnd={handlePanEnd}
+          >
+            {/* Windowed view of pages */}
+            {Array.from({ length: 5 }, (_, i) => pageIndex - 2 + i).map(sheetIndex => {
+              if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
+              
+              return (
+                <ReaderSheet 
+                  key={sheetIndex}
+                  index={sheetIndex}
+                  pdf={pdf!}
+                  numPages={numPages}
+                  viewMode={viewMode}
+                  direction={direction}
+                  virtualPage={smoothPage}
+                  scale={scale}
+                  renderScale={renderScale}
+                  isLandscape={isLandscape}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -374,6 +362,89 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
           </div>
         </motion.div>
       )}
+    </motion.div>
+  );
+}
+
+function ReaderSheet({ 
+  index, 
+  pdf, 
+  numPages, 
+  viewMode, 
+  direction, 
+  virtualPage, 
+  scale, 
+  renderScale, 
+  isLandscape 
+}: { 
+  index: number, 
+  pdf: pdfjs.PDFDocumentProxy, 
+  numPages: number, 
+  viewMode: 'single' | 'double',
+  direction: 'ltr' | 'rtl',
+  virtualPage: any,
+  scale: number,
+  renderScale: number,
+  isLandscape: boolean,
+  key?: React.Key
+}) {
+  const distance = useTransform(virtualPage, (v: number) => index - v);
+  
+  // Transform distance into horizontal position
+  // In RTL, we want negative distance to be on the right, positive on the left
+  const x = useTransform(distance, (d: number) => {
+    const factor = direction === 'rtl' ? -100 : 100;
+    return `${d * factor}%`;
+  });
+  
+  // Fast fade for non-visible sheets to save render cycles
+  const opacity = useTransform(distance, [-1.1, -0.8, 0, 0.8, 1.1], [0, 1, 1, 1, 0]);
+  const visibility = useTransform(distance, (d: number) => Math.abs(d) > 1.5 ? 'hidden' : 'visible');
+
+  return (
+    <motion.div
+      style={{ x, opacity, visibility }}
+      className={cn(
+        "absolute inset-0 flex p-4 md:p-8 overflow-auto custom-scrollbar",
+        viewMode === 'double' ? "flex-row" : "flex-col",
+        scale > 1.1 ? "items-start justify-start cursor-move" : "items-center justify-center cursor-grab active:cursor-grabbing"
+      )}
+    >
+      <div 
+        className={cn(
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto",
+          viewMode === 'double' ? "flex-row" : "flex-col",
+          scale > 1.1 ? "m-auto" : "mx-auto"
+        )}
+      >
+        {viewMode === 'double' ? (
+          <>
+            {direction === 'rtl' ? (
+              <>
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
+              </>
+            ) : (
+              <>
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
+              </>
+            )}
+          </>
+        ) : (
+          <div 
+            className="flex-shrink-0 h-auto shadow-2xl bg-white relative"
+            style={{ 
+              width: isLandscape ? `${(scale * 100) * 0.707}vh` : `${85 * scale}vw`,
+              maxHeight: '90vh',
+              aspectRatio: '0.707',
+              transition: 'width 0.1s ease-out'
+            }}
+          >
+            <PDFPage pageNumber={index + 1} pdf={pdf} scale={renderScale} />
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }

@@ -150,9 +150,9 @@ export default function Dashboard({ books, updateBook }: DashboardProps) {
       </div>
 
       {/* PDF Reader Overlay */}
-      {isReaderOpen && currentBook?.fileDataId && (
+      {isReaderOpen && currentBook && (
         <PDFReader 
-          fileDataId={currentBook.fileDataId}
+          book={currentBook}
           initialPage={currentBook.currentPage}
           onPageChange={(page) => {
              if (page > currentBook.currentPage) {
