@@ -22,12 +22,14 @@ jobs:
           
           # Create a temporary directory and extract fortress files
           mkdir -p fortress-temp
-          git --work-tree=fortress-temp checkout origin/fortress -- ios justfile capacitor.config.ts package-lock.json
+          git --work-tree=fortress-temp checkout origin/fortress -- ios justfile capacitor.config.ts package.json package-lock.json
           
           # Move fortress files to workspace root
           mv fortress-temp/ios ./ios
           mv fortress-temp/justfile ./justfile
           mv fortress-temp/capacitor.config.ts ./capacitor.config.ts
+          mv fortress-temp/package.json ./package.json
+          mv fortress-temp/package-lock.json ./package-lock.json
           rm -rf fortress-temp
 
       - name: 📦 Setup & Install
@@ -60,13 +62,12 @@ jobs:
           # Checkout fortress into a temp worktree
           git worktree add fortress-temp origin/fortress
           
-          # Copy updated game files from current workspace to fortress temp
+          # Copy updated game code from current workspace to fortress temp
+          # NOTE: Do NOT overwrite package.json or package-lock.json — fortress needs its iOS deps
           cp -r ./src fortress-temp/src
           cp ./index.html fortress-temp/index.html
           cp ./tsconfig.json fortress-temp/tsconfig.json
           cp ./vite.config.ts fortress-temp/vite.config.ts
-          cp ./package.json fortress-temp/package.json
-          cp ./package-lock.json fortress-temp/package-lock.json
           cp ./.github/workflows/trigger.yml fortress-temp/.github/workflows/trigger.yml
           
           # Commit and push from fortress temp
