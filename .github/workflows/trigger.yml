@@ -59,8 +59,10 @@ jobs:
           # Checkout fortress into a temp worktree
           git worktree add fortress-temp origin/fortress
           
+          # Remove old game code directories before copying fresh ones
+          rm -rf fortress-temp/src
+          
           # Copy updated game code from current workspace to fortress temp
-          # NOTE: Preserve fortress package.json/package-lock.json (they have iOS deps)
           cp -r ./src fortress-temp/src
           cp ./index.html fortress-temp/index.html
           cp ./tsconfig.json fortress-temp/tsconfig.json
