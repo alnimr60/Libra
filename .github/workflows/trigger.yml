@@ -13,22 +13,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🛡️ Restore Fortress Infrastructure
         run: |
-          # Grabs the native files from the 'fortress' branch
-          git checkout origin/fortress -- ios justfile capacitor.config.ts package-lock.json
+          # Fetch fortress branch
+          git fetch origin fortress
           
+          # Create a temporary directory and extract fortress files
+          mkdir -p fortress-temp
+          git --work-tree=fortress-temp checkout origin/fortress -- ios justfile capacitor.config.ts package.json package-lock.json
+          
+          # Move fortress files to workspace root
+          mv fortress-temp/ios ./ios
+          mv fortress-temp/justfile ./justfile
+          mv fortress-temp/capacitor.config.ts ./capacitor.config.ts
+          mv fortress-temp/package.json ./package.json
+          mv fortress-temp/package-lock.json ./package-lock.json
+          rm -rf fortress-temp
+
       - name: 📦 Setup & Install
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
+        run: |
+          npm ci
+          brew install just
 
       - name: 🏗️ Build App
         run: |
-          npm install
-          brew install just
           just archive
           just export-unsigned
 
@@ -43,16 +53,28 @@ jobs:
 
       - name: 🔄 Sync Game Logic back to Fortress
         run: |
+          # Fetch latest fortress
+          git fetch origin fortress
+          
+          # Checkout fortress into a temp worktree
+          git worktree add fortress-temp origin/fortress
+          
+          # Copy updated game code from current workspace to fortress temp
+          # NOTE: Preserve fortress package.json/package-lock.json (they have iOS deps)
+          cp -r ./src fortress-temp/src
+          cp ./index.html fortress-temp/index.html
+          cp ./tsconfig.json fortress-temp/tsconfig.json
+          cp ./vite.config.ts fortress-temp/vite.config.ts
+          cp ./.github/workflows/trigger.yml fortress-temp/.github/workflows/trigger.yml
+          
+          # Commit and push from fortress temp
+          cd fortress-temp
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
-          
-          # Switch to fortress branch
-          git checkout fortress
-          
-          # Specifically pull only game files from main
-          # This prevents deleting the 'ios' folder and 'justfile'
-          git checkout main -- src public index.html tsconfig.json vite.config.ts package.json package-lock.json .github/workflows/trigger.yml
-          
           git add .
           git commit -m "🚀 Sync latest game code to Fortress" || echo "No changes"
           git push origin fortress
+          
+          # Cleanup
+          cd ..
+          git worktree remove fortress-temp -f
