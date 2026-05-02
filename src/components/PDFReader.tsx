@@ -26,12 +26,13 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [renderScale, setRenderScale] = useState(scale);
+  const visualScale = useRef(scale);
 
-  // Use a debounced update for the render scale to avoid heavy PDF.js calls during gesture
+  // Smooth zoom transition for the container while resolution catches up
   useEffect(() => {
     const timer = setTimeout(() => {
       setRenderScale(scale);
-    }, 250);
+    }, 400); // Slightly longer for resolution to settle
     return () => clearTimeout(timer);
   }, [scale]);
 
@@ -336,11 +337,12 @@ export default function PDFReader({ fileDataId, initialPage, onPageChange, onClo
                     </>
                   ) : (
                     <div 
-                      className="flex-shrink-0 h-auto shadow-2xl bg-white relative transition-all duration-300"
+                      className="flex-shrink-0 h-auto shadow-2xl bg-white relative"
                       style={{ 
                         width: isLandscape ? `${(scale * 100) * 0.707}vh` : `${85 * scale}vw`,
                         maxHeight: '90vh',
-                        aspectRatio: '0.707'
+                        aspectRatio: '0.707',
+                        transition: 'width 0.1s ease-out' // Fast width transition for zoom feel
                       }}
                     >
                       <PDFPage pageNumber={pageIndex + 1} pdf={pdf!} scale={renderScale} />
@@ -382,12 +384,13 @@ function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLan
   return (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto shadow-2xl bg-white relative transition-all duration-300 flex items-center justify-center",
+        "flex-shrink-0 h-auto shadow-2xl bg-white relative flex items-center justify-center",
         side === 'left' ? "rounded-l-sm" : "rounded-r-sm"
       )}
       style={{ 
         width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`,
-        aspectRatio: '0.707'
+        aspectRatio: '0.707',
+        transition: 'width 0.1s ease-out'
       }}
     >
       {/* Decorative center seam shadow */}

@@ -79,7 +79,9 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
 
   const handleDrag = (_: any, info: any) => {
     const spacing = width * 0.35 || 100;
-    virtualIndex.set(selectedIndex - info.offset.x / spacing);
+    // Calculate how many indices we've moved
+    const dragProgress = info.offset.x / spacing;
+    virtualIndex.set(selectedIndex - dragProgress);
   };
 
   return (
@@ -144,11 +146,11 @@ function CarouselBook({ book, index, virtualIndex, width, isActive }: {
   const distance = useTransform(virtualIndex, (v: number) => index - v);
   
   // Transform distance into visual properties
-  const x = useTransform(distance, (d: number) => d * (width * 0.32));
-  const z = useTransform(distance, (d: number) => -Math.abs(d) * 350 - (Math.abs(d) < 0.1 ? 0 : 50));
-  const rotateY = useTransform(distance, (d: number) => d * -25);
+  const x = useTransform(distance, (d: number) => d * (width * 0.35));
+  const z = useTransform(distance, (d: number) => -Math.abs(d) * 400 - (Math.abs(d) < 0.1 ? 0 : 60));
+  const rotateY = useTransform(distance, (d: number) => d * -22);
   const opacity = useTransform(distance, [-3, -2, -1, 0, 1, 2, 3], [0, 0.4, 0.7, 1, 0.7, 0.4, 0]);
-  const scale = useTransform(distance, [-1, 0, 1], [0.85, 1, 0.85]);
+  const scale = useTransform(distance, (d: number) => 1 - Math.abs(d) * 0.12);
   const zIndex = useTransform(distance, (d: number) => Math.round(100 - Math.abs(d) * 10));
 
   return (
