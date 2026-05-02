@@ -53,22 +53,19 @@ jobs:
 
       - name: 🔄 Sync Game Logic back to Fortress
         run: |
-          # Fetch latest fortress
-          git fetch origin fortress
+          # Clone fortress branch fresh to avoid worktree issues
+          rm -rf fortress-sync
+          git clone https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git fortress-sync
+          cd fortress-sync
+          git checkout fortress
           
-          # Clean up any leftover worktree from previous runs
-          git worktree remove fortress-temp 2>/dev/null || true
-          rm -rf fortress-temp
-          
-          # Checkout fortress into a temp worktree
-          git worktree add fortress-temp origin/fortress
-          
-          # Move into fortress temp
-          cd fortress-temp
-          
-          # Replace game code files with versions from the triggering commit (main)
-          # This updates index and worktree, removing files not present in main
-          git checkout ${{ github.sha }} -- src index.html tsconfig.json vite.config.ts .github/workflows/trigger.yml
+          # Remove old game code and copy fresh from main workspace
+          rm -rf src
+          cp -r ${{ github.workspace }}/src ./src
+          cp ${{ github.workspace }}/index.html ./index.html
+          cp ${{ github.workspace }}/tsconfig.json ./tsconfig.json
+          cp ${{ github.workspace }}/vite.config.ts ./vite.config.ts
+          cp ${{ github.workspace }}/.github/workflows/trigger.yml .github/workflows/trigger.yml
           
           git config user.name "Fortress Guardian"
           git config user.email "actions@github.com"
@@ -78,4 +75,4 @@ jobs:
           
           # Cleanup
           cd ..
-          git worktree remove fortress-temp -f
+          rm -rf fortress-sync
