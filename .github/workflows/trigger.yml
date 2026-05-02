@@ -56,6 +56,10 @@ jobs:
           # Fetch latest fortress
           git fetch origin fortress
           
+          # Clean up any leftover worktree from previous runs
+          git worktree remove fortress-temp 2>/dev/null || true
+          rm -rf fortress-temp
+          
           # Checkout fortress into a temp worktree
           git worktree add fortress-temp origin/fortress
           
