@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Moon, Sun, Bell, Clock, Info, ChevronRight } from 'lucide-react';
+import { Bell, Clock, Info, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface SettingsProps {
@@ -18,26 +18,6 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
       </div>
 
       <div className="flex-1 space-y-10 overflow-auto pb-10">
-        {/* Appearance Section */}
-        <section className="space-y-4">
-          <SectionHeader title="Appearance" />
-          <div className="bg-white/60 dark:bg-white/5 rounded-3xl p-4 border border-[#141414]/5 dark:border-white/5 space-y-4 shadow-sm">
-            <SettingRow 
-              icon={<Sun className="w-5 h-5" />}
-              label="Light Mode"
-              isActive={settings.theme === 'light'}
-              onClick={() => setSettings({ theme: 'light' })}
-            />
-            <div className="h-px bg-black/5 dark:bg-white/5 mx-2" />
-            <SettingRow 
-              icon={<Moon className="w-5 h-5" />}
-              label="Dark Mode"
-              isActive={settings.theme === 'dark'}
-              onClick={() => setSettings({ theme: 'dark' })}
-            />
-          </div>
-        </section>
-
         {/* Notifications Section */}
         <section className="space-y-4">
           <SectionHeader title="Notifications" />
@@ -118,26 +98,6 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
 function SectionHeader({ title }: { title: string }) {
   return (
     <h3 className="text-[10px] uppercase tracking-[0.2em] opacity-40 ml-4 font-bold">{title}</h3>
-  );
-}
-
-function SettingRow({ icon, label, isActive, onClick }: { icon: React.ReactNode, label: string, isActive: boolean, onClick: () => void }) {
-  return (
-    <button 
-      onClick={onClick}
-      className={cn(
-        "w-full flex items-center justify-between p-3 rounded-2xl transition-all",
-        isActive ? "bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] shadow-md" : "hover:bg-black/5 dark:hover:bg-white/5"
-      )}
-    >
-      <div className="flex items-center gap-3">
-        {icon}
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-      {isActive && (
-        <div className="w-1.5 h-1.5 bg-current rounded-full" />
-      )}
-    </button>
   );
 }
 
