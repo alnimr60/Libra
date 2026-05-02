@@ -18,12 +18,9 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjs.getDocument({ 
     data: arrayBuffer,
-    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/cmaps/',
-    cMapPacked: true,
-    standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/standard_fonts/',
     stopAtErrors: false,
     enableXfa: true,
-    disableFontFace: false,
+    disableFontFace: true,
     disableRange: true,
     disableStream: true
   });

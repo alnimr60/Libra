@@ -69,7 +69,6 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
     if (scale > 1.1 || !isDragging) return;
     setIsDragging(false);
     
-    const scrollWidth = window.innerWidth;
     const offset = info.offset.x;
     const velocity = info.velocity.x;
     
@@ -78,12 +77,12 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
     
     let nextIndex = pageIndex;
     
-    if (direction === 'ltr') {
-      if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
-      else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
-    } else {
+    if (direction === 'rtl') {
       if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex + 1;
       else if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex - 1;
+    } else {
+      if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
+      else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
     }
     
     handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
@@ -123,9 +122,6 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
         
     const loadingTask = pdfjs.getDocument({ 
       data: new Uint8Array(data),
-      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/cmaps/',
-      cMapPacked: true,
-      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/standard_fonts/',
       stopAtErrors: false,
       enableXfa: true,
       disableFontFace: false,
@@ -225,8 +221,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       <motion.div 
         animate={{ y: showControls ? 0 : -100 }}
         className={cn(
-          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all",
-          isLandscape ? "p-2" : "p-4"
+          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all pt-[calc(env(safe-area-inset-top)+0.5rem)]",
+          isLandscape ? "p-2 px-4" : "p-4"
         )}
       >
         <div className="flex items-center gap-2 md:gap-4">
@@ -356,8 +352,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       {/* Progress Footer */}
       {!isLoading && !error && (
         <motion.div 
-          animate={{ y: showControls ? 0 : 100 }}
-          className="p-2 md:p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
+          animate={{ y: showControls ? 0 : 120 }}
+          className="p-2 md:p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
         >
           <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
             <motion.div 
@@ -401,10 +397,9 @@ function ReaderSheet({
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
   // Transform distance into horizontal position
-  // In RTL, we want negative distance to be on the right, positive on the left
   const x = useTransform(distance, (d: number) => {
-    const factor = direction === 'rtl' ? -100 : 100;
-    return `${d * factor}%`;
+    const multiplier = direction === 'rtl' ? -100 : 100;
+    return `${d * multiplier}%`;
   });
   
   // Fast fade for non-visible sheets to save render cycles
@@ -508,10 +503,9 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
         const page = await pdf.getPage(pageNumber);
         if (!isMounted || !canvasRef.current) return;
 
-        // Higher base scale for better resolution, capped for performance
         const viewport = page.getViewport({ scale: Math.max(1.5, Math.min(3, scale * 2)) });
         const canvas = canvasRef.current;
-        const context = canvas.getContext('2d', { alpha: false });
+        const context = canvas.getContext('2d');
 
         if (context) {
           canvas.height = viewport.height;
@@ -528,8 +522,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           renderTaskRef.current = page.render({
             canvasContext: context,
             viewport: viewport,
-            intent: 'display',
-            background: 'white'
+            intent: 'display'
           } as any);
           
           await renderTaskRef.current.promise;

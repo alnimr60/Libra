@@ -35,7 +35,7 @@ export default function Library({ allBooks, updateBook, deleteBook }: LibraryPro
   }, [allBooks]);
 
   return (
-    <div className="px-6 pt-12 flex flex-col h-full overflow-hidden">
+    <div className="px-6 pt-[calc(3rem+env(safe-area-inset-top))] flex flex-col h-full overflow-hidden">
       <div className="mb-6">
         <h1 className="text-3xl font-serif font-medium tracking-tight">Your Library</h1>
         <p className="text-sm opacity-50 uppercase tracking-widest mt-1">Found {allBooks.length} books</p>
