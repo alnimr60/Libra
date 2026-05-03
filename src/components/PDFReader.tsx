@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
-import { X, Maximize2, Minimize2, Loader2, Plus, Minus } from 'lucide-react';
+import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages } from 'lucide-react';
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book } from '../types';
@@ -36,6 +36,11 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
     damping: 35,
     mass: 0.8
   });
+
+  // Toggle direction manually
+  const toggleDirection = () => {
+    setDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr');
+  };
 
   // Keep virtualPage in sync with state
   useEffect(() => {
@@ -124,7 +129,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       data: new Uint8Array(data),
       stopAtErrors: false,
       enableXfa: true,
-      disableFontFace: false,
+      disableFontFace: true, // Ensured true for better coverage of missing fonts
       disableRange: true,
       disableStream: true
     });
@@ -225,12 +230,23 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
           isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
         )}
       >
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-4 font-mono">
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors active:scale-75">
             <X className={cn(isLandscape ? "w-5 h-5" : "w-6 h-6")} />
           </button>
-          <div className="h-4 w-px bg-white/10 hidden sm:block" />
-          <div className="text-[10px] md:text-xs font-mono tracking-tighter">
+          
+          <button 
+            onClick={toggleDirection}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all active:scale-95",
+              direction === 'rtl' ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" : "bg-white/5 text-white/60 hover:bg-white/10 border border-white/5"
+            )}
+          >
+            <Languages className="w-4 h-4" />
+            <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">{direction}</span>
+          </button>
+
+          <div className="text-[10px] md:text-xs tracking-tighter">
             <span className="text-white font-bold">
               {viewMode === 'double' ? `${(pageIndex * 2) + 1}${ (pageIndex * 2) + 2 <= numPages ? '-' + ((pageIndex * 2) + 2) : '' }` : pageIndex + 1}
             </span> 
