@@ -1,22 +1,20 @@
 import React, { useState } from 'react';
 import { Book } from '../types';
 import BookCarousel from './BookCarousel';
-import PDFReader from './PDFReader';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculatePagesPerDay, getDaysRemaining, cn } from '../lib/utils';
-import { BookOpen, Calendar, Clock, ChevronRight, Eye } from 'lucide-react';
+import { BookOpen, Calendar, Clock, ChevronRight } from 'lucide-react';
 import { useSafeArea } from './SafeAreaProvider';
 
 interface DashboardProps {
   books: Book[];
   updateBook: (book: Book) => void;
-  onReaderToggle?: (active: boolean) => void;
+  onOpenBook: (book: Book) => void;
 }
 
-export default function Dashboard({ books, updateBook, onReaderToggle }: DashboardProps) {
+export default function Dashboard({ books, updateBook, onOpenBook }: DashboardProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
-  const [isReaderOpen, setIsReaderOpen] = useState(false);
   const insets = useSafeArea();
 
   const currentBook = books[currentIndex];
@@ -26,8 +24,7 @@ export default function Dashboard({ books, updateBook, onReaderToggle }: Dashboa
     
     // Only open the reader if we are clicking the book that is ALREADY centered
     if (index === currentIndex && targetBook?.fileDataId) {
-      setIsReaderOpen(true);
-      onReaderToggle?.(true);
+      onOpenBook(targetBook);
     } else {
       // Otherwise, just move the carousel to that book
       setCurrentIndex(index);
@@ -47,12 +44,12 @@ export default function Dashboard({ books, updateBook, onReaderToggle }: Dashboa
   if (books.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-10 text-center gap-6">
-        <div className="w-24 h-24 bg-white/20 dark:bg-white/5 rounded-full flex items-center justify-center animate-pulse">
-           <BookOpen className="w-12 h-12 opacity-50" />
+        <div className="w-24 h-24 bg-zinc-200 dark:bg-zinc-800 rounded-full flex items-center justify-center animate-pulse">
+           <BookOpen className="w-10 h-10 text-zinc-400 dark:text-zinc-600" />
         </div>
         <div>
-          <h2 className="text-2xl font-serif font-medium mb-2">Your library is waiting</h2>
-          <p className="text-sm opacity-60">Add a book you're currently reading to start tracking your progress.</p>
+          <h2 className="text-2xl font-serif font-medium mb-3">Your library is waiting</h2>
+          <p className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">Add a book to start tracking</p>
         </div>
       </div>
     );
@@ -64,17 +61,17 @@ export default function Dashboard({ books, updateBook, onReaderToggle }: Dashboa
 
   return (
     <div 
-      style={{ paddingTop: `${insets.top + 48}px` }}
-      className="flex flex-col h-full"
+      style={{ paddingTop: `${insets.top + 32}px` }}
+      className="flex flex-col h-full overflow-hidden"
     >
-      <div className="px-6 mb-8">
-        <h1 className="text-3xl font-serif font-medium tracking-tight">Currently Reading</h1>
-        <p className="text-sm opacity-50 uppercase tracking-widest mt-1">Keep it up, you're doing great</p>
+      <div className="px-6 mb-8 flex-shrink-0">
+        <h1 className="text-4xl font-serif font-medium tracking-tight">Today</h1>
+        <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-[0.3em] mt-2">Continuity is key</p>
       </div>
 
-      <div className="flex-1 flex flex-col justify-between overflow-hidden">
+      <div className="flex-1 flex flex-col justify-between overflow-y-auto no-scrollbar pb-10">
         {/* The Carousel */}
-        <div className="h-[45vh] relative mb-8">
+        <div className="h-[42vh] relative mb-4 flex-shrink-0">
           <BookCarousel 
             books={books} 
             selectedIndex={currentIndex} 
@@ -90,68 +87,58 @@ export default function Dashboard({ books, updateBook, onReaderToggle }: Dashboa
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="px-6 pb-6"
+              className="px-6 space-y-8"
             >
-              <div className="mb-4">
-                <h2 className="text-xl font-medium truncate">{currentBook.title}</h2>
+              <div className="text-center max-w-sm mx-auto">
+                <h2 className="text-2xl font-serif font-medium leading-tight mb-1">{currentBook.title}</h2>
                 {currentBook.author && (
-                  <p className="text-sm opacity-60 truncate">{currentBook.author}</p>
+                  <p className="text-xs font-mono uppercase tracking-widest text-zinc-400">{currentBook.author}</p>
                 )}
               </div>
 
-              {/* Progress Bar */}
-              <div className="relative h-2 w-full bg-white/30 dark:bg-white/10 rounded-full overflow-hidden mb-8">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
-                  className="absolute h-full bg-[#141414] dark:bg-[#E0D8D0] rounded-full"
-                />
+              {/* Progress Summary */}
+              <div className="flex flex-col items-center">
+                <div className="text-5xl font-serif font-medium tracking-tighter mb-2">
+                  {Math.round(progress)}%
+                </div>
+                <div className="w-48 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    className="h-full bg-orange-500 rounded-full"
+                  />
+                </div>
               </div>
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
                 <StatCard 
-                  label="Goal Today" 
+                  label="Goal" 
                   value={`${ppd} pgs/day`} 
-                  icon={<Clock className="w-4 h-4" />} 
+                  icon={<Clock className="w-3 h-3" />} 
                 />
                 <StatCard 
-                  label="Days Left" 
+                  label="Left" 
                   value={`${daysLeft} days`} 
-                  icon={<Calendar className="w-4 h-4" />} 
-                />
-                <StatCard 
-                  label="Reading" 
-                  value={`${currentBook.currentPage}/${currentBook.totalPages}`} 
-                  icon={<BookOpen className="w-4 h-4" />} 
-                />
-                <StatCard 
-                  label="Remaining" 
-                  value={`${currentBook.totalPages - currentBook.currentPage} pgs`} 
-                  icon={<ChevronRight className="w-4 h-4" />} 
+                  icon={<Calendar className="w-3 h-3" />} 
                 />
               </div>
 
-              <div className="flex gap-4">
-                <motion.button
-                  whileTap={{ scale: 0.98 }}
+              <div className="grid grid-cols-2 gap-4 max-w-sm mx-auto">
+                <button
                   onClick={() => setIsUpdateModalOpen(true)}
-                  className="flex-1 py-4 border-2 border-[#141414]/10 dark:border-white/10 rounded-2xl font-medium shadow-sm hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  className="py-4 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors active:scale-95"
                 >
-                  Log Progress
-                </motion.button>
+                  Log
+                </button>
                 {currentBook.fileDataId && (
-                  <motion.button
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => {
-                      setIsReaderOpen(true);
-                      onReaderToggle?.(true);
-                    }}
-                    className="flex-1 py-4 bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] rounded-2xl font-medium shadow-xl flex items-center justify-center gap-2"
+                  <button
+                    onClick={() => onOpenBook(currentBook)}
+                    className="py-4 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
                   >
-                    <Eye className="w-5 h-5" />
-                    Open Reader
-                  </motion.button>
+                    <BookOpen className="w-4 h-4" />
+                    Read
+                  </button>
                 )}
               </div>
             </motion.div>
@@ -159,81 +146,64 @@ export default function Dashboard({ books, updateBook, onReaderToggle }: Dashboa
         </AnimatePresence>
       </div>
 
-      {/* PDF Reader Overlay */}
-      {isReaderOpen && currentBook && (
-        <PDFReader 
-          book={currentBook}
-          initialPage={currentBook.currentPage}
-          onPageChange={(page) => {
-             if (page > currentBook.currentPage) {
-               handleUpdateProgress(page);
-             }
-          }}
-          onClose={() => {
-            setIsReaderOpen(false);
-            onReaderToggle?.(false);
-          }}
-        />
-      )}
-
       {/* Progress Update Modal */}
       <AnimatePresence>
         {isUpdateModalOpen && currentBook && (
-          <div className="fixed inset-0 z-[100] flex items-end justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsUpdateModalOpen(false)}
+              className="fixed inset-0 z-[500] bg-zinc-950/40 backdrop-blur-sm"
+            />
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              className="w-full max-w-md bg-white dark:bg-[#1A1A1A] rounded-t-3xl rounded-b-xl p-8"
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 z-[510] w-full bg-white dark:bg-zinc-900 rounded-t-[2.5rem] p-10 pb-[calc(var(--sab)+2rem)] shadow-2xl"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-medium">Update Progress</h3>
-                <button onClick={() => setIsUpdateModalOpen(false)} className="text-sm opacity-50">Cancel</button>
-              </div>
+              <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-10" />
               
-              <div className="mb-8">
-                <p className="text-sm opacity-60 mb-2">Where did you stop today?</p>
-                <div className="flex items-center gap-4">
+              <div className="mb-10 space-y-4">
+                <div className="flex justify-between items-baseline mb-2">
+                   <h3 className="text-2xl font-serif font-medium">Update Reading</h3>
+                   <span className="text-4xl font-serif text-orange-500">{currentBook.currentPage}</span>
+                </div>
+                
+                <div className="py-8">
                   <input 
                     type="range"
                     min="0"
                     max={currentBook.totalPages}
                     value={currentBook.currentPage}
                     onChange={(e) => handleUpdateProgress(parseInt(e.target.value))}
-                    className="flex-1 h-2 bg-gray-200 dark:bg-gray-800 rounded-full appearance-none accent-[#141414] dark:accent-[#E0D8D0]"
+                    className="w-full h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full appearance-none accent-zinc-900 dark:accent-zinc-50 cursor-pointer"
                   />
-                  <span className="text-lg font-mono font-medium min-w-[60px] text-right">
-                    {currentBook.currentPage}
-                  </span>
-                </div>
-                <div className="flex justify-between mt-2 text-[10px] uppercase tracking-widest opacity-40">
-                  <span>Start</span>
-                  <span>End ({currentBook.totalPages})</span>
+                  <div className="flex justify-between mt-4 text-[8px] font-mono uppercase tracking-[0.2em] text-zinc-400">
+                    <span>Start</span>
+                    <span>End ({currentBook.totalPages})</span>
+                  </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <button 
                   onClick={() => handleUpdateProgress(Math.min(currentBook.currentPage + ppd, currentBook.totalPages))}
-                  className="py-3 px-4 rounded-xl border border-[#141414]/10 dark:border-white/10 text-sm font-medium"
+                  className="py-5 px-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono uppercase tracking-widest active:scale-95 transition-transform"
                 >
-                  Read Goal (+{ppd})
+                  Goal (+{ppd})
                 </button>
                 <button 
-                  onClick={() => {
-                    const page = prompt('Enter page number:', currentBook.currentPage.toString());
-                    if (page !== null) {
-                      const num = parseInt(page);
-                      if (!isNaN(num)) handleUpdateProgress(Math.min(Math.max(0, num), currentBook.totalPages));
-                    }
-                  }}
-                  className="py-3 px-4 rounded-xl bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] text-sm font-medium"
+                  onClick={() => setIsUpdateModalOpen(false)}
+                  className="py-5 px-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
                 >
-                  Type Page
+                  Complete
                 </button>
               </div>
             </motion.div>
-          </div>
+          </>
         )}
       </AnimatePresence>
     </div>
