@@ -74,9 +74,10 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     const DOUBLE_TAP_DELAY = 300;
     if (now - lastTap.current < DOUBLE_TAP_DELAY) {
       // Toggle zoom
-      setScale(prev => prev > 1.2 ? 1.0 : 2.5);
+      const nextScale = scale > 1.2 ? 1.0 : 2.5;
+      setScale(nextScale);
       // Also hide controls when zooming in to focus
-      if (scale <= 1.2) setShowControls(false);
+      if (nextScale > 1.2) setShowControls(false);
     }
     lastTap.current = now;
   };
@@ -156,7 +157,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   useEffect(() => {
     const timer = setTimeout(() => {
       setRenderScale(scale);
-    }, 400); // Slightly longer for resolution to settle
+    }, 250); // Faster resolution settle
     return () => clearTimeout(timer);
   }, [scale]);
 
@@ -284,6 +285,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pageIndex, totalSheets, direction, viewMode]);
 
+  const viewportRef = useRef<HTMLDivElement>(null);
   const touchStateRef = useRef({ initialDist: 0, initialScale: 1 });
 
   return (
@@ -507,6 +509,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
 
       {/* Main Viewport */}
       <div 
+        ref={viewportRef}
         onClick={(e) => {
           handleDoubleTap(e);
           if (showControls) {
@@ -531,9 +534,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
               e.touches[0].pageX - e.touches[1].pageX,
               e.touches[0].pageY - e.touches[1].pageY
             );
-            const newScale = Math.min(5, Math.max(0.2, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
+            const newScale = Math.min(5, Math.max(1, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
             visualScale.set(newScale);
-            // Don't set state during move, wait for end or use throttle
           }
         }}
         onTouchEnd={() => {
@@ -587,6 +589,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
                   scale={smoothScale}
                   renderScale={renderScale}
                   isLandscape={isLandscape}
+                  constraintsRef={viewportRef}
                 />
               );
             })}
@@ -648,7 +651,8 @@ function ReaderSheet({
   virtualPage, 
   scale, 
   renderScale, 
-  isLandscape 
+  isLandscape,
+  constraintsRef
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -659,6 +663,7 @@ function ReaderSheet({
   scale: any, // MotionValue
   renderScale: number,
   isLandscape: boolean,
+  constraintsRef: React.RefObject<HTMLDivElement>,
   key?: React.Key
 }) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
@@ -684,8 +689,8 @@ function ReaderSheet({
     >
       <motion.div 
         style={{ scale }}
-        drag={renderScale > 1.1}
-        dragConstraints={{ left: -500, right: 500, top: -500, bottom: 500 }} // Adaptive based on scale would be better but this is a start
+        drag={renderScale > 1.05}
+        dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
