@@ -14,6 +14,7 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const tapStartPos = useRef({ x: 0, y: 0 });
   const baseIndex = useRef(selectedIndex);
   
   // The "source of truth" for the current position in the carousel
@@ -90,16 +91,26 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[2000px] touch-none"
+      className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[2000px] touch-pan-y"
     >
       {/* Interaction Layer */}
       <motion.div 
-        className="absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-none"
+        className="absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-pan-y"
         onPanStart={handlePanStart}
         onPan={handlePan}
         onPanEnd={handlePanEnd}
+        onTapStart={(_, info) => {
+          tapStartPos.current = { x: info.point.x, y: info.point.y };
+        }}
         onTap={(_, info) => {
           if (isDragging) return;
+
+          // Increase threshold to differentiate between intentional tap and scroll start
+          const dx = info.point.x - tapStartPos.current.x;
+          const dy = info.point.y - tapStartPos.current.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > 12) return;
+
           const rect = containerRef.current?.getBoundingClientRect();
           if (!rect) return;
           const clickX = info.point.x - rect.left;
