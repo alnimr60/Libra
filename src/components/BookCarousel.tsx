@@ -16,15 +16,16 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
+  const swipeDirection = useRef<'horizontal' | 'vertical' | null>(null);
   const baseIndex = useRef(selectedIndex);
   
   // The "source of truth" for the current position in the carousel
   const virtualIndex = useMotionValue(selectedIndex);
   // A spring to make the snapping motion smooth
   const smoothIndex = useSpring(virtualIndex, {
-    stiffness: 280,
-    damping: 30,
-    mass: 1
+    stiffness: 220,
+    damping: 32,
+    mass: 0.5
   });
 
   useEffect(() => {
@@ -57,10 +58,18 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   const handlePanStart = () => {
     setIsDragging(true);
     isDraggingRef.current = true;
+    swipeDirection.current = null;
     baseIndex.current = virtualIndex.get();
   };
 
   const handlePanEnd = (_: any, info: any) => {
+    if (swipeDirection.current === 'vertical') {
+      setIsDragging(false);
+      isDraggingRef.current = false;
+      swipeDirection.current = null;
+      return;
+    }
+
     const spacing = width * 0.35 || 100;
     const offset = info.offset.x;
     const velocity = info.velocity.x;
@@ -92,6 +101,17 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   };
 
   const handlePan = (_: any, info: any) => {
+    if (!swipeDirection.current) {
+      if (Math.abs(info.offset.y) > Math.abs(info.offset.x) + 10) {
+        swipeDirection.current = 'vertical';
+        return;
+      } else if (Math.abs(info.offset.x) > 10) {
+        swipeDirection.current = 'horizontal';
+      }
+    }
+
+    if (swipeDirection.current === 'vertical') return;
+    
     const spacing = width * 0.35 || 100;
     const dragProgress = info.offset.x / spacing;
     virtualIndex.set(baseIndex.current - dragProgress);
