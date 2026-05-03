@@ -12,6 +12,7 @@ import AddBookModal from './components/AddBookModal';
 import { Home, Library as LibraryIcon, Settings as SettingsIcon, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
+import { useSafeArea } from './components/SafeAreaProvider';
 
 type ActiveTab = 'home' | 'library' | 'settings';
 
@@ -19,6 +20,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { books, settings, addBook, updateBook, deleteBook, setSettings } = usePersistence();
+  const insets = useSafeArea();
 
   const currentBooks = books.filter(b => b.status === 'Currently Reading');
 
@@ -72,14 +74,18 @@ export default function App() {
       <motion.button
         whileTap={{ scale: 0.9 }}
         onClick={() => setIsAddModalOpen(true)}
-        className="fixed bottom-[calc(5rem+var(--msp-bottom))] right-6 z-50 w-14 h-14 bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
+        style={{ bottom: `${insets.bottom + 100}px` }}
+        className="fixed right-6 z-50 w-14 h-14 bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
         id="add-book-fab"
       >
         <Plus className="w-8 h-8" />
       </motion.button>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/80 dark:bg-[#151619]/80 backdrop-blur-xl border-t border-[#141414]/10 dark:border-white/10 px-6 py-4 pb-[calc(0.5rem+var(--msp-bottom))] flex justify-around items-center rounded-t-3xl shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.1)]">
+      <nav 
+        style={{ paddingBottom: `${insets.bottom + 12}px` }}
+        className="fixed bottom-0 left-0 right-0 z-40 bg-white/80 dark:bg-[#151619]/80 backdrop-blur-xl border-t border-[#141414]/10 dark:border-white/10 px-6 py-4 flex justify-around items-center rounded-t-3xl shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.1)]"
+      >
         <NavButton
           active={activeTab === 'home'}
           onClick={() => setActiveTab('home')}

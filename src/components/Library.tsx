@@ -3,6 +3,7 @@ import { Book, ReadingStatus } from '../types';
 import { Search, Filter, Grid, List as ListIcon, Trash2, Edit2, PlayCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useSafeArea } from './SafeAreaProvider';
 
 interface LibraryProps {
   allBooks: Book[];
@@ -14,6 +15,7 @@ export default function Library({ allBooks, updateBook, deleteBook }: LibraryPro
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ReadingStatus | 'All'>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const insets = useSafeArea();
 
   const filteredBooks = useMemo(() => {
     return allBooks.filter(book => {
@@ -35,7 +37,10 @@ export default function Library({ allBooks, updateBook, deleteBook }: LibraryPro
   }, [allBooks]);
 
   return (
-    <div className="px-6 pt-[calc(3rem+var(--msp-top))] flex flex-col h-full overflow-hidden">
+    <div 
+      style={{ paddingTop: `${insets.top + 48}px` }}
+      className="px-6 flex flex-col h-full overflow-hidden"
+    >
       <div className="mb-6">
         <h1 className="text-3xl font-serif font-medium tracking-tight">Your Library</h1>
         <p className="text-sm opacity-50 uppercase tracking-widest mt-1">Found {allBooks.length} books</p>

@@ -5,6 +5,7 @@ import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages } from 'lucide
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book } from '../types';
+import { useSafeArea } from './SafeAreaProvider';
 
 interface PDFReaderProps {
   book: Book;
@@ -16,6 +17,7 @@ interface PDFReaderProps {
 export default function PDFReader({ book, initialPage, onPageChange, onClose }: PDFReaderProps) {
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const insets = useSafeArea();
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1.0);
   const [isLoading, setIsLoading] = useState(true);
@@ -225,8 +227,9 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       {/* Reader Controls Top */}
       <motion.div 
         animate={{ y: showControls ? 0 : -120 }}
+        style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
         className={cn(
-          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all pt-[calc(var(--msp-top)+0.5rem)]",
+          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all",
           isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
         )}
       >
@@ -369,7 +372,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       {!isLoading && !error && (
         <motion.div 
           animate={{ y: showControls ? 0 : 120 }}
-          className="p-2 md:p-4 pb-[calc(0.5rem+var(--msp-bottom))] bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
+          style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
+          className="p-2 md:p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
         >
           <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
             <motion.div 

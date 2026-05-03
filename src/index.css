@@ -17,17 +17,11 @@
 
 @layer base {
   :root {
-    /* Hardened Safe Area variables with fallback for older browsers and native IPAs */
-    /* Using both env() and constant() for legacy support, with fallbacks at each level */
+    /* Standard Safe Area variables for browsers that support them */
     --sat: env(safe-area-inset-top, 0px);
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
-    
-    /* Minimum Safe Padding (guarantees space even if IPA overlay is misconfigured) */
-    /* 44px is the standard notch height for iPhone 13/modern. 20px is for older status bars. */
-    --msp-top: max(var(--sat), 44px);
-    --msp-bottom: max(var(--sab), 24px);
   }
 }
 
