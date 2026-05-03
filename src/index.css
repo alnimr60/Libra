@@ -17,27 +17,32 @@
 
 @layer base {
   :root {
+    /* Hardened Safe Area variables with fallback for older browsers and native IPAs */
     --sat: env(safe-area-inset-top, 0px);
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
+    
+    /* Minimum Safe Padding (guarantees space even if IPA overlay is misconfigured) */
+    --msp-top: max(var(--sat), 20px);
+    --msp-bottom: max(var(--sab), 20px);
   }
 }
 
 @utility pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--msp-top);
 }
 
 @utility pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--msp-bottom);
 }
 
 @utility mt-safe {
-  margin-top: env(safe-area-inset-top, 0px);
+  margin-top: var(--msp-top);
 }
 
 @utility mb-safe {
-  margin-bottom: env(safe-area-inset-bottom, 0px);
+  margin-bottom: var(--msp-bottom);
 }
 
 body {
