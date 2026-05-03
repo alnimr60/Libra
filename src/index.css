@@ -15,6 +15,8 @@
   --font-serif: ui-serif, "Georgia", serif;
 }
 
+@variant dark (&:is(.dark, .dark *));
+
 @layer base {
   :root {
     /* Standard Safe Area variables for browsers that support them */
