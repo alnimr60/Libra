@@ -5,6 +5,13 @@
 
 export type ReadingStatus = 'Currently Reading' | 'To-Be-Read' | 'Finished';
 
+export interface Bookmark {
+  id: string;
+  page: number;
+  label?: string;
+  createdAt: string;
+}
+
 export interface Book {
   id: string;
   title: string;
@@ -16,12 +23,13 @@ export interface Book {
   tags: string[];
   coverUrl?: string; // Data URL or external link
   fileDataId?: string; // ID for IndexedDB storage
+  bookmarks?: Bookmark[];
   addedAt: string; // ISO date string
   lastReadAt?: string; // ISO date string
 }
 
 export interface AppSettings {
-  theme: 'light' | 'dark';
+  theme: 'light' | 'dark' | 'system';
   notificationsEnabled: boolean;
   notificationFrequency: 'once' | 'twice' | 'custom';
   customNotificationTimes: string[]; // ['09:00', '18:00', ...]

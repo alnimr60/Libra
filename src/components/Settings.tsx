@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Moon, Sun, Bell, Clock, Info, ChevronRight } from 'lucide-react';
+import { Moon, Sun, Bell, Clock, Info, ChevronRight, Monitor } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSafeArea } from './SafeAreaProvider';
 
@@ -40,6 +40,12 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
               label="Lunar"
               isActive={settings.theme === 'dark'}
               onClick={() => setSettings({ theme: 'dark' })}
+            />
+            <SettingRow 
+              icon={<Monitor className="w-4 h-4" />}
+              label="Celestial"
+              isActive={settings.theme === 'system'}
+              onClick={() => setSettings({ theme: 'system' })}
             />
           </div>
         </section>

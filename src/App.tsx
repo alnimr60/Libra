@@ -133,6 +133,12 @@ export default function App() {
                 lastReadAt: new Date().toISOString(),
               });
             }}
+            onUpdateBookmarks={(bookmarks) => {
+              updateBook({
+                ...activeBook,
+                bookmarks,
+              });
+            }}
             onClose={() => setActiveBookId(null)}
           />
         )}
