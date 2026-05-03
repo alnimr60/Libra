@@ -109,7 +109,7 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
           const dx = info.point.x - tapStartPos.current.x;
           const dy = info.point.y - tapStartPos.current.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > 12) return;
+          if (distance > 15) return;
 
           const rect = containerRef.current?.getBoundingClientRect();
           if (!rect) return;
