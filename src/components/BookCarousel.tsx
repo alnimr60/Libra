@@ -46,28 +46,55 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     return () => observer.disconnect();
   }, []);
 
+  // Helper for circular modulo that always returns a positive value
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+  // Helper to find the best distance to a target index on a circle, 
+  // optionally respecting the direction of velocity to avoid "snap-back"
+  const wrapShortest = (current: number, target: number, total: number, velocity: number = 0) => {
+    const normCurrent = mod(current, total);
+    const diff = (target - normCurrent) % total;
+    let shortest = ((diff + total / 2) % total + total) % total - total / 2;
+    
+    // If we have significant velocity and it's pointing away from our "shortest" path,
+    // we should go the long way around to preserve the feeling of momentum.
+    // This prevents the carousel from reversing direction when we flick it hard.
+    const VELOCITY_THRESHOLD = 0.5; 
+    if (Math.abs(velocity) > VELOCITY_THRESHOLD) {
+      const vDir = velocity > 0 ? 1 : -1;
+      const sDir = shortest > 0 ? 1 : -1;
+      
+      if (vDir !== sDir && Math.abs(shortest) > 0.1) {
+        shortest += vDir * total;
+      }
+    }
+    
+    return shortest;
+  };
+
   // Sync virtualIndex with prop changes (when user clicks dots or external buttons)
   useEffect(() => {
     if (!isDragging) {
+      const currentV = virtualIndex.get();
       let target = selectedIndex;
       
       if (style === 'circular') {
-        const currentV = virtualIndex.get();
-        // Shortest path to the selected index on a circle
-        const diff = (selectedIndex - currentV) % books.length;
-        const shortest = ((diff + books.length / 2) % books.length + books.length) % books.length - books.length / 2;
-        target = currentV + shortest;
+        const delta = wrapShortest(currentV, selectedIndex, books.length, lastVelocity.current);
+        target = currentV + delta;
       }
 
-      animate(virtualIndex, target, {
-        type: 'spring',
-        stiffness: 180,
-        damping: 30,
-        mass: 0.6,
-        velocity: lastVelocity.current
-      });
-      // Reset velocity after handoff
-      lastVelocity.current = 0;
+      // Only animate if we aren't already very close to the target
+      if (Math.abs(currentV - target) > 0.001 || lastVelocity.current !== 0) {
+        animate(virtualIndex, target, {
+          type: 'spring',
+          stiffness: 180,
+          damping: 30,
+          mass: 0.6,
+          velocity: lastVelocity.current
+        });
+        // Reset velocity after handoff
+        lastVelocity.current = 0;
+      }
     }
   }, [selectedIndex, isDragging, virtualIndex, style, books.length]);
 
@@ -91,43 +118,58 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     const velocity = info.velocity.x;
     
     // Project velocity into indices/s and invert (dragging right decreases index)
-    // Cap velocity to keep it controlled
-    const cappedVelocity = Math.max(-4000, Math.min(4000, velocity));
+    // Capping results in more predictable behavior at extreme flick speeds
+    const cappedVelocity = Math.max(-4500, Math.min(4500, velocity));
     const velocityInIndices = -cappedVelocity / spacing;
-    lastVelocity.current = velocityInIndices;
-
-    // Calculate final index based on position and momentum projection
-    // Power of 0.45s creates a natural "flick" feel
-    const currentVal = virtualIndex.get();
-    const predictedStop = currentVal + (velocityInIndices * 0.45);
     
+    // Calculate final index based on position and momentum projection
+    const currentVal = virtualIndex.get();
+    const projectionPower = 0.5; // Project half a second ahead
+    const predictedStop = currentVal + (velocityInIndices * projectionPower);
+    
+    // Snap to the nearest integer index
     let nextIndex = Math.round(predictedStop);
     
+    // Directional bias: if we have a strong velocity but rounding would take us backward,
+    // push it forward to avoid an awkward "snap back" against the flick direction.
+    const vMag = Math.abs(velocityInIndices);
+    if (vMag > 0.5) {
+      const vDir = velocityInIndices > 0 ? 1 : -1;
+      const roundingError = nextIndex - predictedStop; // if positive, we rounded UP
+      const rDir = roundingError > 0 ? 1 : -1;
+      
+      if (vDir !== rDir && Math.abs(roundingError) > 0.2) {
+        // e.g. velocity is positive (flick LEFT), but we rounded DOWN to nextIndex.
+        // We should probably have rounded UP.
+        nextIndex += vDir;
+      }
+    }
+
     if (style === 'linear') {
       nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
     } else {
-      // Circular: just find the "actual" book index for the parent
-      nextIndex = (nextIndex % books.length + books.length) % books.length;
+      // Circular: just ensure it's a valid integer (mod handled by onChange)
+      nextIndex = Math.round(nextIndex);
     }
     
     setIsDragging(false);
+    lastVelocity.current = velocityInIndices;
+
     // Keep ref true for a short duration to prevent accidental onTap triggers
     setTimeout(() => {
       isDraggingRef.current = false;
-    }, 100);
+    }, 150);
 
-    // If index changed, notify parent; the useEffect will handle the smooth handoff
-    if (nextIndex !== selectedIndex) {
-      onChange(nextIndex);
+    // If index changed, notify parent
+    const finalBookIndex = style === 'linear' ? nextIndex : mod(nextIndex, books.length);
+    if (finalBookIndex !== selectedIndex) {
+      onChange(finalBookIndex);
     } else {
-      // If we are already at the target index (or it didn't change), 
-      // explicitly settle with momentum to avoid a "snap-back" feel
+      // If we didn't change the active book (or we are in circular and landed a full rotation away),
+      // we still need to settle correctly from where we are.
       let target = nextIndex;
       if (style === 'circular') {
-        const currentV = virtualIndex.get();
-        const diff = (nextIndex - currentV) % books.length;
-        const shortest = ((diff + books.length / 2) % books.length + books.length) % books.length - books.length / 2;
-        target = currentV + shortest;
+        target = currentVal + wrapShortest(currentVal, mod(nextIndex, books.length), books.length, velocityInIndices);
       }
 
       animate(virtualIndex, target, {
@@ -137,6 +179,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
         mass: 0.6,
         velocity: velocityInIndices
       });
+      lastVelocity.current = 0;
     }
   };
 
@@ -233,7 +276,7 @@ function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, 
   const distance = useTransform(virtualIndex, (v: number) => {
     if (!isCircular) return index - v;
     
-    // Shortest path on a circle
+    // Shortest path on a circle (using mod helper logic)
     const diff = (index - v) % totalBooks;
     const wrapped = ((diff + totalBooks / 2) % totalBooks + totalBooks) % totalBooks - totalBooks / 2;
     return wrapped;
@@ -248,11 +291,12 @@ function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, 
 
   const opacity = useTransform(distance, (d: number) => {
     const absD = Math.abs(d);
-    // Standard and Circular now use the same fade logic for consistency
-    if (absD > 3) return 0;
-    if (absD > 2) return 0.4 * (3 - absD);
-    if (absD > 1) return 0.7 * (2 - absD) + 0.4 * (absD - 1);
-    return 1 * (1 - absD) + 0.7 * absD;
+    // Show up to 4 books on each side for a fuller dashboard feel
+    if (absD > 4) return 0;
+    if (absD > 3) return 0.3 * (4 - absD);
+    if (absD > 2) return 0.5 * (3 - absD) + 0.3 * (absD - 2);
+    if (absD > 1) return 0.8 * (2 - absD) + 0.5 * (absD - 1);
+    return 1 * (1 - absD) + 0.8 * absD;
   });
 
   const scale = useTransform(distance, (d: number) => 1 - Math.abs(d) * 0.12);
