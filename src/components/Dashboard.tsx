@@ -124,22 +124,13 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4 max-w-sm mx-auto">
+              <div className="flex justify-center max-w-sm mx-auto w-full">
                 <button
                   onClick={() => setIsUpdateModalOpen(true)}
-                  className="py-4 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors active:scale-95"
+                  className="w-full py-4 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors active:scale-95"
                 >
-                  Log
+                  Log Reading Progress
                 </button>
-                {currentBook.fileDataId && (
-                  <button
-                    onClick={() => onOpenBook(currentBook)}
-                    className="py-4 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    Read
-                  </button>
-                )}
               </div>
             </motion.div>
           )}
