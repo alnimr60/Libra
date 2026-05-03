@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
-import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages } from 'lucide-react';
+import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages, Navigation, Check } from 'lucide-react';
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book } from '../types';
@@ -20,17 +20,30 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
   const insets = useSafeArea();
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1.0);
+  const visualScale = useMotionValue(1.0);
+  const smoothScale = useSpring(visualScale, {
+    stiffness: 400,
+    damping: 40,
+    mass: 0.5
+  });
+
   const [isLoading, setIsLoading] = useState(true);
+  // Synchronize visualScale with scale state for control updates
+  useEffect(() => {
+    visualScale.set(scale);
+  }, [scale]);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>('ltr');
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
   const [pageIndex, setPageIndex] = useState(0); // 0-based for internal math
+  const [isTemporal, setIsTemporal] = useState(false);
+  const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [renderScale, setRenderScale] = useState(scale);
-  const visualScale = useRef(scale);
   
   // Double tap to zoom handler
   const lastTap = useRef<number>(0);
@@ -80,7 +93,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
     if (!isDragging) return;
 
     // If zoomed in, we only allow swiping if it's a clear horizontal intent
-    if (scale > 1.3) {
+    const currentScale = visualScale.get();
+    if (currentScale > 1.3) {
       const isHorizontal = Math.abs(info.velocity.x) > Math.abs(info.velocity.y) * 2;
       const isFlick = Math.abs(info.velocity.x) > 600;
       if (!isHorizontal || !isFlick) return;
@@ -103,9 +117,10 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
     const offset = info.offset.x;
     const velocity = info.velocity.x;
     
+    const currentScale = visualScale.get();
     // Adaptive thresholds based on scale
-    const threshold = scale > 1.3 ? 100 : 50;
-    const velocityThreshold = scale > 1.3 ? 800 : 500;
+    const threshold = currentScale > 1.3 ? 100 : 50;
+    const velocityThreshold = currentScale > 1.3 ? 800 : 500;
     
     let nextIndex = pageIndex;
     
@@ -215,16 +230,29 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
 
   const totalSheets = viewMode === 'double' ? Math.ceil(numPages / 2) : numPages;
   
-  const handlePageChange = (newIndex: number) => {
+  const handlePageChange = (newIndex: number, isJump: boolean = false) => {
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
     if (safeIndex === pageIndex) return;
     
     setPageIndex(safeIndex);
     
-    // Calculate display page for parent progress tracking
-    const displayPage = viewMode === 'double' ? (safeIndex * 2) + 1 : safeIndex + 1;
-    onPageChange(Math.min(displayPage, numPages));
+    if (isJump) {
+      setIsTemporal(true);
+    } else if (!isTemporal) {
+      // Auto update progress if not in temporal mode
+      const displayPage = viewMode === 'double' ? (safeIndex * 2) + 1 : safeIndex + 1;
+      onPageChange(Math.min(displayPage, numPages));
+    }
   };
+
+  const handleSyncProgress = () => {
+    const displayPage = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
+    onPageChange(Math.min(displayPage, numPages));
+    setIsTemporal(false);
+  };
+
+  const currentDisplayPage = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
+  const showSyncButton = isTemporal && Math.min(currentDisplayPage, numPages) !== book.currentPage;
 
   // Keyboard navigation
   useEffect(() => {
@@ -249,6 +277,58 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
         direction === 'rtl' ? "rtl" : "ltr"
       )}
     >
+      <AnimatePresence>
+        {isNavigatorOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[400] bg-zinc-950/90 backdrop-blur-3xl flex items-center justify-center p-6"
+            onClick={() => setIsNavigatorOpen(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 30 }}
+              className="w-full max-w-sm flex flex-col items-center gap-16 px-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col items-center gap-4 text-center">
+                <span className="text-[10px] font-mono text-white/20 uppercase tracking-[0.6em] select-none">Navigation</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-9xl font-serif text-white tracking-tighter leading-none select-none">
+                    {pageIndex + 1}
+                  </span>
+                  <span className="text-xl font-serif text-white/10 select-none">/ {totalSheets}</span>
+                </div>
+              </div>
+              
+              <div className="w-full space-y-6">
+                <input 
+                  type="range"
+                  min={0}
+                  max={totalSheets - 1}
+                  value={pageIndex}
+                  onChange={(e) => handlePageChange(parseInt(e.target.value, 10), true)}
+                  className="w-full h-1 bg-white/10 rounded-full appearance-none accent-white cursor-pointer hover:accent-orange-500 transition-colors"
+                />
+                <div className="flex justify-between text-[8px] font-mono text-white/10 uppercase tracking-widest px-1">
+                  <span>Start</span>
+                  <span>End</span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setIsNavigatorOpen(false)}
+                className="group p-8 rounded-full bg-white/5 border border-white/10 hover:bg-white hover:text-black transition-all active:scale-95 flex items-center justify-center shadow-2xl"
+              >
+                <Check className="w-8 h-8" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Reader Controls Top */}
       <AnimatePresence>
         {showControls && (
@@ -258,7 +338,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
             exit={{ y: -120 }}
             style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
             className={cn(
-              "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all",
+              "fixed top-0 left-0 right-0 flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-950/90 backdrop-blur-2xl z-[310] transition-all",
               isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
             )}
           >
@@ -278,45 +358,50 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
                 <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">{direction}</span>
               </button>
 
-              <div className="text-[10px] md:text-xs tracking-tighter">
-                <span className="text-white font-bold">
-                  {viewMode === 'double' ? `${(pageIndex * 2) + 1}${ (pageIndex * 2) + 2 <= numPages ? '-' + ((pageIndex * 2) + 2) : '' }` : pageIndex + 1}
-                </span> 
-                <span className="opacity-30 mx-1">/</span> 
-                <span className="opacity-40">{numPages}</span>
-              </div>
-            </div>
-
-            <div className={cn(
-              "flex items-center gap-1 bg-white/5 rounded-full border border-white/10 shadow-lg pointer-events-auto",
-              isLandscape ? "px-1 py-0.5 scale-90" : "px-2 py-1"
-            )}>
               <button 
-                onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
-                className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
-                title="Zoom Out"
+                onClick={(e) => { e.stopPropagation(); setIsNavigatorOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 transition-all active:scale-95 group"
               >
-                <Minus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
-              </button>
-              <div className="flex flex-col items-center min-w-[32px]">
-                <span className="text-[8px] font-mono leading-none text-white/40 mb-0.5">ZOOM</span>
-                <span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">{Math.round(scale * 100)}%</span>
-              </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
-                className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
-                title="Zoom In"
-              >
-                <Plus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
+                <div className="text-[10px] md:text-sm tracking-tighter font-mono">
+                  <span className="text-white font-bold">
+                    {viewMode === 'double' ? `${(pageIndex * 2) + 1}${ (pageIndex * 2) + 2 <= numPages ? '-' + ((pageIndex * 2) + 2) : '' }` : pageIndex + 1}
+                  </span> 
+                  <span className="opacity-20 mx-2">/</span> 
+                  <span className="opacity-40">{numPages}</span>
+                </div>
+                <Navigation className="w-3 h-3 text-orange-500 opacity-40 group-hover:opacity-100 transition-opacity" />
               </button>
             </div>
 
-            <button 
-              onClick={(e) => { e.stopPropagation(); setShowControls(false); }} 
-              className={cn("p-2 rounded-full transition-colors active:scale-75", isFullscreen ? "bg-orange-500 text-white" : "hover:bg-white/10")}
-            >
-              <Minimize2 className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <div className={cn(
+                "flex items-center gap-1 bg-white/5 rounded-full border border-white/10 shadow-lg pointer-events-auto",
+                isLandscape ? "px-1 py-0.5" : "px-2 py-1"
+              )}>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
+                  className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+                >
+                  <Minus className={cn(isLandscape ? "w-3 h-3" : "w-4 h-4")} />
+                </button>
+                <div className="flex flex-col items-center min-w-[36px]">
+                  <span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">{Math.round(scale * 100)}%</span>
+                </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
+                  className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+                >
+                  <Plus className={cn(isLandscape ? "w-3 h-3" : "w-4 h-4")} />
+                </button>
+              </div>
+
+              <button 
+                onClick={(e) => { e.stopPropagation(); setShowControls(false); }} 
+                className="p-2.5 bg-white/5 hover:bg-orange-500 hover:text-white rounded-full transition-all active:scale-75 border border-white/5 text-white/40"
+              >
+                <Minimize2 className="w-4 h-4" />
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -326,14 +411,12 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
         onClick={(e) => {
           handleDoubleTap(e);
           if (showControls) {
-            // Only hide if we aren't zooming (otherwise handleDoubleTap handles it)
-            // This allows single tap to toggle
             setShowControls(false);
           } else {
             setShowControls(true);
           }
         }}
-        className="flex-1 relative flex items-center justify-center bg-zinc-900/40 overflow-hidden"
+        className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
             const dist = Math.hypot(
@@ -350,10 +433,14 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
               e.touches[0].pageY - e.touches[1].pageY
             );
             const newScale = Math.min(5, Math.max(0.2, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
-            setScale(newScale);
+            visualScale.set(newScale);
+            // Don't set state during move, wait for end or use throttle
           }
         }}
         onTouchEnd={() => {
+          if (touchStateRef.current.initialDist > 0) {
+            setScale(visualScale.get());
+          }
           touchStateRef.current.initialDist = 0;
         }}
       >
@@ -386,7 +473,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
             onPanEnd={handlePanEnd}
           >
             {/* Windowed view of pages */}
-            {Array.from({ length: 5 }, (_, i) => pageIndex - 2 + i).map(sheetIndex => {
+            {Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i).map(sheetIndex => {
               if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
               
               return (
@@ -398,7 +485,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
                   viewMode={viewMode}
                   direction={direction}
                   virtualPage={smoothPage}
-                  scale={scale}
+                  scale={smoothScale}
                   renderScale={renderScale}
                   isLandscape={isLandscape}
                 />
@@ -416,18 +503,35 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
             animate={{ y: 0 }}
             exit={{ y: 120 }}
             style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
-            className="p-2 md:p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
+            className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-zinc-950/90 backdrop-blur-2xl shadow-2xl border-t border-white/5 z-[310]"
           >
-            <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
-              <motion.div 
-                className="absolute inset-y-0 bg-orange-500"
-                animate={{ 
-                  left: direction === 'rtl' ? "auto" : 0,
-                  right: direction === 'rtl' ? 0 : "auto",
-                  width: `${((pageIndex + 1) / totalSheets) * 100}%` 
-                }}
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              />
+            <div className="max-w-2xl mx-auto flex items-center gap-6">
+              <div className="flex-1 h-1.5 bg-white/10 rounded-full relative overflow-hidden">
+                <motion.div 
+                  className="absolute inset-y-0 bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]"
+                  animate={{ 
+                    left: direction === 'rtl' ? "auto" : 0,
+                    right: direction === 'rtl' ? 0 : "auto",
+                    width: `${((pageIndex + 1) / totalSheets) * 100}%` 
+                  }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                />
+              </div>
+
+              <AnimatePresence>
+                {showSyncButton && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8, x: 20 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0.8, x: 20 }}
+                    onClick={(e) => { e.stopPropagation(); handleSyncProgress(); }}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-white text-black rounded-full text-[10px] font-bold uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Sync to Page {currentDisplayPage}</span>
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -453,7 +557,7 @@ function ReaderSheet({
   viewMode: 'single' | 'double',
   direction: 'ltr' | 'rtl',
   virtualPage: any,
-  scale: number,
+  scale: any, // MotionValue
   renderScale: number,
   isLandscape: boolean,
   key?: React.Key
@@ -474,29 +578,34 @@ function ReaderSheet({
     <motion.div
       style={{ x, opacity, visibility }}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8 overflow-auto custom-scrollbar",
+        "absolute inset-0 flex p-4 md:p-8 overflow-hidden",
         viewMode === 'double' ? "flex-row" : "flex-col",
-        scale > 1.1 ? "items-start justify-start cursor-move" : "items-center justify-center cursor-grab active:cursor-grabbing"
+        "items-center justify-center"
       )}
     >
-      <div 
+      <motion.div 
+        style={{ scale }}
+        drag={renderScale > 1.1}
+        dragConstraints={{ left: -500, right: 500, top: -500, bottom: 500 }} // Adaptive based on scale would be better but this is a start
+        dragElastic={0.1}
+        dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center touch-none",
           viewMode === 'double' ? "flex-row" : "flex-col",
-          scale > 1.1 ? "m-auto" : "mx-auto"
+          "mx-auto"
         )}
       >
         {viewMode === 'double' ? (
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={scale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={scale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} />
               </>
             )}
           </>
@@ -504,7 +613,7 @@ function ReaderSheet({
           <div 
             className="flex-shrink-0 h-auto shadow-2xl bg-white relative"
             style={{ 
-              width: isLandscape ? `${(scale * 100) * 0.707}vh` : `${85 * scale}vw`,
+              width: isLandscape ? `${(renderScale * 100) * 0.707}vh` : `${85 * renderScale}vw`,
               maxHeight: '90vh',
               aspectRatio: '0.707',
               transition: 'width 0.1s ease-out'
@@ -513,7 +622,7 @@ function ReaderSheet({
             <PDFPage pageNumber={index + 1} pdf={pdf} scale={renderScale} />
           </div>
         )}
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
