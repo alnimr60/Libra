@@ -32,6 +32,23 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
   const [renderScale, setRenderScale] = useState(scale);
   const visualScale = useRef(scale);
   
+  // Double tap to zoom handler
+  const lastTap = useRef<number>(0);
+  const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent) => {
+    // Only handle double tap on the main viewport area, not on controls
+    if ((e.target as HTMLElement).closest('button, input')) return;
+
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300;
+    if (now - lastTap.current < DOUBLE_TAP_DELAY) {
+      // Toggle zoom
+      setScale(prev => prev > 1.2 ? 1.0 : 2.5);
+      // Also hide controls when zooming in to focus
+      if (scale <= 1.2) setShowControls(false);
+    }
+    lastTap.current = now;
+  };
+  
   const virtualPage = useMotionValue(pageIndex);
   const smoothPage = useSpring(virtualPage, {
     stiffness: 300,
@@ -233,74 +250,89 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       )}
     >
       {/* Reader Controls Top */}
-      <motion.div 
-        animate={{ y: showControls ? 0 : -120 }}
-        style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
-        className={cn(
-          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all",
-          isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
-        )}
-      >
-        <div className="flex items-center gap-2 md:gap-4 font-mono">
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors active:scale-75">
-            <X className={cn(isLandscape ? "w-5 h-5" : "w-6 h-6")} />
-          </button>
-          
-          <button 
-            onClick={toggleDirection}
+      <AnimatePresence>
+        {showControls && (
+          <motion.div 
+            initial={{ y: -120 }}
+            animate={{ y: 0 }}
+            exit={{ y: -120 }}
+            style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
             className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all active:scale-95",
-              direction === 'rtl' ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" : "bg-white/5 text-white/60 hover:bg-white/10 border border-white/5"
+              "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all",
+              isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
             )}
           >
-            <Languages className="w-4 h-4" />
-            <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">{direction}</span>
-          </button>
+            <div className="flex items-center gap-2 md:gap-4 font-mono">
+              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors active:scale-75">
+                <X className={cn(isLandscape ? "w-5 h-5" : "w-6 h-6")} />
+              </button>
+              
+              <button 
+                onClick={toggleDirection}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all active:scale-95",
+                  direction === 'rtl' ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" : "bg-white/5 text-white/60 hover:bg-white/10 border border-white/5"
+                )}
+              >
+                <Languages className="w-4 h-4" />
+                <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">{direction}</span>
+              </button>
 
-          <div className="text-[10px] md:text-xs tracking-tighter">
-            <span className="text-white font-bold">
-              {viewMode === 'double' ? `${(pageIndex * 2) + 1}${ (pageIndex * 2) + 2 <= numPages ? '-' + ((pageIndex * 2) + 2) : '' }` : pageIndex + 1}
-            </span> 
-            <span className="opacity-30 mx-1">/</span> 
-            <span className="opacity-40">{numPages}</span>
-          </div>
-        </div>
+              <div className="text-[10px] md:text-xs tracking-tighter">
+                <span className="text-white font-bold">
+                  {viewMode === 'double' ? `${(pageIndex * 2) + 1}${ (pageIndex * 2) + 2 <= numPages ? '-' + ((pageIndex * 2) + 2) : '' }` : pageIndex + 1}
+                </span> 
+                <span className="opacity-30 mx-1">/</span> 
+                <span className="opacity-40">{numPages}</span>
+              </div>
+            </div>
 
-        <div className={cn(
-          "flex items-center gap-1 bg-white/5 rounded-full border border-white/10 shadow-lg pointer-events-auto",
-          isLandscape ? "px-1 py-0.5 scale-90" : "px-2 py-1"
-        )}>
-          <button 
-            onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
-            className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
-            title="Zoom Out"
-          >
-            <Minus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
-          </button>
-          <div className="flex flex-col items-center min-w-[32px]">
-            <span className="text-[8px] font-mono leading-none text-white/40 mb-0.5">ZOOM</span>
-            <span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">{Math.round(scale * 100)}%</span>
-          </div>
-          <button 
-            onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
-            className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
-            title="Zoom In"
-          >
-            <Plus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
-          </button>
-        </div>
+            <div className={cn(
+              "flex items-center gap-1 bg-white/5 rounded-full border border-white/10 shadow-lg pointer-events-auto",
+              isLandscape ? "px-1 py-0.5 scale-90" : "px-2 py-1"
+            )}>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
+                className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+                title="Zoom Out"
+              >
+                <Minus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
+              </button>
+              <div className="flex flex-col items-center min-w-[32px]">
+                <span className="text-[8px] font-mono leading-none text-white/40 mb-0.5">ZOOM</span>
+                <span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">{Math.round(scale * 100)}%</span>
+              </div>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
+                className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
+                title="Zoom In"
+              >
+                <Plus className={cn(isLandscape ? "w-4 h-4" : "w-5 h-5")} />
+              </button>
+            </div>
 
-        <button 
-          onClick={() => setIsFullscreen(!isFullscreen)} 
-          className={cn("p-2 rounded-full transition-colors active:scale-75", isFullscreen ? "bg-orange-500 text-white" : "hover:bg-white/10")}
-        >
-          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-        </button>
-      </motion.div>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setShowControls(false); }} 
+              className={cn("p-2 rounded-full transition-colors active:scale-75", isFullscreen ? "bg-orange-500 text-white" : "hover:bg-white/10")}
+            >
+              <Minimize2 className="w-5 h-5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Viewport */}
       <div 
-        onClick={() => isLandscape && setShowControls(!showControls)}
+        onClick={(e) => {
+          handleDoubleTap(e);
+          if (showControls) {
+            // Only hide if we aren't zooming (otherwise handleDoubleTap handles it)
+            // This allows single tap to toggle
+            setShowControls(false);
+          } else {
+            setShowControls(true);
+          }
+        }}
         className="flex-1 relative flex items-center justify-center bg-zinc-900/40 overflow-hidden"
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
@@ -377,25 +409,29 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       </div>
 
       {/* Progress Footer */}
-      {!isLoading && !error && (
-        <motion.div 
-          animate={{ y: showControls ? 0 : 120 }}
-          style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
-          className="p-2 md:p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
-        >
-          <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
-            <motion.div 
-              className="absolute inset-y-0 bg-orange-500"
-              animate={{ 
-                left: direction === 'rtl' ? "auto" : 0,
-                right: direction === 'rtl' ? 0 : "auto",
-                width: `${((pageIndex + 1) / totalSheets) * 100}%` 
-              }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            />
-          </div>
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {showControls && !isLoading && !error && (
+          <motion.div 
+            initial={{ y: 120 }}
+            animate={{ y: 0 }}
+            exit={{ y: 120 }}
+            style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
+            className="p-2 md:p-4 bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
+          >
+            <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
+              <motion.div 
+                className="absolute inset-y-0 bg-orange-500"
+                animate={{ 
+                  left: direction === 'rtl' ? "auto" : 0,
+                  right: direction === 'rtl' ? 0 : "auto",
+                  width: `${((pageIndex + 1) / totalSheets) * 100}%` 
+                }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
