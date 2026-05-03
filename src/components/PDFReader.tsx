@@ -221,7 +221,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       <motion.div 
         animate={{ y: showControls ? 0 : -120 }}
         className={cn(
-          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all pt-[calc(env(safe-area-inset-top,24px)+0.75rem)]",
+          "flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-900/90 backdrop-blur-xl z-[310] transition-all pt-[calc(var(--msp-top)+0.5rem)]",
           isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
         )}
       >
@@ -353,7 +353,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
       {!isLoading && !error && (
         <motion.div 
           animate={{ y: showControls ? 0 : 120 }}
-          className="p-2 md:p-4 pb-[calc(1rem+env(safe-area-inset-bottom,20px))] bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
+          className="p-2 md:p-4 pb-[calc(0.5rem+var(--msp-bottom))] bg-zinc-900/80 backdrop-blur-md shadow-2xl border-t border-white/5 z-[310]"
         >
           <div className="max-w-md mx-auto h-1 bg-white/10 rounded-full relative overflow-hidden">
             <motion.div 

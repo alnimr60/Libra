@@ -109,7 +109,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-md p-6 pt-[calc(1.5rem+env(safe-area-inset-top,24px))] pb-[calc(1.5rem+env(safe-area-inset-bottom,20px))]">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-md p-6 pt-[calc(1.5rem+var(--msp-top))] pb-[calc(1.5rem+var(--msp-bottom))]">
       <motion.div
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
