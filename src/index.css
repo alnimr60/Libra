@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
 @import "tailwindcss";
 
 @layer utilities {
@@ -11,8 +12,9 @@
 }
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-serif: ui-serif, "Georgia", serif;
+  --font-sans: "Tajawal", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Tajawal", ui-serif, "Georgia", serif;
+  --font-mono: "Tajawal", ui-monospace, SFMono-Regular, monospace;
 }
 
 @variant dark (&:is(.dark, .dark *));
@@ -24,6 +26,14 @@
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
+  }
+}
+
+@layer base {
+  [dir="rtl"] *, 
+  [dir="rtl"] {
+    letter-spacing: 0 !important;
+    word-spacing: 0.05em;
   }
 }
 
