@@ -24,9 +24,9 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   const virtualIndex = useMotionValue(selectedIndex);
   // A spring to make the snapping motion smooth
   const smoothIndex = useSpring(virtualIndex, {
-    stiffness: 220,
-    damping: 32,
-    mass: 0.5
+    stiffness: 180,
+    damping: 30,
+    mass: 0.6
   });
 
   useEffect(() => {
@@ -51,8 +51,8 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
       animate(virtualIndex, selectedIndex, {
         type: 'spring',
         stiffness: 180,
-        damping: 32,
-        mass: 0.5,
+        damping: 30,
+        mass: 0.6,
         velocity: lastVelocity.current
       });
       // Reset velocity after handoff
@@ -79,12 +79,14 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     const spacing = width * 0.35 || 100;
     const velocity = info.velocity.x;
     
-    // Convert px/s to indices/s and invert (because positive velocity means index decreases)
-    const velocityInIndices = -velocity / spacing;
+    // Project velocity into indices/s and invert (dragging right decreases index)
+    // Cap velocity to keep it controlled
+    const cappedVelocity = Math.max(-4000, Math.min(4000, velocity));
+    const velocityInIndices = -cappedVelocity / spacing;
     lastVelocity.current = velocityInIndices;
 
-    // Calculate final index based on position and momentum
-    // Project 450ms into the future for a generous "flick" traversal
+    // Calculate final index based on position and momentum projection
+    // Power of 0.45s creates a natural "flick" feel
     const currentVal = virtualIndex.get();
     const predictedStop = currentVal + (velocityInIndices * 0.45);
     
@@ -97,15 +99,17 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
       isDraggingRef.current = false;
     }, 100);
 
+    // If index changed, notify parent; the useEffect will handle the smooth handoff
     if (nextIndex !== selectedIndex) {
       onChange(nextIndex);
     } else {
-      // If we are already at the target index, still trigger animation to settle
+      // If we are already at the target index (or it didn't change), 
+      // explicitly settle with momentum to avoid a "snap-back" feel
       animate(virtualIndex, nextIndex, {
         type: 'spring',
         stiffness: 180,
-        damping: 32,
-        mass: 0.5,
+        damping: 30,
+        mass: 0.6,
         velocity: velocityInIndices
       });
     }
