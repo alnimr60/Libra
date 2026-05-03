@@ -19,6 +19,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '' });
   const insets = useSafeArea();
 
@@ -198,6 +199,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               onClick={() => {
                 setSelectedBookId(null);
                 setIsEditing(false);
+                setIsConfirmingDelete(false);
               }}
               className="fixed inset-0 bg-zinc-950/40 backdrop-blur-sm z-[500]"
             />
@@ -248,13 +250,23 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                         onChange={(e) => setEditForm(prev => ({ ...prev, author: e.target.value }))}
                         className="w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
                       />
-                      <input 
-                        type="text"
-                        placeholder="Cover URL"
-                        value={editForm.coverUrl}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, coverUrl: e.target.value }))}
-                        className="w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
-                      />
+                      <div className="relative group/input">
+                        <input 
+                          type="text"
+                          placeholder="Cover URL"
+                          value={editForm.coverUrl}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, coverUrl: e.target.value }))}
+                          className="w-full bg-zinc-100 dark:bg-zinc-800 pl-3 pr-8 py-2 rounded-xl text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 transition-all"
+                        />
+                        {editForm.coverUrl && (
+                          <button 
+                            onClick={() => setEditForm(prev => ({ ...prev, coverUrl: '' }))}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -268,36 +280,64 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                       <>
                         <button 
                           onClick={handleSaveEdit}
-                          className="flex-1 bg-orange-500 text-white py-3 px-6 rounded-2xl text-xs font-bold uppercase tracking-widest active:scale-95 transition-transform"
+                          className="flex-1 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 py-3.5 px-6 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] active:scale-95 transition-transform shadow-lg"
                         >
-                          Save Changes
+                          Save
                         </button>
                         <button 
-                          onClick={() => setIsEditing(false)}
-                          className="p-3.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-zinc-400 active:scale-90 transition-transform"
+                          onClick={() => {
+                            setIsEditing(false);
+                            // Explicitly reset form to current book state just in case
+                            if (selectedBook) {
+                              setEditForm({
+                                title: selectedBook.title,
+                                author: selectedBook.author || '',
+                                coverUrl: selectedBook.coverUrl || ''
+                              });
+                            }
+                          }}
+                          className="px-6 py-3.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 active:scale-95 transition-all"
+                        >
+                          Discard
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                    {isConfirmingDelete ? (
+                      <div className="flex bg-red-600 rounded-2xl overflow-hidden flex-1 shadow-lg h-[52px]">
+                        <button 
+                          onClick={() => {
+                            deleteBook(selectedBook.id);
+                            setSelectedBookId(null);
+                            setIsConfirmingDelete(false);
+                          }}
+                          className="flex-1 py-3 text-white text-[10px] font-mono uppercase tracking-[0.2em] font-bold hover:bg-red-700 transition-colors"
+                        >
+                          Confirm Delete
+                        </button>
+                        <button 
+                          onClick={() => setIsConfirmingDelete(false)}
+                          className="px-6 py-3 bg-red-700 text-white hover:bg-red-800 transition-colors border-l border-red-500/30"
                         >
                           <X className="w-5 h-5" />
                         </button>
-                      </>
+                      </div>
                     ) : (
                       <>
                         <button 
                           onClick={startEditing}
                           className="flex-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 py-3.5 px-6 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] active:scale-95 transition-transform"
                         >
-                          Edit Metadata
+                          Edit
                         </button>
                         <button 
-                          onClick={() => {
-                            if (confirm('Permanently remove this volume?')) {
-                              deleteBook(selectedBook.id);
-                              setSelectedBookId(null);
-                            }
-                          }}
+                          onClick={() => setIsConfirmingDelete(true)}
                           className="p-3.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-red-500 active:scale-90 transition-transform"
                         >
                           <Trash2 className="w-5 h-5" />
                         </button>
+                      </>
+                    )}
                       </>
                     )}
                   </div>
