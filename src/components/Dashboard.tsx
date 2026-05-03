@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Book, ReadingGoal, ReadingLog, GoalFrequency } from '../types';
 import BookCarousel from './BookCarousel';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculatePagesPerDay, getDaysRemaining, cn, getPagesReadToday, getPagesReadThisWeek } from '../lib/utils';
-import { BookOpen, Calendar, Clock, Target, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Calendar, Clock, Target, Plus, Trash2, Quote } from 'lucide-react';
 import { useSafeArea } from './SafeAreaProvider';
+import { translations } from '../translations';
 
 interface DashboardProps {
   books: Book[];
@@ -13,6 +14,7 @@ interface DashboardProps {
   goals: ReadingGoal[];
   readingLogs: ReadingLog[];
   dashboardStyle: 'linear' | 'circular';
+  language: 'en' | 'ar';
   onAddGoal: (goal: ReadingGoal) => void;
   onDeleteGoal: (id: string) => void;
   logReading: (pages: number) => void;
@@ -25,6 +27,7 @@ export default function Dashboard({
   goals,
   readingLogs,
   dashboardStyle,
+  language = 'en',
   onAddGoal,
   onDeleteGoal,
   logReading
@@ -34,6 +37,15 @@ export default function Dashboard({
   const [tempPage, setTempPage] = useState(0);
   const [isAddGoalModalOpen, setIsAddGoalModalOpen] = useState(false);
   const insets = useSafeArea();
+
+  const isRTL = language === 'ar';
+  const t = translations[language];
+
+  // Pick a random quote on each "open/mount" of the dashboard
+  const randomQuote = useMemo(() => {
+    const q = t.quotes;
+    return q[Math.floor(Math.random() * q.length)];
+  }, [t.quotes]);
 
   const currentBook = books[currentIndex];
 
@@ -57,13 +69,17 @@ export default function Dashboard({
 
   if (books.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full px-10 text-center gap-6">
+      <div className="flex flex-col items-center justify-center h-full px-10 text-center gap-6" dir={isRTL ? "rtl" : "ltr"}>
         <div className="w-24 h-24 bg-zinc-200 dark:bg-zinc-800 rounded-full flex items-center justify-center animate-pulse">
            <BookOpen className="w-10 h-10 text-zinc-400 dark:text-zinc-600" />
         </div>
         <div>
-          <h2 className="text-2xl font-serif font-medium mb-3">Your library is waiting</h2>
-          <p className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">Add a book to start tracking</p>
+          <h2 className={cn("text-2xl font-serif mb-3", isRTL ? "font-bold" : "font-medium")}>
+            {isRTL ? "مكتبتك في انتظارك" : "Your library is waiting"}
+          </h2>
+          <p className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
+            {isRTL ? "أضف كتاباً لبدء المتابعة" : "Add a book to start tracking"}
+          </p>
         </div>
       </div>
     );
@@ -77,10 +93,21 @@ export default function Dashboard({
     <div 
       style={{ paddingTop: `${insets.top + 32}px` }}
       className="flex flex-col h-full overflow-hidden"
+      dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="px-6 mb-8 flex-shrink-0">
-        <h1 className="text-4xl font-serif font-medium tracking-tight">Today</h1>
-        <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-[0.3em] mt-2">Continuity is key</p>
+        <div className="flex items-center gap-3 mb-2">
+          <Quote className="w-4 h-4 text-orange-500 opacity-50" />
+          <h1 className={cn("text-4xl font-serif tracking-tight", isRTL ? "font-bold" : "font-medium")}>{t.today}</h1>
+        </div>
+        <motion.p 
+          key={randomQuote}
+          initial={{ opacity: 0, x: isRTL ? 10 : -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="text-[11px] font-serif italic text-zinc-500 dark:text-zinc-400 leading-relaxed max-w-[80%]"
+        >
+          "{randomQuote}"
+        </motion.p>
       </div>
 
       <div className="flex-1 flex flex-col justify-between overflow-y-auto no-scrollbar pb-10">
@@ -106,22 +133,25 @@ export default function Dashboard({
               className="px-6 space-y-8"
             >
               <div className="text-center max-w-sm mx-auto">
-                <h2 className="text-2xl font-serif font-medium leading-tight mb-1">{currentBook.title}</h2>
+                <h2 className={cn("text-2xl font-serif leading-tight mb-1", isRTL ? "font-bold" : "font-medium")}>{currentBook.title}</h2>
                 {currentBook.author && (
-                  <p className="text-xs font-mono uppercase tracking-widest text-zinc-400">{currentBook.author}</p>
+                  <p className={cn("text-xs font-mono uppercase tracking-widest text-zinc-400", isRTL && "font-bold")}>{currentBook.author}</p>
                 )}
               </div>
 
               {/* Progress Summary */}
               <div className="flex flex-col items-center">
-                <div className="text-5xl font-serif font-medium tracking-tighter mb-2">
+                <div className={cn("text-5xl font-serif tracking-tighter mb-2", isRTL ? "font-bold" : "font-medium")}>
                   {Math.round(progress)}%
                 </div>
-                <div className="w-48 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                <div className="w-48 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden relative">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${progress}%` }}
-                    className="h-full bg-orange-500 rounded-full"
+                    className={cn(
+                      "absolute top-0 bottom-0 bg-orange-500 rounded-full",
+                      isRTL ? "right-0" : "left-0"
+                    )}
                   />
                 </div>
               </div>
@@ -129,13 +159,13 @@ export default function Dashboard({
               {/* Stats Grid */}
               <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
                 <StatCard 
-                  label="Goal" 
-                  value={`${ppd} pgs/day`} 
+                  label={t.dashboard} 
+                  value={`${ppd} ${t.units}/${isRTL ? "يوم" : "day"}`} 
                   icon={<Clock className="w-3 h-3" />} 
                 />
                 <StatCard 
-                  label="Left" 
-                  value={`${daysLeft} days`} 
+                  label={isRTL ? "متبقى" : "Left"} 
+                  value={`${daysLeft} ${isRTL ? "أيام" : "days"}`} 
                   icon={<Calendar className="w-3 h-3" />} 
                 />
               </div>
@@ -148,14 +178,14 @@ export default function Dashboard({
                   }}
                   className="w-full py-4 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors active:scale-95"
                 >
-                  Log Reading Progress
+                  {t.logReading}
                 </button>
               </div>
 
               {/* Goals Section */}
               <div className="pt-8 space-y-6 max-w-sm mx-auto">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-mono uppercase tracking-widest text-zinc-400">Your Goals</h3>
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">{t.goals}</h3>
                   <button 
                     onClick={() => setIsAddGoalModalOpen(true)}
                     className="p-2 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 rounded-full hover:scale-110 transition-transform active:scale-95"
@@ -167,7 +197,9 @@ export default function Dashboard({
                 <div className="space-y-4">
                   {(!goals || goals.length === 0) ? (
                     <div className="p-6 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center">
-                      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">No active goals</p>
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
+                        {isRTL ? "لا توجد أهداف نشطة" : "No active goals"}
+                      </p>
                     </div>
                   ) : (
                     goals.map(goal => (
@@ -176,6 +208,7 @@ export default function Dashboard({
                         goal={goal} 
                         readingLogs={readingLogs || []} 
                         onDelete={() => onDeleteGoal(goal.id)}
+                        language={language}
                       />
                     ))
                   )}
@@ -191,6 +224,7 @@ export default function Dashboard({
         isOpen={isAddGoalModalOpen}
         onClose={() => setIsAddGoalModalOpen(false)}
         onAdd={onAddGoal}
+        language={language}
       />
 
       {/* Progress Update Modal */}
@@ -210,12 +244,15 @@ export default function Dashboard({
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="fixed bottom-0 left-0 right-0 z-[510] w-full bg-white dark:bg-zinc-900 rounded-t-[2.5rem] p-10 pb-[calc(var(--sab)+2rem)] shadow-2xl"
+              dir={isRTL ? "rtl" : "ltr"}
             >
               <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-10" />
               
                <div className="mb-10 space-y-4">
                 <div className="flex justify-between items-baseline mb-2">
-                   <h3 className="text-2xl font-serif font-medium">Update Reading</h3>
+                   <h3 className="text-2xl font-serif font-medium">
+                    {isRTL ? "تحديث القراءة" : "Update Reading"}
+                   </h3>
                    <span className="text-4xl font-serif text-orange-500">{tempPage}</span>
                 </div>
                 
@@ -229,8 +266,8 @@ export default function Dashboard({
                     className="w-full h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full appearance-none accent-zinc-900 dark:accent-zinc-50 cursor-pointer"
                   />
                   <div className="flex justify-between mt-4 text-[8px] font-mono uppercase tracking-[0.2em] text-zinc-400">
-                    <span>Start</span>
-                    <span>End ({currentBook.totalPages})</span>
+                    <span>{isRTL ? "البداية" : "Start"}</span>
+                    <span>{isRTL ? "النهاية" : "End"} ({currentBook.totalPages})</span>
                   </div>
                 </div>
               </div>
@@ -240,13 +277,13 @@ export default function Dashboard({
                   onClick={() => setTempPage(Math.min(currentBook.currentPage + ppd, currentBook.totalPages))}
                   className="py-5 px-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono uppercase tracking-widest active:scale-95 transition-transform"
                 >
-                  Goal (+{ppd})
+                  {isRTL ? "الهدف" : "Goal"} (+{ppd})
                 </button>
                 <button 
                   onClick={() => handleUpdateProgress(tempPage)}
                   className="py-5 px-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
                 >
-                  Complete
+                  {isRTL ? "إتمام" : "Complete"}
                 </button>
               </div>
             </motion.div>
@@ -270,13 +307,14 @@ function StatCard({ label, value, icon }: { label: string, value: string, icon: 
 }
 
 interface GoalCardProps {
-  key?: React.Key;
   goal: ReadingGoal;
   readingLogs: ReadingLog[];
   onDelete: () => void;
+  language: 'en' | 'ar';
 }
 
-function GoalCard({ goal, readingLogs, onDelete }: GoalCardProps) {
+function GoalCard({ goal, readingLogs, onDelete, language }: GoalCardProps) {
+  const isRTL = language === 'ar';
   const progress = goal.frequency === 'daily' 
     ? getPagesReadToday(readingLogs) 
     : getPagesReadThisWeek(readingLogs);
@@ -289,9 +327,13 @@ function GoalCard({ goal, readingLogs, onDelete }: GoalCardProps) {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Target className="w-3 h-3 text-orange-500" />
-            <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">{goal.frequency} goal</span>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
+              {isRTL 
+                ? (goal.frequency === 'daily' ? "هدف يومي" : "هدف أسبوعي") 
+                : `${goal.frequency} goal`}
+            </span>
           </div>
-          <div className="text-xl font-serif font-medium">{goal.target} Pages</div>
+          <div className="text-xl font-serif font-medium">{goal.target} {isRTL ? "صفحة" : "Pages"}</div>
         </div>
         <button 
           onClick={onDelete}
@@ -303,15 +345,16 @@ function GoalCard({ goal, readingLogs, onDelete }: GoalCardProps) {
 
       <div className="space-y-2">
         <div className="flex justify-between items-baseline text-[10px] font-mono uppercase tracking-widest">
-          <span className="text-zinc-400">Progress</span>
+          <span className="text-zinc-400">{isRTL ? "التقدم" : "Progress"}</span>
           <span className="text-zinc-900 dark:text-zinc-50 font-bold">{progress} / {goal.target}</span>
         </div>
-        <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+        <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden relative">
           <motion.div 
             initial={{ width: 0 }}
             animate={{ width: `${percentage}%` }}
             className={cn(
-              "h-full rounded-full transition-colors duration-500",
+              "absolute top-0 bottom-0 rounded-full transition-colors duration-500",
+              isRTL ? "right-0" : "left-0",
               percentage === 100 ? "bg-green-500" : "bg-orange-500"
             )}
           />
@@ -321,9 +364,10 @@ function GoalCard({ goal, readingLogs, onDelete }: GoalCardProps) {
   );
 }
 
-function AddGoalModal({ isOpen, onClose, onAdd }: { isOpen: boolean, onClose: () => void, onAdd: (goal: ReadingGoal) => void }) {
+function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, onClose: () => void, onAdd: (goal: ReadingGoal) => void, language: 'en' | 'ar' }) {
   const [target, setTarget] = useState(10);
   const [frequency, setFrequency] = useState<GoalFrequency>('daily');
+  const isRTL = language === 'ar';
 
   const handleSubmit = () => {
     onAdd({
@@ -351,12 +395,17 @@ function AddGoalModal({ isOpen, onClose, onAdd }: { isOpen: boolean, onClose: ()
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
             className="fixed inset-0 m-auto z-[610] w-[90%] max-w-sm h-fit bg-white dark:bg-zinc-900 rounded-[2.5rem] p-8 shadow-2xl border border-zinc-200 dark:border-white/5"
+            dir={isRTL ? "rtl" : "ltr"}
           >
-            <h3 className="text-2xl font-serif font-medium mb-8">New Goal</h3>
+            <h3 className={cn("text-2xl font-serif mb-8", isRTL ? "font-bold" : "font-medium")}>
+              {isRTL ? "هدف جديد" : "New Goal"}
+            </h3>
             
             <div className="space-y-8 mb-10">
               <div>
-                <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">Target Pages</label>
+                <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">
+                  {isRTL ? "عدد الصفحات المستهدف" : "Target Pages"}
+                </label>
                 <div className="flex items-center justify-center gap-6">
                   <button 
                     onClick={() => setTarget(t => Math.max(1, t - 5))}
@@ -371,7 +420,9 @@ function AddGoalModal({ isOpen, onClose, onAdd }: { isOpen: boolean, onClose: ()
               </div>
 
               <div>
-                <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">Frequency</label>
+                <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">
+                  {isRTL ? "التكرار" : "Frequency"}
+                </label>
                 <div className="flex gap-2">
                   {(['daily', 'weekly'] as const).map(f => (
                     <button
@@ -384,7 +435,7 @@ function AddGoalModal({ isOpen, onClose, onAdd }: { isOpen: boolean, onClose: ()
                           : "border-zinc-200 dark:border-zinc-800 text-zinc-400"
                       )}
                     >
-                      {f}
+                      {isRTL ? (f === 'daily' ? "يومي" : "أسبوعي") : f}
                     </button>
                   ))}
                 </div>
@@ -396,13 +447,13 @@ function AddGoalModal({ isOpen, onClose, onAdd }: { isOpen: boolean, onClose: ()
                 onClick={onClose}
                 className="flex-1 py-4 text-[10px] font-mono uppercase tracking-widest text-zinc-400"
               >
-                Cancel
+                {isRTL ? "إلغاء" : "Cancel"}
               </button>
               <button 
                 onClick={handleSubmit}
                 className="flex-[2] py-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
               >
-                Set Goal
+                {isRTL ? "حفظ الهدف" : "Set Goal"}
               </button>
             </div>
           </motion.div>

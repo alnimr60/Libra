@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Book, ReadingStatus } from '../types';
-import { Search, Grid, List as ListIcon, Trash2, MoreHorizontal, BookOpen, Clock, CheckCircle2, ChevronRight, X, PlayCircle, Plus } from 'lucide-react';
+import { Book, ReadingStatus, AppSettings } from '../types';
+import { Search, Grid, List as ListIcon, Trash2, BookOpen, Clock, CheckCircle2, ChevronRight, X, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSafeArea } from './SafeAreaProvider';
+import { translations } from '../translations';
 
 interface LibraryProps {
   allBooks: Book[];
@@ -11,9 +12,10 @@ interface LibraryProps {
   deleteBook: (id: string) => void;
   onOpenBook: (book: Book) => void;
   onAddClick: () => void;
+  settings: AppSettings;
 }
 
-export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, onAddClick }: LibraryProps) {
+export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, onAddClick, settings }: LibraryProps) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ReadingStatus | 'All'>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -22,6 +24,8 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '' });
   const insets = useSafeArea();
+  const t = translations[settings.language];
+  const isRTL = settings.language === 'ar';
 
   const filteredBooks = useMemo(() => {
     return allBooks.filter(book => {
@@ -64,31 +68,25 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
     }
   };
 
-  const uniqueTags = useMemo(() => {
-    const tags = new Set<string>();
-    allBooks.forEach(b => b.tags.forEach(t => tags.add(t)));
-    return Array.from(tags);
-  }, [allBooks]);
-
   return (
     <div 
       style={{ paddingTop: `${insets.top + 32}px` }}
       className="px-6 flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500 overflow-hidden"
+      dir={isRTL ? "rtl" : "ltr"}
     >
       {/* Header Section */}
       <header className="mb-10 space-y-6 flex-shrink-0">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-4xl font-serif font-medium tracking-tight text-zinc-900 dark:text-zinc-50">Library</h1>
-            <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.3em] mt-2">
-              {allBooks.length} VOLUMES COLLECTED
+            <h1 className={cn("text-4xl font-serif tracking-tight text-zinc-900 dark:text-zinc-50", isRTL ? "font-bold" : "font-medium")}>{t.dashboard}</h1>
+            <p className={cn("text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.3em] mt-2", isRTL && "font-bold")}>
+              {allBooks.length} {isRTL ? "مجلد مجمّع" : "VOLUMES COLLECTED"}
             </p>
           </div>
           <div className="flex items-center gap-3">
             <button 
               onClick={onAddClick}
-              className="p-3 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all"
-              title="Add Volume"
+              className="p-3 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all outline-none"
             >
               <Plus className="w-5 h-5" />
             </button>
@@ -117,13 +115,13 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
 
         {/* Minimal Search */}
         <div className="relative group">
-          <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-orange-500 transition-colors" />
+          <Search className={cn("absolute top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-orange-500 transition-colors", isRTL ? "right-0" : "left-0")} />
           <input 
             type="text"
-            placeholder="Search your collection..."
+            placeholder={isRTL ? "ابحث في مكتبتك..." : "Search your collection..."}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-7 pr-4 py-2 bg-transparent border-b border-zinc-200 dark:border-zinc-800 focus:border-orange-500 focus:outline-none text-sm transition-colors placeholder:text-zinc-300 dark:placeholder:text-zinc-700"
+            className={cn("w-full py-2 bg-transparent border-b border-zinc-200 dark:border-zinc-800 focus:border-orange-500 focus:outline-none text-sm transition-colors placeholder:text-zinc-300 dark:placeholder:text-zinc-700", isRTL ? "pr-7 pl-4 text-right" : "pl-7 pr-4 text-left")}
           />
         </div>
 
@@ -136,11 +134,17 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               className={cn(
                 "text-[10px] font-mono uppercase tracking-[0.2em] whitespace-nowrap transition-all relative pb-2",
                 filterStatus === status 
-                  ? "text-zinc-900 dark:text-zinc-100" 
-                  : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                  ? "text-zinc-900 dark:text-zinc-100 font-bold" 
+                  : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300",
+                isRTL && "font-bold tracking-normal"
               )}
             >
-              {status}
+              {isRTL ? {
+                'All': 'الكل',
+                'Currently Reading': 'أقرأه الآن',
+                'To-Be-Read': 'قائمة القراءة',
+                'Finished': 'مكتمل'
+              }[status] : status}
               {filterStatus === status && (
                 <motion.div 
                   layoutId="activeFilter"
@@ -170,6 +174,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                   viewMode={viewMode}
                   index={idx}
                   onClick={() => setSelectedBookId(book.id)}
+                  isRTL={isRTL}
                 />
               ))}
             </motion.div>
@@ -182,7 +187,9 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               <div className="w-12 h-12 rounded-full border border-zinc-200 dark:border-zinc-800 flex items-center justify-center mb-4">
                 <Search className="w-5 h-5 text-zinc-300 dark:text-zinc-700" />
               </div>
-              <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">No volumes match your query</p>
+              <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                {isRTL ? "لا توجد نتائج مطابقة" : "No volumes match your query"}
+              </p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -209,6 +216,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="fixed bottom-0 left-0 right-0 bg-white dark:bg-zinc-900 rounded-t-[2.5rem] z-[510] border-t border-zinc-200 dark:border-zinc-800 p-8 pb-[calc(var(--sab)+2rem)] shadow-2xl overflow-hidden"
+              dir={isRTL ? "rtl" : "ltr"}
             >
               <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-8" />
               
@@ -229,7 +237,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                     <img src={isEditing ? editForm.coverUrl : selectedBook.coverUrl} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center p-2 text-center">
-                      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">No Cover</span>
+                      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">{isRTL ? "لا يوجد غلاف" : "No Cover"}</span>
                     </div>
                   )}
                 </div>
@@ -238,40 +246,23 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                     <div className="space-y-3">
                       <input 
                         type="text"
-                        placeholder="Volume Title"
+                        placeholder={isRTL ? "عنوان المجلد" : "Volume Title"}
                         value={editForm.title}
                         onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
                         className="w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-sm font-serif focus:outline-none focus:ring-1 focus:ring-orange-500"
                       />
                       <input 
                         type="text"
-                        placeholder="Author"
+                        placeholder={isRTL ? "المؤلف" : "Author"}
                         value={editForm.author}
                         onChange={(e) => setEditForm(prev => ({ ...prev, author: e.target.value }))}
                         className="w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
                       />
-                      <div className="relative group/input">
-                        <input 
-                          type="text"
-                          placeholder="Cover URL"
-                          value={editForm.coverUrl}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, coverUrl: e.target.value }))}
-                          className="w-full bg-zinc-100 dark:bg-zinc-800 pl-3 pr-8 py-2 rounded-xl text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 transition-all"
-                        />
-                        {editForm.coverUrl && (
-                          <button 
-                            onClick={() => setEditForm(prev => ({ ...prev, coverUrl: '' }))}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
                     </div>
                   ) : (
                     <>
-                      <h2 className="text-2xl font-serif font-medium text-zinc-900 dark:text-zinc-50 leading-tight mb-1">{selectedBook.title}</h2>
-                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">{selectedBook.author || 'Unknown Author'}</p>
+                      <h2 className={cn("text-2xl font-serif text-zinc-900 dark:text-zinc-50 leading-tight mb-1", isRTL ? "font-bold" : "font-medium")}>{selectedBook.title}</h2>
+                      <p className={cn("text-sm text-zinc-500 dark:text-zinc-400 mb-4", isRTL && "font-bold")}>{selectedBook.author || (isRTL ? "مؤلف مجهول" : 'Unknown Author')}</p>
                     </>
                   )}
                   
@@ -282,23 +273,13 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                           onClick={handleSaveEdit}
                           className="flex-1 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 py-3.5 px-6 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] active:scale-95 transition-transform shadow-lg"
                         >
-                          Save
+                          {isRTL ? "حفظ" : "Save"}
                         </button>
                         <button 
-                          onClick={() => {
-                            setIsEditing(false);
-                            // Explicitly reset form to current book state just in case
-                            if (selectedBook) {
-                              setEditForm({
-                                title: selectedBook.title,
-                                author: selectedBook.author || '',
-                                coverUrl: selectedBook.coverUrl || ''
-                              });
-                            }
-                          }}
+                          onClick={() => setIsEditing(false)}
                           className="px-6 py-3.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 active:scale-95 transition-all"
                         >
-                          Discard
+                          {isRTL ? "إلغاء" : "Discard"}
                         </button>
                       </>
                     ) : (
@@ -313,7 +294,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                           }}
                           className="flex-1 py-3 text-white text-[10px] font-mono uppercase tracking-[0.2em] font-bold hover:bg-red-700 transition-colors"
                         >
-                          Confirm Delete
+                          {isRTL ? "تأكيد الحذف" : "Confirm Delete"}
                         </button>
                         <button 
                           onClick={() => setIsConfirmingDelete(false)}
@@ -328,7 +309,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                           onClick={startEditing}
                           className="flex-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 py-3.5 px-6 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] active:scale-95 transition-transform"
                         >
-                          Edit
+                          {isRTL ? "تعديل" : "Edit"}
                         </button>
                         <button 
                           onClick={() => setIsConfirmingDelete(true)}
@@ -346,12 +327,12 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
 
               <div className="space-y-6">
                 <div>
-                  <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest mb-4">Reading Status</p>
+                  <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest mb-4">{isRTL ? "حالة القراءة" : "Reading Status"}</p>
                   <div className="grid grid-cols-3 gap-3">
                     {[
-                      { id: 'To-Be-Read', icon: Clock, label: 'Queue' },
-                      { id: 'Currently Reading', icon: BookOpen, label: 'Reading' },
-                      { id: 'Finished', icon: CheckCircle2, label: 'Done' }
+                      { id: 'To-Be-Read', icon: Clock, label: isRTL ? 'انتظار' : 'Queue' },
+                      { id: 'Currently Reading', icon: BookOpen, label: isRTL ? 'قراءة' : 'Reading' },
+                      { id: 'Finished', icon: CheckCircle2, label: isRTL ? 'مكتمل' : 'Done' }
                     ].map((s) => (
                       <button
                         key={s.id}
@@ -375,14 +356,14 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                 {selectedBook.status === 'Currently Reading' && (
                   <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-100 dark:border-zinc-800">
                     <div className="flex justify-between items-baseline mb-2">
-                      <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">Progress</p>
+                      <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">{isRTL ? "التقدم" : "Progress"}</p>
                       <p className="text-sm font-serif">{Math.round((selectedBook.currentPage / selectedBook.totalPages) * 100)}%</p>
                     </div>
-                    <div className="h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
+                    <div className="h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden relative">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${(selectedBook.currentPage / selectedBook.totalPages) * 100}%` }}
-                        className="h-full bg-orange-500"
+                        className={cn("absolute top-0 bottom-0 bg-orange-500", isRTL ? "right-0" : "left-0")}
                       />
                     </div>
                   </div>
@@ -400,13 +381,14 @@ function BookLibraryItem({
   book, 
   viewMode, 
   index,
-  onClick
+  onClick,
+  isRTL
 }: { 
   book: Book, 
   viewMode: 'grid' | 'list',
   index: number,
   onClick: () => void,
-  key?: React.Key
+  isRTL: boolean
 }) {
   const progress = (book.currentPage / book.totalPages) * 100;
 
@@ -419,6 +401,7 @@ function BookLibraryItem({
         exit={{ opacity: 0, scale: 0.9 }}
         transition={{ delay: index * 0.05 }}
         className="group cursor-pointer"
+        dir={isRTL ? "rtl" : "ltr"}
       >
         <div 
           onClick={onClick}
@@ -437,8 +420,8 @@ function BookLibraryItem({
           )}
           
           {progress > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/5 dark:bg-white/5">
-              <div className="h-full bg-orange-500" style={{ width: `${progress}%` }} />
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/5 dark:bg-white/5 relative">
+              <div className={cn("h-full bg-orange-500 absolute top-0 bottom-0", isRTL ? "right-0" : "left-0")} style={{ width: `${progress}%` }} />
             </div>
           )}
 
@@ -446,11 +429,11 @@ function BookLibraryItem({
         </div>
         
         <div className="space-y-1" onClick={onClick}>
-          <h3 className="text-sm font-serif font-medium leading-snug line-clamp-2 text-zinc-900 dark:text-zinc-50 group-hover:text-orange-600 transition-colors">
+          <h3 className={cn("text-sm font-serif leading-snug line-clamp-2 text-zinc-900 dark:text-zinc-50 group-hover:text-orange-600 transition-colors", isRTL ? "font-bold" : "font-medium")}>
             {book.title}
           </h3>
-          <p className="text-[11px] text-zinc-400 dark:text-zinc-500 uppercase tracking-widest font-mono truncate">
-            {book.author || 'ANONYMOUS'}
+          <p className={cn("text-[11px] text-zinc-400 dark:text-zinc-500 uppercase tracking-widest font-mono truncate", isRTL && "font-bold")}>
+            {book.author || (isRTL ? 'مؤلف مجهول' : 'ANONYMOUS')}
           </p>
         </div>
       </motion.div>
@@ -460,11 +443,12 @@ function BookLibraryItem({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, x: -10 }}
+      initial={{ opacity: 0, x: isRTL ? 10 : -10 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0 }}
       transition={{ delay: index * 0.05 }}
       className="group flex items-center gap-6 py-4 border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 transition-colors"
+      dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="w-12 h-16 rounded-lg overflow-hidden shadow-sm flex-shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900" onClick={onClick}>
         {book.coverUrl ? (
@@ -477,20 +461,20 @@ function BookLibraryItem({
       </div>
       
       <div className="flex-1 min-w-0" onClick={onClick}>
-        <h3 className="text-sm font-serif font-medium text-zinc-900 dark:text-zinc-50 truncate group-hover:text-orange-600 transition-colors">{book.title}</h3>
-        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono uppercase tracking-widest truncate">{book.author || 'ANONYMOUS'}</p>
+        <h3 className={cn("text-sm font-serif text-zinc-900 dark:text-zinc-50 truncate group-hover:text-orange-600 transition-colors", isRTL ? "text-right font-bold" : "text-left font-medium")}>{book.title}</h3>
+        <p className={cn("text-[10px] text-zinc-400 dark:text-zinc-500 font-mono uppercase tracking-widest truncate", isRTL ? "text-right font-bold" : "text-left")}>{book.author || (isRTL ? 'مؤلف مجهول' : 'ANONYMOUS')}</p>
       </div>
 
       <div className="flex items-center gap-8">
         {book.status === 'Currently Reading' && (
           <div className="hidden sm:flex flex-col items-end gap-1.5 min-w-[100px]" onClick={onClick}>
-             <div className="w-24 h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-               <div className="h-full bg-orange-500" style={{ width: `${progress}%` }} />
+             <div className="w-24 h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden relative">
+               <div className={cn("h-full bg-orange-500 absolute top-0 bottom-0", isRTL ? "right-0" : "left-0")} style={{ width: `${progress}%` }} />
              </div>
-             <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">{Math.round(progress)}% COMPLETE</span>
+             <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">{Math.round(progress)}% {isRTL ? "مكتمل" : "COMPLETE"}</span>
           </div>
         )}
-        <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-700 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-50 transition-all" onClick={onClick} />
+        <ChevronRight className={cn("w-4 h-4 text-zinc-300 dark:text-zinc-700 group-hover:text-zinc-900 dark:group-hover:text-zinc-50 transition-all", isRTL ? "rotate-180 group-hover:-translate-x-1" : "group-hover:translate-x-1")} onClick={onClick} />
       </div>
     </motion.div>
   );

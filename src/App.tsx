@@ -10,11 +10,12 @@ import Library from './components/Library';
 import Settings from './components/Settings';
 import AddBookModal from './components/AddBookModal';
 import PDFReader from './components/PDFReader';
-import { Home, Library as LibraryIcon, Settings as SettingsIcon, Plus } from 'lucide-react';
+import { Home, Library as LibraryIcon, Settings as SettingsIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { useSafeArea } from './components/SafeAreaProvider';
 import { Book } from './types';
+import { translations } from './translations';
 
 type ActiveTab = 'home' | 'library' | 'settings';
 
@@ -29,6 +30,9 @@ export default function App() {
   } = usePersistence();
   const insets = useSafeArea();
 
+  const isRTL = settings.language === 'ar';
+  const t = translations[settings.language];
+
   const activeBook = books.find(b => b.id === activeBookId);
   const currentBooks = books.filter(b => b.status === 'Currently Reading');
 
@@ -37,7 +41,10 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-500 overflow-hidden flex flex-col">
+    <div 
+      className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-500 overflow-hidden flex flex-col"
+      dir={isRTL ? "rtl" : "ltr"}
+    >
       {/* Dynamic Background Atmosphere */}
       <div className="fixed inset-0 pointer-events-none opacity-20 dark:opacity-40 overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full bg-orange-200/40 dark:bg-orange-900/20 blur-[120px]" />
@@ -61,6 +68,7 @@ export default function App() {
                 goals={goals}
                 readingLogs={readingLogs}
                 dashboardStyle={settings.dashboardStyle}
+                language={settings.language}
                 onAddGoal={addGoal}
                 onDeleteGoal={deleteGoal}
                 logReading={logReading}
@@ -81,6 +89,7 @@ export default function App() {
                 deleteBook={deleteBook}
                 onOpenBook={handleOpenBook}
                 onAddClick={() => setIsAddModalOpen(true)}
+                settings={settings}
               />
             </motion.div>
           )}
@@ -114,19 +123,19 @@ export default function App() {
           active={activeTab === 'home'}
           onClick={() => setActiveTab('home')}
           icon={<Home className="w-5 h-5 transition-transform duration-500 group-hover:scale-110" />}
-          label="Home"
+          label={t.today}
         />
         <NavButton
           active={activeTab === 'library'}
           onClick={() => setActiveTab('library')}
           icon={<LibraryIcon className="w-5 h-5 transition-transform duration-500 group-hover:scale-110" />}
-          label="Library"
+          label={t.dashboard}
         />
         <NavButton
           active={activeTab === 'settings'}
           onClick={() => setActiveTab('settings')}
           icon={<SettingsIcon className="w-5 h-5 transition-transform duration-500 group-hover:scale-110" />}
-          label="Settings"
+          label={t.settings}
         />
       </nav>
 
@@ -164,6 +173,7 @@ export default function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAdd={addBook}
+        language={settings.language}
       />
     </div>
   );

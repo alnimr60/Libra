@@ -6,13 +6,18 @@ import { extractPDFMetadata } from '../lib/pdf';
 import { cn } from '../lib/utils';
 import { set } from 'idb-keyval';
 
+import { translations } from '../translations';
+
 interface AddBookModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (book: Book) => void;
+  language?: 'en' | 'ar';
 }
 
-export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalProps) {
+export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }: AddBookModalProps) {
+  const isRTL = language === 'ar';
+  const t = translations[language];
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState<Partial<Book>>({
@@ -132,14 +137,16 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="bg-white dark:bg-[#1A1614] w-full max-w-lg rounded-[32px] overflow-hidden flex flex-col max-h-[90vh]"
       >
-        <div className="px-8 py-6 flex justify-between items-center border-b border-black/5 dark:border-white/5">
-          <h2 className="text-xl font-serif font-medium">Add to Library</h2>
-          <button onClick={onClose} className="p-2 -mr-2 opacity-50 hover:opacity-100">
+        <div className="px-8 py-6 flex justify-between items-center border-b border-black/5 dark:border-white/5" dir={isRTL ? "rtl" : "ltr"}>
+          <h2 className={cn("text-xl font-serif", isRTL ? "font-bold" : "font-medium")}>
+            {isRTL ? "إضافة إلى المكتبة" : "Add to Library"}
+          </h2>
+          <button onClick={onClose} className={cn("p-2 opacity-50 hover:opacity-100", isRTL ? "-ml-2" : "-mr-2")}>
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        <div className="p-8 overflow-y-auto flex-1">
+        <div className="p-8 overflow-y-auto flex-1" dir={isRTL ? "rtl" : "ltr"}>
           <AnimatePresence mode="wait">
             {step === 1 && (
               <motion.div
@@ -150,7 +157,9 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
                 className="flex flex-col gap-8"
               >
                 <div className="text-center space-y-2">
-                  <p className="text-sm opacity-60">Upload your PDF or manual details</p>
+                  <p className={cn("text-sm opacity-60", isRTL && "font-bold")}>
+                    {isRTL ? "ارفع ملف PDF أو أدخل البيانات يدوياً" : "Upload your PDF or manual details"}
+                  </p>
                 </div>
 
                 <div 
@@ -165,7 +174,9 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
                       <div className="w-16 h-16 bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-full flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg">
                         <Upload className="w-8 h-8" />
                       </div>
-                      <span className="text-sm font-medium">Drop PDF here or Browse</span>
+                      <span className={cn("text-sm font-medium", isRTL && "font-bold")}>
+                        {isRTL ? "اسحب الملف هنا أو تصفح" : "Drop PDF here or Browse"}
+                      </span>
                     </>
                   )}
                 </div>
@@ -174,16 +185,18 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-black/5 dark:border-white/5"></div>
                   </div>
-                  <div className="relative flex justify-center text-xs uppercase tracking-widest opacity-30">
-                    <span className="bg-white dark:bg-[#1A1614] px-4">Or start manually</span>
+                  <div className={cn("relative flex justify-center text-xs uppercase tracking-widest opacity-30", isRTL && "tracking-normal")}>
+                    <span className="bg-white dark:bg-[#1A1614] px-4">
+                      {isRTL ? "أو ابدأ يدوياً" : "Or start manually"}
+                    </span>
                   </div>
                 </div>
 
                 <button 
                   onClick={() => setStep(2)}
-                  className="w-full py-4 text-sm font-medium bg-black/5 dark:bg-white/5 rounded-2xl hover:bg-black/10 transition-colors"
+                  className={cn("w-full py-4 text-sm font-medium bg-black/5 dark:bg-white/5 rounded-2xl hover:bg-black/10 transition-colors", isRTL && "font-bold")}
                 >
-                  Enter manual details
+                  {isRTL ? "إدخال يدوي" : "Enter manual details"}
                 </button>
               </motion.div>
             )}
@@ -218,52 +231,60 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
                   <div className="flex-1 space-y-4">
                     <InputGroup 
                       icon={<BookIcon className="w-4 h-4" />}
-                      label="Book Title"
+                      label={isRTL ? "عنوان المجلد" : "Book Title"}
                       value={formData.title}
                       onChange={(val) => setFormData(p => ({ ...p, title: val }))}
-                      placeholder="The Great Gatsby"
+                      placeholder={isRTL ? "مثال: مقدمة ابن خلدون" : "The Great Gatsby"}
+                      isRTL={isRTL}
                     />
                     <InputGroup 
                       icon={<Tag className="w-4 h-4" />}
-                      label="Author"
+                      label={isRTL ? "المؤلف" : "Author"}
                       value={formData.author}
                       onChange={(val) => setFormData(p => ({ ...p, author: val }))}
-                      placeholder="F. Scott Fitzgerald"
+                      placeholder={isRTL ? "مثال: ابن خلدون" : "F. Scott Fitzgerald"}
+                      isRTL={isRTL}
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <InputGroup 
-                    label="Total Pages"
+                    label={isRTL ? "عدد الصفحات" : "Total Pages"}
                     type="number"
                     value={formData.totalPages}
                     onChange={(val) => setFormData(p => ({ ...p, totalPages: parseInt(val) || 0 }))}
+                    isRTL={isRTL}
                   />
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase tracking-widest opacity-40 ml-1 font-semibold">Status</label>
+                  <div className="space-y-1.5 text-right">
+                    <label className={cn("text-[10px] uppercase tracking-widest opacity-40 font-semibold", isRTL ? "mr-1" : "ml-1")}>
+                      {isRTL ? "الحالة" : "Status"}
+                    </label>
                     <select 
                       value={formData.status}
                       onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as ReadingStatus }))}
                       className="w-full px-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl text-sm focus:outline-none"
                     >
-                      <option value="To-Be-Read">To-Be-Read</option>
-                      <option value="Currently Reading">Reading</option>
-                      <option value="Finished">Finished</option>
+                      <option value="To-Be-Read">{isRTL ? 'قائمة القراءة' : 'To-Be-Read'}</option>
+                      <option value="Currently Reading">{isRTL ? 'أقرأه الآن' : 'Reading'}</option>
+                      <option value="Finished">{isRTL ? 'مكتمل' : 'Finished'}</option>
                     </select>
                   </div>
                 </div>
 
                 <InputGroup 
                   icon={<CalendarIcon className="w-4 h-4" />}
-                  label="Deadline"
+                  label={isRTL ? "الموعد النهائي" : "Deadline"}
                   type="date"
                   value={formData.deadline}
                   onChange={(val) => setFormData(p => ({ ...p, deadline: val }))}
+                  isRTL={isRTL}
                 />
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest opacity-40 ml-1 font-semibold">Tags</label>
+                <div className="space-y-1.5 text-right">
+                  <label className={cn("text-[10px] uppercase tracking-widest opacity-40 font-semibold", isRTL ? "mr-1" : "ml-1")}>
+                     {isRTL ? "الوسوم" : "Tags"}
+                  </label>
                   <div className="flex gap-2 mb-2 flex-wrap">
                     {formData.tags?.map(t => (
                       <span key={t} className="px-3 py-1 bg-black/5 dark:bg-white/5 rounded-lg text-xs flex items-center gap-1">
@@ -277,11 +298,11 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
                   <div className="flex gap-2">
                     <input 
                       type="text"
-                      placeholder="Add tag (e.g. Fantasy)"
+                      placeholder={isRTL ? "أضف وسم (مثال: رواية)" : "Add tag (e.g. Fantasy)"}
                       value={tagInput}
                       onChange={(e) => setTagInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-                      className="flex-1 px-4 py-2 bg-black/5 dark:bg-white/5 rounded-xl text-sm focus:outline-none"
+                      className={cn("flex-1 px-4 py-2 bg-black/5 dark:bg-white/5 rounded-xl text-sm focus:outline-none", isRTL && "text-right")}
                     />
                     <button onClick={handleAddTag} className="p-2 bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-xl">
                       <CheckCircle className="w-5 h-5" />
@@ -292,15 +313,15 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
                 <div className="flex gap-4 pt-4">
                   <button 
                     onClick={() => setStep(1)}
-                    className="flex-1 py-4 text-sm font-medium border border-black/10 dark:border-white/10 rounded-2xl"
+                    className={cn("flex-1 py-4 text-sm font-medium border border-black/10 dark:border-white/10 rounded-2xl", isRTL && "font-bold")}
                   >
-                    Back
+                    {isRTL ? "رجوع" : "Back"}
                   </button>
                   <button 
                     onClick={handleSubmit}
-                    className="flex-[2] py-4 text-sm font-medium bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-2xl shadow-xl hover:scale-[1.02] transition-transform"
+                    className={cn("flex-[2] py-4 text-sm font-medium bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-2xl shadow-xl hover:scale-[1.02] transition-transform", isRTL && "font-bold")}
                   >
-                    Finish & Add Book
+                    {isRTL ? "إتمام وإضافة الكتاب" : "Finish & Add Book"}
                   </button>
                 </div>
               </motion.div>
@@ -318,20 +339,22 @@ function InputGroup({
   onChange, 
   placeholder, 
   type = 'text', 
-  icon 
+  icon,
+  isRTL
 }: { 
   label: string, 
   value: any, 
   onChange: (val: string) => void, 
   placeholder?: string, 
   type?: string,
-  icon?: React.ReactNode
+  icon?: React.ReactNode,
+  isRTL?: boolean
 }) {
   return (
-    <div className="space-y-1.5 flex-1">
-      <label className="text-[10px] uppercase tracking-widest opacity-40 ml-1 font-semibold">{label}</label>
+    <div className={cn("space-y-1.5 flex-1", isRTL ? "text-right" : "text-left")}>
+      <label className={cn("text-[10px] uppercase tracking-widest opacity-40 font-semibold", isRTL ? "mr-1" : "ml-1")}>{label}</label>
       <div className="relative">
-        {icon && <div className="absolute left-4 top-1/2 -translate-y-1/2 opacity-30">{icon}</div>}
+        {icon && <div className={cn("absolute top-1/2 -translate-y-1/2 opacity-30", isRTL ? "right-4" : "left-4")}>{icon}</div>}
         <input 
           type={type}
           value={value}
@@ -339,7 +362,8 @@ function InputGroup({
           placeholder={placeholder}
           className={cn(
             "w-full py-3 bg-black/5 dark:bg-white/5 rounded-2xl text-sm focus:outline-none",
-            icon ? "pl-11 pr-4" : "px-4"
+            icon ? (isRTL ? "pr-11 pl-4 text-right" : "pl-11 pr-4") : "px-4",
+            isRTL && !icon && "text-right"
           )}
         />
       </div>
