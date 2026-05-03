@@ -75,8 +75,8 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     const velocity = info.velocity.x;
     
     // Calculate final index based on position and momentum
-    // Reduced multiplier for more controlled momentum
-    const predictedOffset = -(offset + velocity * 0.12) / spacing;
+    // Increased multiplier to allow for multi-book "flick" traversal
+    const predictedOffset = -(offset + velocity * 0.4) / spacing;
     
     let nextIndex = Math.round(baseIndex.current + predictedOffset);
     nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
@@ -91,12 +91,13 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
       onChange(nextIndex);
     }
     
-    // Animate to final position
+    // Animate to final position with momentum preservation
     animate(virtualIndex, nextIndex, {
       type: 'spring',
-      stiffness: 300,
-      damping: 32,
-      velocity: -velocity / spacing 
+      stiffness: 180,
+      damping: 30,
+      velocity: -velocity / spacing,
+      restDelta: 0.001
     });
   };
 
