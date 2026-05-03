@@ -10,9 +10,10 @@ import { useSafeArea } from './SafeAreaProvider';
 interface DashboardProps {
   books: Book[];
   updateBook: (book: Book) => void;
+  onReaderToggle?: (active: boolean) => void;
 }
 
-export default function Dashboard({ books, updateBook }: DashboardProps) {
+export default function Dashboard({ books, updateBook, onReaderToggle }: DashboardProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isReaderOpen, setIsReaderOpen] = useState(false);
@@ -26,6 +27,7 @@ export default function Dashboard({ books, updateBook }: DashboardProps) {
     // Only open the reader if we are clicking the book that is ALREADY centered
     if (index === currentIndex && targetBook?.fileDataId) {
       setIsReaderOpen(true);
+      onReaderToggle?.(true);
     } else {
       // Otherwise, just move the carousel to that book
       setCurrentIndex(index);
@@ -141,7 +143,10 @@ export default function Dashboard({ books, updateBook }: DashboardProps) {
                 {currentBook.fileDataId && (
                   <motion.button
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => setIsReaderOpen(true)}
+                    onClick={() => {
+                      setIsReaderOpen(true);
+                      onReaderToggle?.(true);
+                    }}
                     className="flex-1 py-4 bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] rounded-2xl font-medium shadow-xl flex items-center justify-center gap-2"
                   >
                     <Eye className="w-5 h-5" />
@@ -164,7 +169,10 @@ export default function Dashboard({ books, updateBook }: DashboardProps) {
                handleUpdateProgress(page);
              }
           }}
-          onClose={() => setIsReaderOpen(false)}
+          onClose={() => {
+            setIsReaderOpen(false);
+            onReaderToggle?.(false);
+          }}
         />
       )}
 

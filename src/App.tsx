@@ -19,6 +19,7 @@ type ActiveTab = 'home' | 'library' | 'settings';
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isReaderActive, setIsReaderActive] = useState(false);
   const { books, settings, addBook, updateBook, deleteBook, setSettings } = usePersistence();
   const insets = useSafeArea();
 
@@ -42,7 +43,7 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               className="h-full"
             >
-              <Dashboard books={currentBooks} updateBook={updateBook} />
+              <Dashboard books={currentBooks} updateBook={updateBook} onReaderToggle={setIsReaderActive} />
             </motion.div>
           )}
           {activeTab === 'library' && (
@@ -71,20 +72,33 @@ export default function App() {
       </main>
 
       {/* Floating Action Button */}
-      <motion.button
-        whileTap={{ scale: 0.9 }}
-        onClick={() => setIsAddModalOpen(true)}
-        style={{ bottom: `${insets.bottom + 100}px` }}
-        className="fixed right-6 z-50 w-14 h-14 bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
-        id="add-book-fab"
-      >
-        <Plus className="w-8 h-8" />
-      </motion.button>
+      <AnimatePresence>
+        {!isReaderActive && (
+          <motion.button
+            key="fab"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setIsAddModalOpen(true)}
+            style={{ bottom: `${insets.bottom + 100}px` }}
+            className="fixed right-6 z-50 w-14 h-14 bg-[#141414] dark:bg-[#E0D8D0] text-[#E0D8D0] dark:text-[#141414] rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
+            id="add-book-fab"
+          >
+            <Plus className="w-8 h-8" />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Bottom Navigation */}
       <nav 
-        style={{ paddingBottom: `${insets.bottom + 12}px` }}
-        className="fixed bottom-0 left-0 right-0 z-40 bg-white/80 dark:bg-[#151619]/80 backdrop-blur-xl border-t border-[#141414]/10 dark:border-white/10 px-6 py-4 flex justify-around items-center rounded-t-3xl shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.1)]"
+        style={{ 
+          paddingBottom: `${insets.bottom + 12}px`,
+          transform: isReaderActive ? 'translateY(100%)' : 'translateY(0%)',
+          opacity: isReaderActive ? 0 : 1,
+          pointerEvents: isReaderActive ? 'none' : 'auto'
+        }}
+        className="fixed bottom-0 left-0 right-0 z-40 bg-white/80 dark:bg-[#151619]/80 backdrop-blur-xl border-t border-[#141414]/10 dark:border-white/10 px-6 py-4 flex justify-around items-center rounded-t-3xl shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.1)] transition-all duration-300"
       >
         <NavButton
           active={activeTab === 'home'}

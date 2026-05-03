@@ -56,12 +56,19 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
   }, [pageIndex, isDragging, virtualPage]);
 
   const handlePanStart = () => {
-    if (scale > 1.1) return;
     setIsDragging(true);
   };
 
   const handlePanMove = (_: any, info: any) => {
-    if (scale > 1.1 || !isDragging) return;
+    if (!isDragging) return;
+
+    // If zoomed in, we only allow swiping if it's a clear horizontal intent
+    if (scale > 1.3) {
+      const isHorizontal = Math.abs(info.velocity.x) > Math.abs(info.velocity.y) * 2;
+      const isFlick = Math.abs(info.velocity.x) > 600;
+      if (!isHorizontal || !isFlick) return;
+    }
+
     const scrollWidth = window.innerWidth;
     const progress = info.offset.x / scrollWidth;
     
@@ -73,14 +80,15 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
   };
 
   const handlePanEnd = (_: any, info: any) => {
-    if (scale > 1.1 || !isDragging) return;
+    if (!isDragging) return;
     setIsDragging(false);
     
     const offset = info.offset.x;
     const velocity = info.velocity.x;
     
-    const threshold = 50;
-    const velocityThreshold = 500;
+    // Adaptive thresholds based on scale
+    const threshold = scale > 1.3 ? 100 : 50;
+    const velocityThreshold = scale > 1.3 ? 800 : 500;
     
     let nextIndex = pageIndex;
     
