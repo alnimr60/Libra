@@ -28,9 +28,30 @@ export interface Book {
   lastReadAt?: string; // ISO date string
 }
 
+export interface ReadingLog {
+  date: string; // YYYY-MM-DD
+  pagesRead: number;
+}
+
+export type GoalFrequency = 'daily' | 'weekly';
+
+export interface ReadingGoal {
+  id: string;
+  target: number; // number of pages
+  frequency: GoalFrequency;
+  createdAt: string;
+}
+
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   notificationsEnabled: boolean;
   notificationFrequency: 'once' | 'twice' | 'custom';
   customNotificationTimes: string[]; // ['09:00', '18:00', ...]
+}
+
+export interface AppData {
+  books: Book[];
+  settings: AppSettings;
+  goals: ReadingGoal[];
+  readingLogs: ReadingLog[];
 }

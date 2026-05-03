@@ -1,38 +1,50 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Book } from '../types';
+import React, { useState } from 'react';
+import { Book, ReadingGoal, ReadingLog, GoalFrequency } from '../types';
 import BookCarousel from './BookCarousel';
 import { motion, AnimatePresence } from 'motion/react';
-import { calculatePagesPerDay, getDaysRemaining, cn } from '../lib/utils';
-import { BookOpen, Calendar, Clock, ChevronRight } from 'lucide-react';
+import { calculatePagesPerDay, getDaysRemaining, cn, getPagesReadToday, getPagesReadThisWeek } from '../lib/utils';
+import { BookOpen, Calendar, Clock, Target, Plus, Trash2 } from 'lucide-react';
 import { useSafeArea } from './SafeAreaProvider';
 
 interface DashboardProps {
   books: Book[];
   updateBook: (book: Book) => void;
   onOpenBook: (book: Book) => void;
+  goals: ReadingGoal[];
+  readingLogs: ReadingLog[];
+  onAddGoal: (goal: ReadingGoal) => void;
+  onDeleteGoal: (id: string) => void;
+  logReading: (pages: number) => void;
 }
 
-export default function Dashboard({ books, updateBook, onOpenBook }: DashboardProps) {
+export default function Dashboard({ 
+  books, 
+  updateBook, 
+  onOpenBook,
+  goals,
+  readingLogs,
+  onAddGoal,
+  onDeleteGoal,
+  logReading
+}: DashboardProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [tempPage, setTempPage] = useState(0);
+  const [isAddGoalModalOpen, setIsAddGoalModalOpen] = useState(false);
   const insets = useSafeArea();
 
   const currentBook = books[currentIndex];
 
-  const handleBookClick = (index: number) => {
-    const targetBook = books[index];
-    
-    // Only open the reader if we are clicking the book that is ALREADY centered
-    if (index === currentIndex && targetBook?.fileDataId) {
-      onOpenBook(targetBook);
-    } else {
-      // Otherwise, just move the carousel to that book
-      setCurrentIndex(index);
-    }
+  const handleCarouselChange = (index: number) => {
+    setCurrentIndex(index);
   };
 
   const handleUpdateProgress = (newPage: number) => {
     if (!currentBook) return;
+    const diff = newPage - currentBook.currentPage;
+    if (diff > 0) {
+      logReading(diff);
+    }
     updateBook({
       ...currentBook,
       currentPage: newPage,
@@ -75,7 +87,8 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
           <BookCarousel 
             books={books} 
             selectedIndex={currentIndex} 
-            onChange={handleBookClick} 
+            onChange={handleCarouselChange} 
+            onOpen={onOpenBook}
           />
         </div>
 
@@ -126,16 +139,56 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
 
               <div className="flex justify-center max-w-sm mx-auto w-full">
                 <button
-                  onClick={() => setIsUpdateModalOpen(true)}
+                  onClick={() => {
+                    setTempPage(currentBook.currentPage);
+                    setIsUpdateModalOpen(true);
+                  }}
                   className="w-full py-4 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-[10px] font-mono uppercase tracking-[0.2em] hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors active:scale-95"
                 >
                   Log Reading Progress
                 </button>
               </div>
+
+              {/* Goals Section */}
+              <div className="pt-8 space-y-6 max-w-sm mx-auto">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-mono uppercase tracking-widest text-zinc-400">Your Goals</h3>
+                  <button 
+                    onClick={() => setIsAddGoalModalOpen(true)}
+                    className="p-2 bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 rounded-full hover:scale-110 transition-transform active:scale-95"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  {(!goals || goals.length === 0) ? (
+                    <div className="p-6 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center">
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">No active goals</p>
+                    </div>
+                  ) : (
+                    goals.map(goal => (
+                      <GoalCard 
+                        key={goal.id} 
+                        goal={goal} 
+                        readingLogs={readingLogs || []} 
+                        onDelete={() => onDeleteGoal(goal.id)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
+
+      {/* Add Goal Modal */}
+      <AddGoalModal 
+        isOpen={isAddGoalModalOpen}
+        onClose={() => setIsAddGoalModalOpen(false)}
+        onAdd={onAddGoal}
+      />
 
       {/* Progress Update Modal */}
       <AnimatePresence>
@@ -157,10 +210,10 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
             >
               <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-10" />
               
-              <div className="mb-10 space-y-4">
+               <div className="mb-10 space-y-4">
                 <div className="flex justify-between items-baseline mb-2">
                    <h3 className="text-2xl font-serif font-medium">Update Reading</h3>
-                   <span className="text-4xl font-serif text-orange-500">{currentBook.currentPage}</span>
+                   <span className="text-4xl font-serif text-orange-500">{tempPage}</span>
                 </div>
                 
                 <div className="py-8">
@@ -168,8 +221,8 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
                     type="range"
                     min="0"
                     max={currentBook.totalPages}
-                    value={currentBook.currentPage}
-                    onChange={(e) => handleUpdateProgress(parseInt(e.target.value))}
+                    value={tempPage}
+                    onChange={(e) => setTempPage(parseInt(e.target.value))}
                     className="w-full h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full appearance-none accent-zinc-900 dark:accent-zinc-50 cursor-pointer"
                   />
                   <div className="flex justify-between mt-4 text-[8px] font-mono uppercase tracking-[0.2em] text-zinc-400">
@@ -181,13 +234,13 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
 
               <div className="grid grid-cols-2 gap-4">
                 <button 
-                  onClick={() => handleUpdateProgress(Math.min(currentBook.currentPage + ppd, currentBook.totalPages))}
+                  onClick={() => setTempPage(Math.min(currentBook.currentPage + ppd, currentBook.totalPages))}
                   className="py-5 px-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono uppercase tracking-widest active:scale-95 transition-transform"
                 >
                   Goal (+{ppd})
                 </button>
                 <button 
-                  onClick={() => setIsUpdateModalOpen(false)}
+                  onClick={() => handleUpdateProgress(tempPage)}
                   className="py-5 px-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
                 >
                   Complete
@@ -210,5 +263,148 @@ function StatCard({ label, value, icon }: { label: string, value: string, icon: 
       </div>
       <div className="text-sm font-medium">{value}</div>
     </div>
+  );
+}
+
+interface GoalCardProps {
+  key?: React.Key;
+  goal: ReadingGoal;
+  readingLogs: ReadingLog[];
+  onDelete: () => void;
+}
+
+function GoalCard({ goal, readingLogs, onDelete }: GoalCardProps) {
+  const progress = goal.frequency === 'daily' 
+    ? getPagesReadToday(readingLogs) 
+    : getPagesReadThisWeek(readingLogs);
+  
+  const percentage = Math.min((progress / goal.target) * 100, 100);
+
+  return (
+    <div className="relative overflow-hidden bg-white/40 dark:bg-zinc-900/40 backdrop-blur-md rounded-3xl p-5 border border-zinc-200 dark:border-white/5 group">
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Target className="w-3 h-3 text-orange-500" />
+            <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">{goal.frequency} goal</span>
+          </div>
+          <div className="text-xl font-serif font-medium">{goal.target} Pages</div>
+        </div>
+        <button 
+          onClick={onDelete}
+          className="opacity-0 group-hover:opacity-100 p-2 text-zinc-400 hover:text-red-500 transition-all"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex justify-between items-baseline text-[10px] font-mono uppercase tracking-widest">
+          <span className="text-zinc-400">Progress</span>
+          <span className="text-zinc-900 dark:text-zinc-50 font-bold">{progress} / {goal.target}</span>
+        </div>
+        <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${percentage}%` }}
+            className={cn(
+              "h-full rounded-full transition-colors duration-500",
+              percentage === 100 ? "bg-green-500" : "bg-orange-500"
+            )}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddGoalModal({ isOpen, onClose, onAdd }: { isOpen: boolean, onClose: () => void, onAdd: (goal: ReadingGoal) => void }) {
+  const [target, setTarget] = useState(10);
+  const [frequency, setFrequency] = useState<GoalFrequency>('daily');
+
+  const handleSubmit = () => {
+    onAdd({
+      id: Math.random().toString(36).substring(7),
+      target,
+      frequency,
+      createdAt: new Date().toISOString()
+    });
+    onClose();
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-[600] bg-zinc-950/40 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="fixed inset-0 m-auto z-[610] w-[90%] max-w-sm h-fit bg-white dark:bg-zinc-900 rounded-[2.5rem] p-8 shadow-2xl border border-zinc-200 dark:border-white/5"
+          >
+            <h3 className="text-2xl font-serif font-medium mb-8">New Goal</h3>
+            
+            <div className="space-y-8 mb-10">
+              <div>
+                <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">Target Pages</label>
+                <div className="flex items-center justify-center gap-6">
+                  <button 
+                    onClick={() => setTarget(t => Math.max(1, t - 5))}
+                    className="w-10 h-10 rounded-full border border-zinc-200 dark:border-zinc-800 flex items-center justify-center hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                  >-</button>
+                  <span className="text-4xl font-serif">{target}</span>
+                  <button 
+                    onClick={() => setTarget(t => t + 5)}
+                    className="w-10 h-10 rounded-full border border-zinc-200 dark:border-zinc-800 flex items-center justify-center hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                  >+</button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">Frequency</label>
+                <div className="flex gap-2">
+                  {(['daily', 'weekly'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setFrequency(f)}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-[10px] font-mono uppercase tracking-widest border transition-all",
+                        frequency === f 
+                          ? "bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 border-transparent shadow-lg scale-105" 
+                          : "border-zinc-200 dark:border-zinc-800 text-zinc-400"
+                      )}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button 
+                onClick={onClose}
+                className="flex-1 py-4 text-[10px] font-mono uppercase tracking-widest text-zinc-400"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSubmit}
+                className="flex-[2] py-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
+              >
+                Set Goal
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }

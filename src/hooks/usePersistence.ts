@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Book, AppSettings } from '../types';
+import { Book, AppSettings, ReadingGoal, ReadingLog, AppData } from '../types';
 import { del } from 'idb-keyval';
 
 const STORAGE_KEY = 'my_personal_library_data';
-
-interface AppData {
-  books: Book[];
-  settings: AppSettings;
-}
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
@@ -21,7 +16,13 @@ export function usePersistence() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          goals: parsed.goals || [],
+          readingLogs: parsed.readingLogs || [],
+          settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
+        };
       } catch (e) {
         console.error('Failed to parse saved data', e);
       }
@@ -29,6 +30,8 @@ export function usePersistence() {
     return {
       books: [],
       settings: DEFAULT_SETTINGS,
+      goals: [],
+      readingLogs: [],
     };
   });
 
@@ -93,12 +96,57 @@ export function usePersistence() {
     }));
   };
 
+  const addGoal = (goal: ReadingGoal) => {
+    setData(prev => ({
+      ...prev,
+      goals: [goal, ...prev.goals],
+    }));
+  };
+
+  const updateGoal = (updatedGoal: ReadingGoal) => {
+    setData(prev => ({
+      ...prev,
+      goals: prev.goals.map(g => g.id === updatedGoal.id ? updatedGoal : g),
+    }));
+  };
+
+  const deleteGoal = (id: string) => {
+    setData(prev => ({
+      ...prev,
+      goals: prev.goals.filter(g => g.id !== id),
+    }));
+  };
+
+  const logReading = (pages: number) => {
+    if (pages <= 0) return;
+    const today = new Date().toISOString().split('T')[0];
+    setData(prev => {
+      const existingLogIndex = prev.readingLogs.findIndex(l => l.date === today);
+      const newLogs = [...prev.readingLogs];
+      if (existingLogIndex >= 0) {
+        newLogs[existingLogIndex] = {
+          ...newLogs[existingLogIndex],
+          pagesRead: newLogs[existingLogIndex].pagesRead + pages,
+        };
+      } else {
+        newLogs.push({ date: today, pagesRead: pages });
+      }
+      return { ...prev, readingLogs: newLogs };
+    });
+  };
+
   return {
     books: data.books,
     settings: data.settings,
+    goals: data.goals,
+    readingLogs: data.readingLogs,
     addBook,
     updateBook,
     deleteBook,
     setSettings,
+    addGoal,
+    updateGoal,
+    deleteGoal,
+    logReading,
   };
 }
