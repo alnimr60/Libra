@@ -32,13 +32,12 @@ export function usePersistence() {
     };
   });
 
+  // Apply theme whenever data.settings.theme changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    
-    // Apply theme
     const applyTheme = () => {
-      const isDark = data.settings.theme === 'dark' || 
-        (data.settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      const theme = data.settings.theme;
+      const isDark = theme === 'dark' || 
+        (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       
       if (isDark) {
         document.documentElement.classList.add('dark');
@@ -49,13 +48,17 @@ export function usePersistence() {
 
     applyTheme();
 
-    // Listener for system theme changes if set to 'system'
     if (data.settings.theme === 'system') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => applyTheme();
-      mediaQuery.addEventListener('change', handleChange);
-      return () => mediaQuery.removeEventListener('change', handleChange);
+      const listener = () => applyTheme();
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
     }
+  }, [data.settings.theme]);
+
+  // Persist data whenever it changes
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
   const addBook = (book: Book) => {
