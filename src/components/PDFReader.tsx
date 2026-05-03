@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
-import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages, Navigation, Check } from 'lucide-react';
+import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react';
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
-import { Book } from '../types';
+import { Book, Bookmark } from '../types';
 import { useSafeArea } from './SafeAreaProvider';
 
 interface PDFReaderProps {
   book: Book;
   initialPage: number;
   onPageChange: (page: number) => void;
+  onUpdateBookmarks: (bookmarks: Bookmark[]) => void;
   onClose: () => void;
 }
 
-export default function PDFReader({ book, initialPage, onPageChange, onClose }: PDFReaderProps) {
+export default function PDFReader({ book, initialPage, onPageChange, onUpdateBookmarks, onClose }: PDFReaderProps) {
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
@@ -39,6 +40,24 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
   const [pageIndex, setPageIndex] = useState(0); // 0-based for internal math
   const [isTemporal, setIsTemporal] = useState(false);
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
+  const [navigatorTab, setNavigatorTab] = useState<'pages' | 'bookmarks'>('pages');
+
+  const bookmarks = book.bookmarks || [];
+  const currentPageNumber = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
+  const isCurrentlyBookmarked = bookmarks.some(bm => bm.page === currentPageNumber);
+
+  const toggleBookmark = () => {
+    if (isCurrentlyBookmarked) {
+      onUpdateBookmarks(bookmarks.filter(bm => bm.page !== currentPageNumber));
+    } else {
+      const newBookmark: Bookmark = {
+        id: Math.random().toString(36).substr(2, 9),
+        page: currentPageNumber,
+        createdAt: new Date().toISOString()
+      };
+      onUpdateBookmarks([...bookmarks, newBookmark]);
+    }
+  };
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
@@ -290,37 +309,112 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
               initial={{ scale: 0.95, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 30 }}
-              className="w-full max-w-sm flex flex-col items-center gap-16 px-4"
+              className="w-full max-w-sm flex flex-col items-center gap-8 px-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex flex-col items-center gap-4 text-center">
-                <span className="text-[10px] font-mono text-white/20 uppercase tracking-[0.6em] select-none">Navigation</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-9xl font-serif text-white tracking-tighter leading-none select-none">
-                    {pageIndex + 1}
-                  </span>
-                  <span className="text-xl font-serif text-white/10 select-none">/ {totalSheets}</span>
-                </div>
+              <div className="flex bg-white/5 p-1 rounded-2xl w-full">
+                <button 
+                  onClick={() => setNavigatorTab('pages')}
+                  className={cn(
+                    "flex-1 py-3 rounded-xl text-[10px] font-mono uppercase tracking-widest transition-all",
+                    navigatorTab === 'pages' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white/60"
+                  )}
+                >
+                  Pages
+                </button>
+                <button 
+                  onClick={() => setNavigatorTab('bookmarks')}
+                  className={cn(
+                    "flex-1 py-3 rounded-xl text-[10px] font-mono uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                    navigatorTab === 'bookmarks' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white/60"
+                  )}
+                >
+                  Bookmarks
+                  {bookmarks.length > 0 && (
+                    <span className={cn(
+                      "w-4 h-4 rounded-full flex items-center justify-center text-[8px]",
+                      navigatorTab === 'bookmarks' ? "bg-black text-white" : "bg-white/20 text-white"
+                    )}>
+                      {bookmarks.length}
+                    </span>
+                  )}
+                </button>
               </div>
-              
-              <div className="w-full space-y-6">
-                <input 
-                  type="range"
-                  min={0}
-                  max={totalSheets - 1}
-                  value={pageIndex}
-                  onChange={(e) => handlePageChange(parseInt(e.target.value, 10), true)}
-                  className="w-full h-1 bg-white/10 rounded-full appearance-none accent-white cursor-pointer hover:accent-orange-500 transition-colors"
-                />
-                <div className="flex justify-between text-[8px] font-mono text-white/10 uppercase tracking-widest px-1">
-                  <span>Start</span>
-                  <span>End</span>
+
+              {navigatorTab === 'pages' ? (
+                <div className="w-full flex flex-col items-center gap-12 py-4">
+                  <div className="flex flex-col items-center gap-4 text-center">
+                    <span className="text-[10px] font-mono text-white/20 uppercase tracking-[0.6em] select-none">Navigation</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-9xl font-serif text-white tracking-tighter leading-none select-none">
+                        {pageIndex + 1}
+                      </span>
+                      <span className="text-xl font-serif text-white/10 select-none">/ {totalSheets}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="w-full space-y-6">
+                    <input 
+                      type="range"
+                      min={0}
+                      max={totalSheets - 1}
+                      value={pageIndex}
+                      onChange={(e) => handlePageChange(parseInt(e.target.value, 10), true)}
+                      className="w-full h-1 bg-white/10 rounded-full appearance-none accent-white cursor-pointer hover:accent-orange-500 transition-colors"
+                    />
+                    <div className="flex justify-between text-[8px] font-mono text-white/10 uppercase tracking-widest px-1">
+                      <span>Start</span>
+                      <span>End</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="w-full max-h-[40vh] overflow-y-auto no-scrollbar py-2 space-y-2">
+                  {bookmarks.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <BookmarkIcon className="w-12 h-12 text-white/10 mx-auto mb-4" />
+                      <p className="text-xs text-white/20 font-mono uppercase tracking-widest leading-relaxed">
+                        No bookmarks found<br/>in this volume.
+                      </p>
+                    </div>
+                  ) : (
+                    bookmarks
+                      .sort((a, b) => a.page - b.page)
+                      .map((bm) => (
+                      <div 
+                        key={bm.id}
+                        className="group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all"
+                      >
+                        <button 
+                          onClick={() => {
+                            const newIndex = viewMode === 'double' ? Math.floor((bm.page - 1) / 2) : bm.page - 1;
+                            handlePageChange(newIndex, true);
+                            setIsNavigatorOpen(false);
+                          }}
+                          className="flex-1 text-left"
+                        >
+                          <div className="flex items-baseline gap-3">
+                            <span className="text-3xl font-serif text-white tracking-tighter">P{bm.page}</span>
+                            <span className="text-[8px] font-mono text-white/20 uppercase tracking-widest">
+                              {new Date(bm.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                          </div>
+                        </button>
+                        <button 
+                          onClick={() => onUpdateBookmarks(bookmarks.filter(b => b.id !== bm.id))}
+                          className="p-2 text-white/10 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
               <button 
                 onClick={() => setIsNavigatorOpen(false)}
-                className="group p-8 rounded-full bg-white/5 border border-white/10 hover:bg-white hover:text-black transition-all active:scale-95 flex items-center justify-center shadow-2xl"
+                className="group p-8 rounded-full bg-white/5 border border-white/10 hover:bg-white hover:text-black transition-all active:scale-95 flex items-center justify-center shadow-2xl mt-4"
               >
                 <Check className="w-8 h-8" />
               </button>
@@ -370,6 +464,18 @@ export default function PDFReader({ book, initialPage, onPageChange, onClose }: 
                   <span className="opacity-40">{numPages}</span>
                 </div>
                 <Navigation className="w-3 h-3 text-orange-500 opacity-40 group-hover:opacity-100 transition-opacity" />
+              </button>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleBookmark(); }}
+                className={cn(
+                  "p-2.5 rounded-full border transition-all active:scale-75 shadow-lg",
+                  isCurrentlyBookmarked 
+                    ? "bg-orange-500 text-white border-orange-400" 
+                    : "bg-white/5 text-white/40 border-white/5 hover:bg-white/10"
+                )}
+              >
+                <BookmarkIcon className="w-4 h-4" />
               </button>
             </div>
 
