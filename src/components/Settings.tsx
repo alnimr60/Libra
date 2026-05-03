@@ -3,6 +3,7 @@ import { AppSettings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Moon, Sun, Bell, Clock, Info, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useSafeArea } from './SafeAreaProvider';
 
 interface SettingsProps {
   settings: AppSettings;
@@ -10,8 +11,12 @@ interface SettingsProps {
 }
 
 export default function Settings({ settings, setSettings }: SettingsProps) {
+  const insets = useSafeArea();
   return (
-    <div className="px-6 pt-[calc(3rem+var(--msp-top))] flex flex-col h-full bg-[#fdfaf5] dark:bg-[#080605]">
+    <div 
+      style={{ paddingTop: `${insets.top + 48}px` }}
+      className="px-6 flex flex-col h-full bg-[#fdfaf5] dark:bg-[#080605]"
+    >
       <div className="mb-10">
         <h1 className="text-3xl font-serif font-medium tracking-tight">Settings</h1>
         <p className="text-sm opacity-50 uppercase tracking-widest mt-1">Configure your experience</p>
