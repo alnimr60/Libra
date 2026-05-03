@@ -17,6 +17,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
   const swipeDirection = useRef<'horizontal' | 'vertical' | null>(null);
+  const lastVelocity = useRef(0);
   const baseIndex = useRef(selectedIndex);
   
   // The "source of truth" for the current position in the carousel
@@ -49,9 +50,13 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     if (!isDragging) {
       animate(virtualIndex, selectedIndex, {
         type: 'spring',
-        stiffness: 300,
-        damping: 35
+        stiffness: 180,
+        damping: 32,
+        mass: 0.5,
+        velocity: lastVelocity.current
       });
+      // Reset velocity after handoff
+      lastVelocity.current = 0;
     }
   }, [selectedIndex, isDragging, virtualIndex]);
 
@@ -59,6 +64,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     setIsDragging(true);
     isDraggingRef.current = true;
     swipeDirection.current = null;
+    lastVelocity.current = 0;
     baseIndex.current = virtualIndex.get();
   };
 
@@ -71,14 +77,18 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     }
 
     const spacing = width * 0.35 || 100;
-    const offset = info.offset.x;
     const velocity = info.velocity.x;
     
+    // Convert px/s to indices/s and invert (because positive velocity means index decreases)
+    const velocityInIndices = -velocity / spacing;
+    lastVelocity.current = velocityInIndices;
+
     // Calculate final index based on position and momentum
-    // Increased multiplier to allow for multi-book "flick" traversal
-    const predictedOffset = -(offset + velocity * 0.4) / spacing;
+    // Project 450ms into the future for a generous "flick" traversal
+    const currentVal = virtualIndex.get();
+    const predictedStop = currentVal + (velocityInIndices * 0.45);
     
-    let nextIndex = Math.round(baseIndex.current + predictedOffset);
+    let nextIndex = Math.round(predictedStop);
     nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
     
     setIsDragging(false);
@@ -89,16 +99,16 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
 
     if (nextIndex !== selectedIndex) {
       onChange(nextIndex);
+    } else {
+      // If we are already at the target index, still trigger animation to settle
+      animate(virtualIndex, nextIndex, {
+        type: 'spring',
+        stiffness: 180,
+        damping: 32,
+        mass: 0.5,
+        velocity: velocityInIndices
+      });
     }
-    
-    // Animate to final position with momentum preservation
-    animate(virtualIndex, nextIndex, {
-      type: 'spring',
-      stiffness: 180,
-      damping: 30,
-      velocity: -velocity / spacing,
-      restDelta: 0.001
-    });
   };
 
   const handlePan = (_: any, info: any) => {
