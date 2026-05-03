@@ -9,9 +9,10 @@ interface BookCarouselProps {
   selectedIndex: number;
   onChange: (index: number) => void;
   onOpen?: (book: Book) => void;
+  style?: 'linear' | 'circular';
 }
 
-export default function BookCarousel({ books, selectedIndex, onChange, onOpen }: BookCarouselProps) {
+export default function BookCarousel({ books, selectedIndex, onChange, onOpen, style = 'linear' }: BookCarouselProps) {
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -48,7 +49,17 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   // Sync virtualIndex with prop changes (when user clicks dots or external buttons)
   useEffect(() => {
     if (!isDragging) {
-      animate(virtualIndex, selectedIndex, {
+      let target = selectedIndex;
+      
+      if (style === 'circular') {
+        const currentV = virtualIndex.get();
+        // Shortest path to the selected index on a circle
+        const diff = (selectedIndex - currentV) % books.length;
+        const shortest = ((diff + books.length / 2) % books.length + books.length) % books.length - books.length / 2;
+        target = currentV + shortest;
+      }
+
+      animate(virtualIndex, target, {
         type: 'spring',
         stiffness: 180,
         damping: 30,
@@ -58,7 +69,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
       // Reset velocity after handoff
       lastVelocity.current = 0;
     }
-  }, [selectedIndex, isDragging, virtualIndex]);
+  }, [selectedIndex, isDragging, virtualIndex, style, books.length]);
 
   const handlePanStart = () => {
     setIsDragging(true);
@@ -91,7 +102,13 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     const predictedStop = currentVal + (velocityInIndices * 0.45);
     
     let nextIndex = Math.round(predictedStop);
-    nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
+    
+    if (style === 'linear') {
+      nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
+    } else {
+      // Circular: just find the "actual" book index for the parent
+      nextIndex = (nextIndex % books.length + books.length) % books.length;
+    }
     
     setIsDragging(false);
     // Keep ref true for a short duration to prevent accidental onTap triggers
@@ -105,7 +122,15 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
     } else {
       // If we are already at the target index (or it didn't change), 
       // explicitly settle with momentum to avoid a "snap-back" feel
-      animate(virtualIndex, nextIndex, {
+      let target = nextIndex;
+      if (style === 'circular') {
+        const currentV = virtualIndex.get();
+        const diff = (nextIndex - currentV) % books.length;
+        const shortest = ((diff + books.length / 2) % books.length + books.length) % books.length - books.length / 2;
+        target = currentV + shortest;
+      }
+
+      animate(virtualIndex, target, {
         type: 'spring',
         stiffness: 180,
         damping: 30,
@@ -154,9 +179,19 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
           const bookWidth = 100;
           
           if (clickX < center - bookWidth) {
-            if (selectedIndex > 0) onChange(selectedIndex - 1);
+            const prev = (selectedIndex - 1 + books.length) % books.length;
+            if (style === 'linear') {
+              if (selectedIndex > 0) onChange(selectedIndex - 1);
+            } else {
+              onChange(prev);
+            }
           } else if (clickX > center + bookWidth) {
-            if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
+            const next = (selectedIndex + 1) % books.length;
+            if (style === 'linear') {
+              if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
+            } else {
+              onChange(next);
+            }
           } else {
             // Clicked active book
             if (onOpen && books[selectedIndex]) {
@@ -175,6 +210,8 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
             virtualIndex={smoothIndex} 
             width={width}
             isActive={index === selectedIndex}
+            isCircular={style === 'circular'}
+            totalBooks={books.length}
           />
         ))}
       </div>
@@ -182,23 +219,63 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen }:
   );
 }
 
-function CarouselBook({ book, index, virtualIndex, width, isActive }: { 
+function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, totalBooks }: { 
   book: Book, 
   index: number, 
   virtualIndex: any, 
   width: number,
   isActive: boolean,
+  isCircular: boolean,
+  totalBooks: number,
   key?: React.Key
 }) {
   // Compute distance from current virtual focus
-  const distance = useTransform(virtualIndex, (v: number) => index - v);
+  const distance = useTransform(virtualIndex, (v: number) => {
+    if (!isCircular) return index - v;
+    
+    // Shortest path on a circle
+    const diff = (index - v) % totalBooks;
+    const wrapped = ((diff + totalBooks / 2) % totalBooks + totalBooks) % totalBooks - totalBooks / 2;
+    return wrapped;
+  });
   
   // Transform distance into visual properties
-  const x = useTransform(distance, (d: number) => d * (width * 0.35));
-  const z = useTransform(distance, (d: number) => -Math.abs(d) * 400 - (Math.abs(d) < 0.1 ? 0 : 60));
-  const rotateY = useTransform(distance, (d: number) => d * -22);
-  const opacity = useTransform(distance, [-3, -2, -1, 0, 1, 2, 3], [0, 0.4, 0.7, 1, 0.7, 0.4, 0]);
-  const scale = useTransform(distance, (d: number) => 1 - Math.abs(d) * 0.12);
+  const x = useTransform(distance, (d: number) => {
+    if (!isCircular) return d * (width * 0.35);
+    // Circular: follow a curve (arc)
+    const angle = d * (Math.PI / 6);
+    return Math.sin(angle) * (width * 0.45);
+  });
+
+  const z = useTransform(distance, (d: number) => {
+    if (!isCircular) return -Math.abs(d) * 400 - (Math.abs(d) < 0.1 ? 0 : 60);
+    const angle = d * (Math.PI / 6);
+    return Math.cos(angle) * 400 - 450;
+  });
+
+  const rotateY = useTransform(distance, (d: number) => {
+    if (!isCircular) return d * -22;
+    const angle = d * 30; // 30 degrees per book
+    return angle;
+  });
+
+  const opacity = useTransform(distance, (d: number) => {
+    const absD = Math.abs(d);
+    if (!isCircular) {
+      if (absD > 3) return 0;
+      if (absD > 2) return 0.4 * (3 - absD);
+      if (absD > 1) return 0.7 * (2 - absD) + 0.4 * (absD - 1);
+      return 1 * (1 - absD) + 0.7 * absD;
+    }
+    // For circular, fade out as they go around the side
+    return Math.max(0, 1 - absD * 0.25);
+  });
+
+  const scale = useTransform(distance, (d: number) => {
+    const base = 1 - Math.abs(d) * 0.12;
+    if (!isCircular) return base;
+    return Math.max(0.6, 1 - Math.abs(d) * 0.1);
+  });
   const zIndex = useTransform(distance, (d: number) => Math.round(100 - Math.abs(d) * 10));
 
   return (

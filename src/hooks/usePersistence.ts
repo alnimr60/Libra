@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   notificationFrequency: 'once',
   customNotificationTimes: ['09:00'],
+  dashboardStyle: 'linear',
 };
 
 export function usePersistence() {
