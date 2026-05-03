@@ -60,6 +60,7 @@ export default function App() {
                 onOpenBook={handleOpenBook}
                 goals={goals}
                 readingLogs={readingLogs}
+                dashboardStyle={settings.dashboardStyle}
                 onAddGoal={addGoal}
                 onDeleteGoal={deleteGoal}
                 logReading={logReading}

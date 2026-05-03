@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Moon, Sun, Bell, Clock, Info, ChevronRight, Monitor } from 'lucide-react';
+import { Moon, Sun, Bell, Clock, Info, ChevronRight, Monitor, Layout, RotateCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSafeArea } from './SafeAreaProvider';
 
@@ -46,6 +46,25 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
               label="Celestial"
               isActive={settings.theme === 'system'}
               onClick={() => setSettings({ theme: 'system' })}
+            />
+          </div>
+        </section>
+
+        {/* Dashboard Style Section */}
+        <section className="space-y-6">
+          <SectionHeader title="Dashboard Path" />
+          <div className="bg-white dark:bg-zinc-900 rounded-[2rem] p-3 border border-zinc-200 dark:border-zinc-800 space-y-1 shadow-sm">
+            <SettingRow 
+              icon={<Layout className="w-4 h-4" />}
+              label="Standard"
+              isActive={settings.dashboardStyle === 'linear'}
+              onClick={() => setSettings({ dashboardStyle: 'linear' })}
+            />
+            <SettingRow 
+              icon={<RotateCw className="w-4 h-4" />}
+              label="Infinite Wheel"
+              isActive={settings.dashboardStyle === 'circular'}
+              onClick={() => setSettings({ dashboardStyle: 'circular' })}
             />
           </div>
         </section>

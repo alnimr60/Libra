@@ -12,6 +12,7 @@ interface DashboardProps {
   onOpenBook: (book: Book) => void;
   goals: ReadingGoal[];
   readingLogs: ReadingLog[];
+  dashboardStyle: 'linear' | 'circular';
   onAddGoal: (goal: ReadingGoal) => void;
   onDeleteGoal: (id: string) => void;
   logReading: (pages: number) => void;
@@ -23,6 +24,7 @@ export default function Dashboard({
   onOpenBook,
   goals,
   readingLogs,
+  dashboardStyle,
   onAddGoal,
   onDeleteGoal,
   logReading
@@ -89,6 +91,7 @@ export default function Dashboard({
             selectedIndex={currentIndex} 
             onChange={handleCarouselChange} 
             onOpen={onOpenBook}
+            style={dashboardStyle}
           />
         </div>
 

@@ -47,6 +47,7 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   notificationFrequency: 'once' | 'twice' | 'custom';
   customNotificationTimes: string[]; // ['09:00', '18:00', ...]
+  dashboardStyle: 'linear' | 'circular';
 }
 
 export interface AppData {
