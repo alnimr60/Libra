@@ -168,8 +168,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                   book={book} 
                   viewMode={viewMode}
                   index={idx}
-                  onClick={() => onOpenBook(book)}
-                  onInfoClick={() => setSelectedBookId(book.id)}
+                  onClick={() => setSelectedBookId(book.id)}
                 />
               ))}
             </motion.div>
@@ -212,7 +211,18 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-8" />
               
               <div className="flex gap-8 mb-8">
-                <div className="w-24 aspect-[2/3] rounded-xl overflow-hidden shadow-xl border border-zinc-200 dark:border-zinc-800 flex-shrink-0 bg-zinc-100 dark:bg-zinc-800">
+                <div 
+                  onClick={() => {
+                    if (!isEditing) {
+                      onOpenBook(selectedBook);
+                      setSelectedBookId(null);
+                    }
+                  }}
+                  className={cn(
+                    "w-24 aspect-[2/3] rounded-xl overflow-hidden shadow-xl border border-zinc-200 dark:border-zinc-800 flex-shrink-0 bg-zinc-100 dark:bg-zinc-800",
+                    !isEditing && "cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                  )}
+                >
                   {(isEditing ? editForm.coverUrl : selectedBook.coverUrl) ? (
                     <img src={isEditing ? editForm.coverUrl : selectedBook.coverUrl} className="w-full h-full object-cover" />
                   ) : (
@@ -350,14 +360,12 @@ function BookLibraryItem({
   book, 
   viewMode, 
   index,
-  onClick,
-  onInfoClick
+  onClick
 }: { 
   book: Book, 
   viewMode: 'grid' | 'list',
   index: number,
   onClick: () => void,
-  onInfoClick: () => void,
   key?: React.Key
 }) {
   const progress = (book.currentPage / book.totalPages) * 100;
@@ -395,13 +403,6 @@ function BookLibraryItem({
           )}
 
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-500" />
-          
-          <button 
-            onClick={(e) => { e.stopPropagation(); onInfoClick(); }}
-            className="absolute top-3 right-3 p-2.5 rounded-full bg-white/90 dark:bg-zinc-800/90 shadow-lg opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 backdrop-blur-sm hover:bg-orange-500 hover:text-white"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
         </div>
         
         <div className="space-y-1" onClick={onClick}>
@@ -449,12 +450,6 @@ function BookLibraryItem({
              <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">{Math.round(progress)}% COMPLETE</span>
           </div>
         )}
-        <button 
-          onClick={(e) => { e.stopPropagation(); onInfoClick(); }}
-          className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-        >
-          <MoreHorizontal className="w-4 h-4 text-zinc-400" />
-        </button>
         <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-700 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-50 transition-all" onClick={onClick} />
       </div>
     </motion.div>
