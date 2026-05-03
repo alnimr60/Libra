@@ -22,7 +22,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
-  const { books, settings, addBook, updateBook, deleteBook, setSettings } = usePersistence();
+  const { 
+    books, settings, goals, readingLogs, 
+    addBook, updateBook, deleteBook, setSettings,
+    addGoal, updateGoal, deleteGoal, logReading 
+  } = usePersistence();
   const insets = useSafeArea();
 
   const activeBook = books.find(b => b.id === activeBookId);
@@ -54,6 +58,11 @@ export default function App() {
                 books={currentBooks} 
                 updateBook={updateBook} 
                 onOpenBook={handleOpenBook}
+                goals={goals}
+                readingLogs={readingLogs}
+                onAddGoal={addGoal}
+                onDeleteGoal={deleteGoal}
+                logReading={logReading}
               />
             </motion.div>
           )}
@@ -127,8 +136,14 @@ export default function App() {
             book={activeBook}
             initialPage={activeBook.currentPage}
             onPageChange={(page) => {
+              if (activeBook) {
+                const diff = page - activeBook.currentPage;
+                if (diff > 0) {
+                  logReading(diff);
+                }
+              }
               updateBook({
-                ...activeBook,
+                ...activeBook!,
                 currentPage: page,
                 lastReadAt: new Date().toISOString(),
               });

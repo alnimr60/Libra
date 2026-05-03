@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
-import { X, Maximize2, Minimize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react';
+import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react';
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book, Bookmark } from '../types';
@@ -500,13 +500,6 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
                   <Plus className={cn(isLandscape ? "w-3 h-3" : "w-4 h-4")} />
                 </button>
               </div>
-
-              <button 
-                onClick={(e) => { e.stopPropagation(); setShowControls(false); }} 
-                className="p-2.5 bg-white/5 hover:bg-orange-500 hover:text-white rounded-full transition-all active:scale-75 border border-white/5 text-white/40"
-              >
-                <Minimize2 className="w-4 h-4" />
-              </button>
             </div>
           </motion.div>
         )}

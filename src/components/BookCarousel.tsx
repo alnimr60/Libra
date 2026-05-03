@@ -8,13 +8,14 @@ interface BookCarouselProps {
   books: Book[];
   selectedIndex: number;
   onChange: (index: number) => void;
+  onOpen?: (book: Book) => void;
 }
 
-export default function BookCarousel({ books, selectedIndex, onChange }: BookCarouselProps) {
+export default function BookCarousel({ books, selectedIndex, onChange, onOpen }: BookCarouselProps) {
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const tapStartPos = useRef({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
   const baseIndex = useRef(selectedIndex);
   
   // The "source of truth" for the current position in the carousel
@@ -55,6 +56,7 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
 
   const handlePanStart = () => {
     setIsDragging(true);
+    isDraggingRef.current = true;
     baseIndex.current = virtualIndex.get();
   };
 
@@ -71,7 +73,14 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
     nextIndex = Math.max(0, Math.min(books.length - 1, nextIndex));
     
     setIsDragging(false);
-    onChange(nextIndex);
+    // Keep ref true for a short duration to prevent accidental onTap triggers
+    setTimeout(() => {
+      isDraggingRef.current = false;
+    }, 100);
+
+    if (nextIndex !== selectedIndex) {
+      onChange(nextIndex);
+    }
     
     // Animate to final position
     animate(virtualIndex, nextIndex, {
@@ -99,18 +108,10 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
         onPanStart={handlePanStart}
         onPan={handlePan}
         onPanEnd={handlePanEnd}
-        onTapStart={(_, info) => {
-          tapStartPos.current = { x: info.point.x, y: info.point.y };
-        }}
         onTap={(_, info) => {
-          if (isDragging) return;
-
-          // Increase threshold to differentiate between intentional tap and scroll start
-          const dx = info.point.x - tapStartPos.current.x;
-          const dy = info.point.y - tapStartPos.current.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > 15) return;
-
+          // If we just finished a drag/swipe, ignore this tap
+          if (isDraggingRef.current) return;
+          
           const rect = containerRef.current?.getBoundingClientRect();
           if (!rect) return;
           const clickX = info.point.x - rect.left;
@@ -123,7 +124,9 @@ export default function BookCarousel({ books, selectedIndex, onChange }: BookCar
             if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
           } else {
             // Clicked active book
-            onChange(selectedIndex);
+            if (onOpen && books[selectedIndex]) {
+              onOpen(books[selectedIndex]);
+            }
           }
         }}
       />

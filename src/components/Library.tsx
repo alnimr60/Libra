@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Book, ReadingStatus } from '../types';
 import { Search, Grid, List as ListIcon, Trash2, MoreHorizontal, BookOpen, Clock, CheckCircle2, ChevronRight, X, PlayCircle, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,10 +22,6 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '' });
   const insets = useSafeArea();
-
-  const handleBookTap = (bookId: string) => {
-    setSelectedBookId(bookId);
-  };
 
   const filteredBooks = useMemo(() => {
     return allBooks.filter(book => {
@@ -173,7 +169,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                   book={book} 
                   viewMode={viewMode}
                   index={idx}
-                  onTap={() => handleBookTap(book.id)}
+                  onClick={() => setSelectedBookId(book.id)}
                 />
               ))}
             </motion.div>
@@ -404,26 +400,15 @@ function BookLibraryItem({
   book, 
   viewMode, 
   index,
-  onTap
+  onClick
 }: { 
   book: Book, 
   viewMode: 'grid' | 'list',
   index: number,
-  onTap: () => void,
+  onClick: () => void,
   key?: React.Key
 }) {
   const progress = (book.currentPage / book.totalPages) * 100;
-  const startPos = React.useRef({ x: 0, y: 0 });
-
-  const handleTap = (_: any, info: any) => {
-    const dx = info.point.x - startPos.current.x;
-    const dy = info.point.y - startPos.current.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    // Increased threshold for better mobile scroll support
-    if (distance < 12) {
-      onTap();
-    }
-  };
 
   if (viewMode === 'grid') {
     return (
@@ -433,13 +418,10 @@ function BookLibraryItem({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9 }}
         transition={{ delay: index * 0.05 }}
-        onTapStart={(_, info) => {
-          startPos.current = { x: info.point.x, y: info.point.y };
-        }}
-        onTap={handleTap}
-        className="group cursor-pointer touch-pan-y"
+        className="group cursor-pointer"
       >
         <div 
+          onClick={onClick}
           className="aspect-[2/3] rounded-2xl overflow-hidden shadow-sm border border-zinc-200/50 dark:border-white/5 mb-4 relative transition-transform duration-500 group-hover:-translate-y-2 group-hover:shadow-xl dark:shadow-none bg-zinc-100 dark:bg-zinc-900"
         >
           {book.coverUrl ? (
@@ -463,7 +445,7 @@ function BookLibraryItem({
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-500" />
         </div>
         
-        <div className="space-y-1">
+        <div className="space-y-1" onClick={onClick}>
           <h3 className="text-sm font-serif font-medium leading-snug line-clamp-2 text-zinc-900 dark:text-zinc-50 group-hover:text-orange-600 transition-colors">
             {book.title}
           </h3>
@@ -482,13 +464,9 @@ function BookLibraryItem({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0 }}
       transition={{ delay: index * 0.05 }}
-      onTapStart={(_, info) => {
-        startPos.current = { x: info.point.x, y: info.point.y };
-      }}
-      onTap={handleTap}
-      className="group flex items-center gap-6 py-4 border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 transition-colors touch-pan-y"
+      className="group flex items-center gap-6 py-4 border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 transition-colors"
     >
-      <div className="w-12 h-16 rounded-lg overflow-hidden shadow-sm flex-shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900">
+      <div className="w-12 h-16 rounded-lg overflow-hidden shadow-sm flex-shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900" onClick={onClick}>
         {book.coverUrl ? (
           <img src={book.coverUrl} className="w-full h-full object-cover" />
         ) : (
@@ -498,21 +476,21 @@ function BookLibraryItem({
         )}
       </div>
       
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0" onClick={onClick}>
         <h3 className="text-sm font-serif font-medium text-zinc-900 dark:text-zinc-50 truncate group-hover:text-orange-600 transition-colors">{book.title}</h3>
         <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono uppercase tracking-widest truncate">{book.author || 'ANONYMOUS'}</p>
       </div>
 
       <div className="flex items-center gap-8">
         {book.status === 'Currently Reading' && (
-          <div className="hidden sm:flex flex-col items-end gap-1.5 min-w-[100px]">
+          <div className="hidden sm:flex flex-col items-end gap-1.5 min-w-[100px]" onClick={onClick}>
              <div className="w-24 h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                <div className="h-full bg-orange-500" style={{ width: `${progress}%` }} />
              </div>
              <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">{Math.round(progress)}% COMPLETE</span>
           </div>
         )}
-        <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-700 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-50 transition-all" />
+        <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-700 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-50 transition-all" onClick={onClick} />
       </div>
     </motion.div>
   );
