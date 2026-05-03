@@ -240,42 +240,22 @@ function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, 
   });
   
   // Transform distance into visual properties
-  const x = useTransform(distance, (d: number) => {
-    if (!isCircular) return d * (width * 0.35);
-    // Circular: follow a curve (arc)
-    const angle = d * (Math.PI / 6);
-    return Math.sin(angle) * (width * 0.45);
-  });
+  const x = useTransform(distance, (d: number) => d * (width * 0.35));
 
-  const z = useTransform(distance, (d: number) => {
-    if (!isCircular) return -Math.abs(d) * 400 - (Math.abs(d) < 0.1 ? 0 : 60);
-    const angle = d * (Math.PI / 6);
-    return Math.cos(angle) * 400 - 450;
-  });
+  const z = useTransform(distance, (d: number) => -Math.abs(d) * 400 - (Math.abs(d) < 0.1 ? 0 : 60));
 
-  const rotateY = useTransform(distance, (d: number) => {
-    if (!isCircular) return d * -22;
-    const angle = d * 30; // 30 degrees per book
-    return angle;
-  });
+  const rotateY = useTransform(distance, (d: number) => d * -22);
 
   const opacity = useTransform(distance, (d: number) => {
     const absD = Math.abs(d);
-    if (!isCircular) {
-      if (absD > 3) return 0;
-      if (absD > 2) return 0.4 * (3 - absD);
-      if (absD > 1) return 0.7 * (2 - absD) + 0.4 * (absD - 1);
-      return 1 * (1 - absD) + 0.7 * absD;
-    }
-    // For circular, fade out as they go around the side
-    return Math.max(0, 1 - absD * 0.25);
+    // Standard and Circular now use the same fade logic for consistency
+    if (absD > 3) return 0;
+    if (absD > 2) return 0.4 * (3 - absD);
+    if (absD > 1) return 0.7 * (2 - absD) + 0.4 * (absD - 1);
+    return 1 * (1 - absD) + 0.7 * absD;
   });
 
-  const scale = useTransform(distance, (d: number) => {
-    const base = 1 - Math.abs(d) * 0.12;
-    if (!isCircular) return base;
-    return Math.max(0.6, 1 - Math.abs(d) * 0.1);
-  });
+  const scale = useTransform(distance, (d: number) => 1 - Math.abs(d) * 0.12);
   const zIndex = useTransform(distance, (d: number) => Math.round(100 - Math.abs(d) * 10));
 
   return (
