@@ -23,24 +23,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '' });
   const insets = useSafeArea();
 
-  const [isScrolling, setIsScrolling] = useState(false);
-  const scrollTimeout = useRef<any>(null);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolling(true);
-      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
-      scrollTimeout.current = setTimeout(() => setIsScrolling(false), 150);
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
-    };
-  }, []);
-
   const handleBookTap = (bookId: string) => {
-    if (isScrolling) return;
     setSelectedBookId(bookId);
   };
 
@@ -436,9 +419,8 @@ function BookLibraryItem({
     const dx = info.point.x - startPos.current.x;
     const dy = info.point.y - startPos.current.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    // Standard mobile threshold is ~10-15px. 
-    // We use 10px to be safe but responsive.
-    if (distance < 10) {
+    // Increased threshold for better mobile scroll support
+    if (distance < 12) {
       onTap();
     }
   };

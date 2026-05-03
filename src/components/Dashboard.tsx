@@ -19,24 +19,7 @@ export default function Dashboard({ books, updateBook, onOpenBook }: DashboardPr
 
   const currentBook = books[currentIndex];
 
-  const [isScrolling, setIsScrolling] = useState(false);
-  const scrollTimeout = useRef<any>(null);
-
-  React.useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolling(true);
-      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
-      scrollTimeout.current = setTimeout(() => setIsScrolling(false), 150);
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
-    };
-  }, []);
-
   const handleBookClick = (index: number) => {
-    if (isScrolling) return;
     const targetBook = books[index];
     
     // Only open the reader if we are clicking the book that is ALREADY centered
