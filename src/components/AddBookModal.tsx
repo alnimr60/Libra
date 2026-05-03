@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Book, ReadingStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, CheckCircle, Loader2, Calendar as CalendarIcon, Tag, Book as BookIcon } from 'lucide-react';
+import { X, Upload, CheckCircle, Loader2, Calendar as CalendarIcon, Tag, Book as BookIcon, Image as ImageIcon } from 'lucide-react';
 import { extractPDFMetadata } from '../lib/pdf';
 import { cn } from '../lib/utils';
 import { set } from 'idb-keyval';
@@ -26,6 +26,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
   });
   const [tagInput, setTagInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -39,7 +40,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
     setIsLoading(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const metadata = await extractPDFMetadata(file); // Note: extractPDFMetadata now needs to be optimized or I reuse the buffer
+      const metadata = await extractPDFMetadata(file); 
       
       const fileId = `pdf_${crypto.randomUUID()}`;
       await set(fileId, arrayBuffer);
@@ -59,6 +60,22 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setFormData(prev => ({ ...prev, coverUrl: event.target?.result as string }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAddTag = () => {
@@ -181,14 +198,22 @@ export default function AddBookModal({ isOpen, onClose, onAdd }: AddBookModalPro
               >
                 {/* Visual Preview */}
                 <div className="flex gap-4 items-start">
-                  <div className="w-24 h-32 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden shadow-md flex-shrink-0">
+                  <div 
+                    onClick={() => coverInputRef.current?.click()}
+                    className="group relative w-24 h-32 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden shadow-md flex-shrink-0 cursor-pointer"
+                  >
+                    <input type="file" ref={coverInputRef} className="hidden" accept="image/*" onChange={handleCoverChange} />
                     {formData.coverUrl ? (
-                      <img src={formData.coverUrl} className="w-full h-full object-cover" />
+                      <img src={formData.coverUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center opacity-20">
+                      <div className="w-full h-full flex flex-col items-center justify-center opacity-20">
                          <BookIcon className="w-10 h-10" />
+                         <span className="text-[8px] mt-1 font-bold">ADD COVER</span>
                       </div>
                     )}
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ImageIcon className="w-6 h-6 text-white" />
+                    </div>
                   </div>
                   <div className="flex-1 space-y-4">
                     <InputGroup 
