@@ -135,6 +135,18 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     if (!isDragging) return;
     setIsDragging(false);
     
+    // If user is selecting text, do not flip page
+    const selection = window.getSelection()?.toString();
+    if (selection && selection.length > 5) {
+      // Re-snapping to current page
+      animate(virtualPage, pageIndex, {
+        type: 'spring',
+        stiffness: 450,
+        damping: 45
+      });
+      return;
+    }
+    
     const offset = info.offset.x;
     const velocity = info.velocity.x;
     
@@ -832,8 +844,14 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
 
           try {
             if (textLayerDivRef.current) {
+              const textContent = await page.getTextContent();
+              
+              // Ensure container has same internal dimensions for correctly positioning text spans
+              textLayerDivRef.current.style.width = `${viewport.width}px`;
+              textLayerDivRef.current.style.height = `${viewport.height}px`;
+              
               const textLayer = new pdfjs.TextLayer({
-                textContentSource: page.streamTextContent(),
+                textContentSource: textContent,
                 container: textLayerDivRef.current,
                 viewport: viewport
               });
@@ -903,10 +921,15 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
         <div 
           ref={textLayerDivRef} 
           className={cn(
-            "textLayer absolute top-0 left-0 w-full h-full transition-opacity duration-300 select-text",
+            "textLayer absolute top-0 left-0 transition-opacity duration-300 select-text pointer-events-auto",
             isRendering ? "opacity-0" : "opacity-100"
           )} 
-          style={{ '--total-scale-factor': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1) } as React.CSSProperties}
+          style={{ 
+            '--total-scale-factor': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1),
+            transform: 'scale(var(--total-scale-factor))',
+            transformOrigin: '0 0',
+            zIndex: 2
+          } as React.CSSProperties}
         />
       </div>
     </div>

@@ -42,11 +42,11 @@ export default function App() {
 
   return (
     <div 
-      className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-500 overflow-hidden flex flex-col"
+      className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-200 overflow-hidden flex flex-col"
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* Dynamic Background Atmosphere */}
-      <div className="fixed inset-0 pointer-events-none opacity-20 dark:opacity-40 overflow-hidden">
+      <div className="fixed inset-0 pointer-events-none opacity-20 dark:opacity-40 overflow-hidden" aria-hidden="true">
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full bg-orange-200/40 dark:bg-orange-900/20 blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-blue-200/40 dark:bg-zinc-900/40 blur-[120px]" />
       </div>
@@ -117,7 +117,7 @@ export default function App() {
           opacity: activeBookId ? 0 : 1,
           pointerEvents: activeBookId ? 'none' : 'auto'
         }}
-        className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-50/80 dark:bg-zinc-950/80 backdrop-blur-xl border-t border-zinc-200 dark:border-white/5 px-6 py-4 flex justify-around items-center rounded-t-3xl transition-all duration-500 shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.05)]"
+        className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-50/80 dark:bg-zinc-950/80 backdrop-blur-xl border-t border-zinc-200 dark:border-white/5 px-6 py-4 flex justify-around items-center rounded-t-3xl transition-all duration-300 shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.05)]"
       >
         <NavButton
           active={activeTab === 'home'}
@@ -184,7 +184,7 @@ function NavButton({ active, onClick, icon, label }: { active: boolean, onClick:
     <button
       onClick={onClick}
       className={cn(
-        "group flex flex-col items-center gap-1.5 transition-all duration-500",
+        "group flex flex-col items-center gap-1.5 transition-all duration-300",
         active ? "text-orange-600" : "text-zinc-400"
       )}
     >

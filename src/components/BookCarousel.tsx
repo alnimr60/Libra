@@ -27,9 +27,9 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
   const virtualIndex = useMotionValue(selectedIndex);
   // A spring to make the snapping motion smooth
   const smoothIndex = useSpring(virtualIndex, {
-    stiffness: 180,
-    damping: 30,
-    mass: 0.6
+    stiffness: 260,
+    damping: 32,
+    mass: 0.5
   });
 
   useEffect(() => {
@@ -89,9 +89,9 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
       if (Math.abs(currentV - target) > 0.001 || lastVelocity.current !== 0) {
         animate(virtualIndex, target, {
           type: 'spring',
-          stiffness: 180,
-          damping: 30,
-          mass: 0.6,
+          stiffness: 260,
+          damping: 32,
+          mass: 0.5,
           velocity: lastVelocity.current
         });
         // Reset velocity after handoff
@@ -121,12 +121,12 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     
     // Project velocity into indices/s and invert (dragging right decreases index)
     // Capping results in more predictable behavior at extreme flick speeds
-    const cappedVelocity = Math.max(-4500, Math.min(4500, velocity));
+    const cappedVelocity = Math.max(-3000, Math.min(3000, velocity));
     const velocityInIndices = -cappedVelocity / spacing;
     
     // Calculate final index based on position and momentum projection
     const currentVal = virtualIndex.get();
-    const projectionPower = 0.5; // Project half a second ahead
+    const projectionPower = 0.3; // Project 0.3 seconds ahead for snappier feel
     const predictedStop = currentVal + (velocityInIndices * projectionPower);
     
     // Snap to the nearest integer index
@@ -176,9 +176,9 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
 
       animate(virtualIndex, target, {
         type: 'spring',
-        stiffness: 180,
-        damping: 30,
-        mass: 0.6,
+        stiffness: 260,
+        damping: 32,
+        mass: 0.5,
         velocity: velocityInIndices
       });
       lastVelocity.current = 0;
@@ -210,7 +210,10 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     >
       {/* Interaction Layer */}
       <motion.div 
-        className="absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-pan-y"
+        className={cn(
+          "absolute inset-0 z-50 cursor-grab active:cursor-grabbing touch-pan-y",
+          isDragging && "cursor-grabbing"
+        )}
         onPanStart={handlePanStart}
         onPan={handlePan}
         onPanEnd={handlePanEnd}
