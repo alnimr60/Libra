@@ -70,6 +70,24 @@ body {
   @apply antialiased transition-colors duration-200;
 }
 
+/* PDF Text Layer Selection Styling */
+.textLayer {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.textLayer span {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  color: rgba(0, 0, 0, 0.01) !important;
+  pointer-events: auto !important;
+}
+
+.textLayer ::selection {
+  background: rgba(249, 115, 22, 0.4); /* orange-500 with opacity */
+  color: transparent !important;
+}
+
 /* Custom scrollbar for desktop */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
