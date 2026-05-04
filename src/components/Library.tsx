@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Book, ReadingStatus, AppSettings } from '../types';
-import { Search, Grid, List as ListIcon, Trash2, BookOpen, Clock, CheckCircle2, ChevronRight, X, Plus } from 'lucide-react';
+import { Search, Grid, List as ListIcon, Trash2, BookOpen, Clock, CheckCircle2, ChevronRight, X, Plus, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSafeArea } from './SafeAreaProvider';
@@ -50,7 +50,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
       setEditForm({
         title: selectedBook.title,
         author: selectedBook.author || '',
-        coverUrl: selectedBook.coverUrl || ''
+        coverUrl: selectedBook.coverUrl || '',
       });
       setIsEditing(true);
     }
@@ -62,7 +62,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
         ...selectedBook,
         title: editForm.title || selectedBook.title,
         author: editForm.author,
-        coverUrl: editForm.coverUrl
+        coverUrl: editForm.coverUrl,
       });
       setIsEditing(false);
     }
@@ -256,7 +256,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                         placeholder={isRTL ? "المؤلف" : "Author"}
                         value={editForm.author}
                         onChange={(e) => setEditForm(prev => ({ ...prev, author: e.target.value }))}
-                        className="w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
                       />
                     </div>
                   ) : (
@@ -388,7 +388,8 @@ function BookLibraryItem({
   viewMode: 'grid' | 'list',
   index: number,
   onClick: () => void,
-  isRTL: boolean
+  isRTL: boolean,
+  key?: React.Key
 }) {
   const progress = (book.currentPage / book.totalPages) * 100;
 

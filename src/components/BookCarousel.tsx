@@ -10,9 +10,11 @@ interface BookCarouselProps {
   onChange: (index: number) => void;
   onOpen?: (book: Book) => void;
   style?: 'linear' | 'circular';
+  language?: 'en' | 'ar';
 }
 
-export default function BookCarousel({ books, selectedIndex, onChange, onOpen, style = 'linear' }: BookCarouselProps) {
+export default function BookCarousel({ books, selectedIndex, onChange, onOpen, style = 'linear', language = 'en' }: BookCarouselProps) {
+  const isRTL = language === 'ar';
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -115,7 +117,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     }
 
     const spacing = width * 0.35 || 100;
-    const velocity = info.velocity.x;
+    const velocity = isRTL ? -info.velocity.x : info.velocity.x;
     
     // Project velocity into indices/s and invert (dragging right decreases index)
     // Capping results in more predictable behavior at extreme flick speeds
@@ -196,13 +198,14 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     if (swipeDirection.current === 'vertical') return;
     
     const spacing = width * 0.35 || 100;
-    const dragProgress = info.offset.x / spacing;
+    const dragProgress = (isRTL ? -info.offset.x : info.offset.x) / spacing;
     virtualIndex.set(baseIndex.current - dragProgress);
   };
 
   return (
     <div 
       ref={containerRef}
+      dir="ltr"
       className="relative w-full h-full flex items-center justify-center overflow-visible perspective-[2000px] touch-pan-y"
     >
       {/* Interaction Layer */}
@@ -221,14 +224,17 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
           const center = rect.width / 2;
           const bookWidth = 100;
           
-          if (clickX < center - bookWidth) {
+          const isLeftClick = clickX < center - bookWidth;
+          const isRightClick = clickX > center + bookWidth;
+
+          if (isRTL ? isRightClick : isLeftClick) {
             const prev = (selectedIndex - 1 + books.length) % books.length;
             if (style === 'linear') {
               if (selectedIndex > 0) onChange(selectedIndex - 1);
             } else {
               onChange(prev);
             }
-          } else if (clickX > center + bookWidth) {
+          } else if (isRTL ? isLeftClick : isRightClick) {
             const next = (selectedIndex + 1) % books.length;
             if (style === 'linear') {
               if (selectedIndex < books.length - 1) onChange(selectedIndex + 1);
@@ -255,6 +261,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
             isActive={index === selectedIndex}
             isCircular={style === 'circular'}
             totalBooks={books.length}
+            isRTL={isRTL}
           />
         ))}
       </div>
@@ -262,7 +269,7 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
   );
 }
 
-function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, totalBooks }: { 
+function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, totalBooks, isRTL }: { 
   book: Book, 
   index: number, 
   virtualIndex: any, 
@@ -270,6 +277,7 @@ function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, 
   isActive: boolean,
   isCircular: boolean,
   totalBooks: number,
+  isRTL: boolean,
   key?: React.Key
 }) {
   // Compute distance from current virtual focus
@@ -283,11 +291,17 @@ function CarouselBook({ book, index, virtualIndex, width, isActive, isCircular, 
   });
   
   // Transform distance into visual properties
-  const x = useTransform(distance, (d: number) => d * (width * 0.35));
+  const x = useTransform(distance, (d: number) => {
+    const factor = isRTL ? -1 : 1;
+    return d * (width * 0.35) * factor;
+  });
 
   const z = useTransform(distance, (d: number) => -Math.abs(d) * 400 - (Math.abs(d) < 0.1 ? 0 : 60));
 
-  const rotateY = useTransform(distance, (d: number) => d * -22);
+  const rotateY = useTransform(distance, (d: number) => {
+    const factor = isRTL ? -1 : 1;
+    return d * -22 * factor;
+  });
 
   const opacity = useTransform(distance, (d: number) => {
     const absD = Math.abs(d);

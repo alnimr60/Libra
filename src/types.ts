@@ -21,6 +21,7 @@ export interface Book {
   deadline?: string; // ISO date string
   status: ReadingStatus;
   tags: string[];
+  readingDirection: 'ltr' | 'rtl';
   coverUrl?: string; // Data URL or external link
   fileDataId?: string; // ID for IndexedDB storage
   bookmarks?: Bookmark[];

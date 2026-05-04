@@ -2,10 +2,12 @@
 @import "tailwindcss";
 
 @layer utilities {
-  .scrollbar-hide::-webkit-scrollbar {
+  .scrollbar-hide::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
-  .scrollbar-hide {
+  .scrollbar-hide,
+  .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
@@ -27,13 +29,24 @@
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
   }
+
+  /* Support for mobile overflow-scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @layer base {
   [dir="rtl"] *, 
   [dir="rtl"] {
     letter-spacing: 0 !important;
-    word-spacing: 0.05em;
+    word-spacing: 0.1em;
+    font-feature-settings: "kern" 1, "liga" 1;
+    line-height: 1.6;
+  }
+
+  [dir="rtl"] .font-bold {
+    font-weight: 800 !important;
   }
 }
 

@@ -119,6 +119,7 @@ export default function Dashboard({
             onChange={handleCarouselChange} 
             onOpen={onOpenBook}
             style={dashboardStyle}
+            language={language}
           />
         </div>
 
@@ -311,6 +312,7 @@ interface GoalCardProps {
   readingLogs: ReadingLog[];
   onDelete: () => void;
   language: 'en' | 'ar';
+  key?: React.Key;
 }
 
 function GoalCard({ goal, readingLogs, onDelete, language }: GoalCardProps) {

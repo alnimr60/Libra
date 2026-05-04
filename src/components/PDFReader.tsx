@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
+import 'pdfjs-dist/web/pdf_viewer.css';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
 import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react';
 import { get } from 'idb-keyval';
@@ -35,7 +36,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   }, [scale]);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [direction, setDirection] = useState<'ltr' | 'rtl'>('ltr');
+  const [direction, setDirection] = useState<'ltr' | 'rtl'>(book.readingDirection || 'ltr');
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
   const [pageIndex, setPageIndex] = useState(0); // 0-based for internal math
   const [isTemporal, setIsTemporal] = useState(false);
@@ -84,8 +85,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   
   const virtualPage = useMotionValue(pageIndex);
   const smoothPage = useSpring(virtualPage, {
-    stiffness: 300,
-    damping: 35,
+    stiffness: 450,
+    damping: 45,
     mass: 0.8
   });
 
@@ -99,8 +100,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     if (!isDragging) {
       animate(virtualPage, pageIndex, {
         type: 'spring',
-        stiffness: 300,
-        damping: 35
+        stiffness: 450,
+        damping: 45
       });
     }
   }, [pageIndex, isDragging, virtualPage]);
@@ -184,43 +185,27 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
       try {
         setIsLoading(true);
         setError(null);
+        if (!fileDataId) {
+          throw new Error('No PDF file attached to this book. You can manually track your progress from the Library tab by editing the book details.');
+        }
+        
         const data = await get(fileDataId);
-        if (!data) throw new Error('This book\'s PDF file could not be found. Try re-adding the book.');
+        
+        if (!data) throw new Error('This book\'s PDF file could not be found in local storage. Try re-adding the book.');
         
     const loadingTask = pdfjs.getDocument({ 
       data: new Uint8Array(data),
       stopAtErrors: false,
       enableXfa: true,
-      disableFontFace: true, // Ensured true for better coverage of missing fonts
+      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+      cMapPacked: true,
       disableRange: true,
       disableStream: true
     });
         const pdfDoc = await loadingTask.promise;
         setPdf(pdfDoc);
         setNumPages(pdfDoc.numPages);
-
-        // Improved Direction Detection
-        try {
-          const rtlRegex = /[\u0600-\u06FF\u0590-\u05FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-          let detectedDirection: 'ltr' | 'rtl' = rtlRegex.test(book.title) ? 'rtl' : 'ltr';
-          
-          if (detectedDirection === 'ltr') {
-            // Check first few pages to be sure
-            const pagesToCheck = Math.min(3, pdfDoc.numPages);
-            for (let i = 1; i <= pagesToCheck; i++) {
-              const page = await pdfDoc.getPage(i);
-              const textContent = await page.getTextContent();
-              const text = textContent.items.map((item: any) => (item as any).str).join('');
-              if (rtlRegex.test(text)) {
-                detectedDirection = 'rtl';
-                break;
-              }
-            }
-          }
-          setDirection(detectedDirection);
-        } catch (e) {
-          console.warn('PDFReader: Direction detection failed, defaulting to LTR');
-        }
+        setDirection(book.readingDirection || 'ltr');
 
         // Set initial page index
         if (initialPage) {
@@ -255,6 +240,10 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     if (safeIndex === pageIndex) return;
     
     setPageIndex(safeIndex);
+    
+    if (typeof window !== 'undefined' && 'vibrate' in navigator && !isJump) {
+      navigator.vibrate(10);
+    }
     
     if (isJump) {
       setIsTemporal(true);
@@ -363,6 +352,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
                       value={pageIndex}
                       onChange={(e) => handlePageChange(parseInt(e.target.value, 10), true)}
                       className="w-full h-1 bg-white/10 rounded-full appearance-none accent-white cursor-pointer hover:accent-orange-500 transition-colors"
+                      dir={direction === 'rtl' ? 'rtl' : 'ltr'}
                     />
                     <div className="flex justify-between text-[8px] font-mono text-white/10 uppercase tracking-widest px-1">
                       <span>Start</span>
@@ -511,7 +501,27 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
       <div 
         ref={viewportRef}
         onClick={(e) => {
+          // If text is selected, do not trigger page turn or click actions
+          if (window.getSelection()?.toString().trim().length) {
+            return;
+          }
+
           handleDoubleTap(e);
+          // If controls are shown, clicking hides them. If hidden, clicking might show them OR turn page.
+          if (!showControls) {
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const width = rect.width;
+            if (x < width * 0.25) {
+              // Clicked left quarter
+              handlePageChange(direction === 'ltr' ? pageIndex - 1 : pageIndex + 1);
+              return;
+            } else if (x > width * 0.75) {
+              // Clicked right quarter
+              handlePageChange(direction === 'ltr' ? pageIndex + 1 : pageIndex - 1);
+              return;
+            }
+          }
           if (showControls) {
             setShowControls(false);
           } else {
@@ -674,17 +684,28 @@ function ReaderSheet({
     return `${d * multiplier}%`;
   });
   
+  const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
+
+  const rotateY = useTransform(distance, (d: number) => {
+    const multiplier = direction === 'rtl' ? -10 : 10;
+    return `${d * multiplier}deg`;
+  });
+
+  const scaleTransform = useTransform(distance, (d: number) => {
+    return 1 - (Math.abs(d) * 0.05);
+  });
+  
   // Fast fade for non-visible sheets to save render cycles
-  const opacity = useTransform(distance, [-1.1, -0.8, 0, 0.8, 1.1], [0, 1, 1, 1, 0]);
+  const opacity = useTransform(distance, [-1.5, -0.5, 0, 0.5, 1.5], [0, 0.5, 1, 0.5, 0]);
   const visibility = useTransform(distance, (d: number) => Math.abs(d) > 1.5 ? 'hidden' : 'visible');
 
   return (
     <motion.div
-      style={{ x, opacity, visibility }}
+      style={{ x, y: 0, opacity, visibility, zIndex, rotateY, scale: scaleTransform }}
       className={cn(
         "absolute inset-0 flex p-4 md:p-8 overflow-hidden",
         viewMode === 'double' ? "flex-row" : "flex-col",
-        "items-center justify-center"
+        "items-center justify-center transform-gpu perspective-[1500px]"
       )}
     >
       <motion.div 
@@ -764,6 +785,7 @@ interface PDFPageProps {
 
 const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textLayerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
@@ -792,6 +814,10 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           context.fillStyle = 'white';
           context.fillRect(0, 0, canvas.width, canvas.height);
 
+          if (textLayerDivRef.current) {
+            textLayerDivRef.current.innerHTML = '';
+          }
+
           if (renderTaskRef.current) {
             renderTaskRef.current.cancel();
           }
@@ -803,6 +829,20 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           } as any);
           
           await renderTaskRef.current.promise;
+
+          try {
+            if (textLayerDivRef.current) {
+              const textLayer = new pdfjs.TextLayer({
+                textContentSource: page.streamTextContent(),
+                container: textLayerDivRef.current,
+                viewport: viewport
+              });
+              await textLayer.render();
+            }
+          } catch (textLayerErr) {
+            console.warn("Text layer failed to render", textLayerErr);
+          }
+
           if (isMounted) setIsRendering(false);
         }
       } catch (error: any) {
@@ -817,8 +857,22 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
 
     render();
 
+    // Setup resize observer for dynamic scale factor
+    const resizeObserver = new ResizeObserver(() => {
+      if (canvasRef.current && textLayerDivRef.current) {
+        const clientWidth = canvasRef.current.clientWidth;
+        const width = canvasRef.current.width || 1;
+        textLayerDivRef.current.style.setProperty('--total-scale-factor', String(clientWidth / width));
+      }
+    });
+
+    if (canvasRef.current) {
+      resizeObserver.observe(canvasRef.current);
+    }
+
     return () => {
       isMounted = false;
+      resizeObserver.disconnect();
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
       }
@@ -838,13 +892,23 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
-      <canvas 
-        ref={canvasRef} 
-        className={cn(
-          "w-full h-auto transition-opacity duration-300",
-          isRendering ? "opacity-0" : "opacity-100"
-        )}
-      />
+      <div className="relative inline-block w-full">
+        <canvas 
+          ref={canvasRef} 
+          className={cn(
+            "w-full h-auto block transition-opacity duration-300 pointer-events-none",
+            isRendering ? "opacity-0" : "opacity-100"
+          )}
+        />
+        <div 
+          ref={textLayerDivRef} 
+          className={cn(
+            "textLayer absolute top-0 left-0 w-full h-full transition-opacity duration-300 select-text",
+            isRendering ? "opacity-0" : "opacity-100"
+          )} 
+          style={{ '--total-scale-factor': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1) } as React.CSSProperties}
+        />
+      </div>
     </div>
   );
 };

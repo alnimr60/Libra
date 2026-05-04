@@ -21,6 +21,10 @@ export function usePersistence() {
         const parsed = JSON.parse(saved);
         return {
           ...parsed,
+          books: (parsed.books || []).map((b: any) => ({
+            ...b,
+            readingDirection: b.readingDirection || 'ltr'
+          })),
           goals: parsed.goals || [],
           readingLogs: parsed.readingLogs || [],
           settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
