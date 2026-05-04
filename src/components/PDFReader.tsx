@@ -3,7 +3,7 @@ import { pdfjs } from '../lib/pdf';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
 import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react';
-import { get } from 'idb-keyval';
+import { get, set } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book, Bookmark } from '../types';
 import { useSafeArea } from './SafeAreaProvider';
@@ -64,6 +64,34 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [renderScale, setRenderScale] = useState(scale);
+  const [retryKey, setRetryKey] = useState(0);
+  
+  const handleReupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      alert('Please upload a PDF file.');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      setError(null);
+      const arrayBuffer = await file.arrayBuffer();
+      // Use the existing fileDataId or generate a new one if somehow missing
+      const fileId = fileDataId || `pdf_${crypto.randomUUID()}`;
+      await set(fileId, arrayBuffer);
+      
+      if (!fileDataId) {
+         // this is slightly tricky since it updates the book, we shouldn't really hit this
+      }
+      
+      setRetryKey(k => k + 1);
+    } catch (err: any) {
+      console.error('Failed to save to local storage', err);
+      alert('Could not save PDF. Please check your browser storage.');
+      setIsLoading(false);
+    }
+  };
   
   // Double tap to zoom handler
   const lastTap = useRef<number>(0);
@@ -233,7 +261,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
       }
     }
     loadPDF();
-  }, [fileDataId]);
+  }, [fileDataId, retryKey]);
 
   // Adjust viewMode based on screen size
   useEffect(() => {
@@ -295,7 +323,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500",
+        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500 select-none",
         direction === 'rtl' ? "rtl" : "ltr"
       )}
     >
@@ -581,12 +609,23 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
               <p className="text-white font-medium">Error Loading PDF</p>
               <p className="text-white/40 text-sm max-w-xs">{error}</p>
             </div>
-            <button 
-              onClick={onClose}
-              className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white text-sm transition-colors"
-            >
-              Close Reader
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <label className="cursor-pointer px-6 py-2 bg-orange-500 hover:bg-orange-600 rounded-xl text-white text-sm transition-colors flex items-center justify-center">
+                <span>Select PDF again</span>
+                <input 
+                  type="file" 
+                  accept="application/pdf"
+                  className="hidden" 
+                  onChange={handleReupload}
+                />
+              </label>
+              <button 
+                onClick={onClose}
+                className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white text-sm transition-colors"
+              >
+                Close Reader
+              </button>
+            </div>
           </div>
         ) : (
           <motion.div 
@@ -594,6 +633,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
             onPanStart={handlePanStart}
             onPan={handlePanMove}
             onPanEnd={handlePanEnd}
+            style={{ touchAction: 'auto' }}
           >
             {/* Windowed view of pages */}
             {Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i).map(sheetIndex => {
@@ -727,7 +767,7 @@ function ReaderSheet({
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center touch-none",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center",
           viewMode === 'double' ? "flex-row" : "flex-col",
           "mx-auto"
         )}
@@ -849,6 +889,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
               // Ensure container has same internal dimensions for correctly positioning text spans
               textLayerDivRef.current.style.width = `${viewport.width}px`;
               textLayerDivRef.current.style.height = `${viewport.height}px`;
+              textLayerDivRef.current.style.setProperty('--scale-factor', viewport.scale.toString());
               
               const textLayer = new pdfjs.TextLayer({
                 textContentSource: textContent,
@@ -880,7 +921,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
       if (canvasRef.current && textLayerDivRef.current) {
         const clientWidth = canvasRef.current.clientWidth;
         const width = canvasRef.current.width || 1;
-        textLayerDivRef.current.style.setProperty('--total-scale-factor', String(clientWidth / width));
+        textLayerDivRef.current.style.setProperty('--custom-scale', String(clientWidth / width));
       }
     });
 
@@ -917,18 +958,19 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale }) => {
             "w-full h-auto block transition-opacity duration-300 pointer-events-none",
             isRendering ? "opacity-0" : "opacity-100"
           )}
+          style={{ WebkitTouchCallout: 'none' }}
         />
         <div 
           ref={textLayerDivRef} 
           className={cn(
-            "textLayer absolute top-0 left-0 transition-opacity duration-300 select-text pointer-events-auto",
+            "textLayer absolute top-0 left-0 transition-opacity duration-300 select-text pointer-events-none",
             isRendering ? "opacity-0" : "opacity-100"
           )} 
           style={{ 
-            '--total-scale-factor': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1),
-            transform: 'scale(var(--total-scale-factor))',
+            '--custom-scale': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1),
+            transform: 'scale(var(--custom-scale))',
             transformOrigin: '0 0',
-            zIndex: 2
+            zIndex: 20
           } as React.CSSProperties}
         />
       </div>
