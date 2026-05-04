@@ -67,7 +67,7 @@
 }
 
 body {
-  @apply antialiased;
+  @apply antialiased transition-colors duration-200;
 }
 
 /* Custom scrollbar for desktop */

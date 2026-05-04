@@ -87,12 +87,12 @@ export default function Dashboard({
 
   const ppd = currentBook ? calculatePagesPerDay(currentBook.totalPages, currentBook.currentPage, currentBook.deadline) : 0;
   const daysLeft = currentBook ? getDaysRemaining(currentBook.deadline) : 0;
-  const progress = currentBook ? (currentBook.currentPage / currentBook.totalPages) * 100 : 0;
+  const progress = currentBook && currentBook.totalPages > 0 ? (currentBook.currentPage / currentBook.totalPages) * 100 : 0;
 
   return (
     <div 
       style={{ paddingTop: `${insets.top + 32}px` }}
-      className="flex flex-col h-full overflow-hidden"
+      className="flex flex-col h-full overflow-hidden transition-colors duration-200"
       dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="px-6 mb-8 flex-shrink-0">
@@ -124,13 +124,14 @@ export default function Dashboard({
         </div>
 
         {/* Book Info Panel */}
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {currentBook && (
             <motion.div
               key={currentBook.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
               className="px-6 space-y-8"
             >
               <div className="text-center max-w-sm mx-auto">
@@ -244,7 +245,8 @@ export default function Dashboard({
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 z-[510] w-full bg-white dark:bg-zinc-900 rounded-t-[2.5rem] p-10 pb-[calc(var(--sab)+2rem)] shadow-2xl"
+              className="fixed bottom-0 left-0 right-0 z-[510] w-full bg-white dark:bg-zinc-900 rounded-t-[2.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]"
+              style={{ paddingBottom: `${Math.max(insets.bottom, 16) + 32}px` }}
               dir={isRTL ? "rtl" : "ltr"}
             >
               <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-10" />

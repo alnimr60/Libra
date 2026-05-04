@@ -22,7 +22,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '' });
+  const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '', currentPage: 0, totalPages: 0 });
   const insets = useSafeArea();
   const t = translations[settings.language];
   const isRTL = settings.language === 'ar';
@@ -51,6 +51,8 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
         title: selectedBook.title,
         author: selectedBook.author || '',
         coverUrl: selectedBook.coverUrl || '',
+        currentPage: selectedBook.currentPage || 0,
+        totalPages: selectedBook.totalPages || 0,
       });
       setIsEditing(true);
     }
@@ -63,6 +65,8 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
         title: editForm.title || selectedBook.title,
         author: editForm.author,
         coverUrl: editForm.coverUrl,
+        currentPage: Number(editForm.currentPage) || 0,
+        totalPages: Number(editForm.totalPages) || 0,
       });
       setIsEditing(false);
     }
@@ -71,7 +75,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   return (
     <div 
       style={{ paddingTop: `${insets.top + 32}px` }}
-      className="px-6 flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500 overflow-hidden"
+      className="px-6 flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200 overflow-hidden"
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* Header Section */}
@@ -215,7 +219,8 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-zinc-900 rounded-t-[2.5rem] z-[510] border-t border-zinc-200 dark:border-zinc-800 p-8 pb-[calc(var(--sab)+2rem)] shadow-2xl overflow-hidden"
+              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-zinc-900 rounded-t-[2.5rem] z-[510] border-t border-zinc-200 dark:border-zinc-800 p-8 shadow-2xl overflow-y-auto max-h-[90vh]"
+              style={{ paddingBottom: `${Math.max(insets.bottom, 16) + 32}px` }}
               dir={isRTL ? "rtl" : "ltr"}
             >
               <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-8" />
@@ -258,6 +263,23 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                         onChange={(e) => setEditForm(prev => ({ ...prev, author: e.target.value }))}
                         className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
                       />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          placeholder={isRTL ? "الصفحة الحالية" : "Current Page"}
+                          value={editForm.currentPage || ''}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, currentPage: parseInt(e.target.value) || 0 }))}
+                          className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
+                        />
+                        <span className="text-zinc-400 font-mono text-xs">/</span>
+                        <input
+                          type="number"
+                          placeholder={isRTL ? "إجمالي الصفحات" : "Total Pages"}
+                          value={editForm.totalPages || ''}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, totalPages: parseInt(e.target.value) || 0 }))}
+                          className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
+                        />
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -357,12 +379,14 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                   <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-100 dark:border-zinc-800">
                     <div className="flex justify-between items-baseline mb-2">
                       <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">{isRTL ? "التقدم" : "Progress"}</p>
-                      <p className="text-sm font-serif">{Math.round((selectedBook.currentPage / selectedBook.totalPages) * 100)}%</p>
+                      <p className="text-sm font-serif">
+                        {selectedBook.totalPages > 0 ? Math.round((selectedBook.currentPage / selectedBook.totalPages) * 100) : 0}%
+                      </p>
                     </div>
                     <div className="h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden relative">
                       <motion.div 
                         initial={{ width: 0 }}
-                        animate={{ width: `${(selectedBook.currentPage / selectedBook.totalPages) * 100}%` }}
+                        animate={{ width: `${selectedBook.totalPages > 0 ? (selectedBook.currentPage / selectedBook.totalPages) * 100 : 0}%` }}
                         className={cn("absolute top-0 bottom-0 bg-orange-500", isRTL ? "right-0" : "left-0")}
                       />
                     </div>
@@ -391,7 +415,7 @@ function BookLibraryItem({
   isRTL: boolean,
   key?: React.Key
 }) {
-  const progress = (book.currentPage / book.totalPages) * 100;
+  const progress = book.totalPages > 0 ? (book.currentPage / book.totalPages) * 100 : 0;
 
   if (viewMode === 'grid') {
     return (

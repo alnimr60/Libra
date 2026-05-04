@@ -19,7 +19,7 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
   return (
     <div 
       style={{ paddingTop: `${insets.top + 32}px` }}
-      className="px-6 flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500"
+      className="px-6 flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200"
       dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="mb-10">
@@ -119,7 +119,7 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
                 <button 
                   onClick={() => setSettings({ notificationsEnabled: !settings.notificationsEnabled })}
                   className={cn(
-                    "w-12 h-6 rounded-full relative transition-all duration-500",
+                    "w-12 h-6 rounded-full relative transition-all duration-300",
                     settings.notificationsEnabled ? "bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]" : "bg-zinc-200 dark:bg-zinc-800"
                   )}
                 >
@@ -161,7 +161,7 @@ function SettingRow({ icon, label, isActive, onClick, isRTL }: { icon: React.Rea
     <button 
       onClick={onClick}
       className={cn(
-        "w-full flex items-center justify-between p-4 rounded-[1.5rem] transition-all duration-500 group",
+        "w-full flex items-center justify-between p-4 rounded-[1.5rem] transition-all duration-300 group",
         isActive ? "bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 shadow-xl" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
       )}
     >
