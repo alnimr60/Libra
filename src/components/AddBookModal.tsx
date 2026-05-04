@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Book, ReadingStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Upload, CheckCircle, Loader2, Calendar as CalendarIcon, Tag, Book as BookIcon, Image as ImageIcon } from 'lucide-react';
-import { extractPDFMetadata } from '../lib/pdf';
+import { extractPDFMetadata, extractPDFSampleText, detectDirectionFromText } from '../lib/pdf';
 import { cn } from '../lib/utils';
 import { set } from 'idb-keyval';
 
@@ -28,6 +28,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
     status: 'Currently Reading',
     tags: [],
     deadline: '',
+    readingDirection: 'ltr',
   });
   const [tagInput, setTagInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,12 +51,22 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
       const fileId = `pdf_${crypto.randomUUID()}`;
       await set(fileId, arrayBuffer);
 
+      // Auto-detect language via sampled text
+      let sampleText = '';
+      try {
+        sampleText = await extractPDFSampleText(file);
+      } catch (e) {
+        console.warn("Failed to sample text for language detection", e);
+      }
+      const direction = detectDirectionFromText(sampleText);
+
       setFormData(prev => ({
         ...prev,
         title: prev.title || file.name.replace('.pdf', ''),
         totalPages: metadata.pageCount,
         coverUrl: metadata.coverUrl,
         fileDataId: fileId,
+        readingDirection: direction
       }));
       setStep(2);
     } catch (error) {
@@ -104,6 +115,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
       currentPage: formData.currentPage || 0,
       status: formData.status || 'To-Be-Read',
       tags: formData.tags || [],
+      readingDirection: formData.readingDirection || 'ltr',
       coverUrl: formData.coverUrl,
       fileDataId: formData.fileDataId,
       deadline: formData.deadline,
