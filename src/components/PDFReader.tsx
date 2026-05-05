@@ -986,22 +986,25 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
         <canvas 
           ref={canvasRef} 
           className={cn(
-            "w-full h-auto block transition-opacity duration-300 pointer-events-none",
+            "w-full h-auto block transition-opacity duration-300 pointer-events-none select-none",
             isRendering ? "opacity-0" : "opacity-100"
           )}
-          style={{ WebkitTouchCallout: 'none' }}
+          style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
         />
         <div 
           ref={textLayerDivRef} 
           onPointerDown={(e) => {
-            setIsSelectingText(true);
-            e.stopPropagation();
+            const isSpan = (e.target as HTMLElement).tagName.toLowerCase() === 'span';
+            if (isSpan) {
+              setIsSelectingText(true);
+              e.stopPropagation();
+            }
           }}
-          onPointerUp={() => {
+          onPointerUp={(e) => {
             setIsSelectingText(false);
           }}
           className={cn(
-            "textLayer absolute top-0 left-0 transition-opacity duration-300 select-text overflow-hidden",
+            "textLayer absolute top-0 left-0 transition-opacity duration-300 select-text",
             isRendering ? "opacity-0" : "opacity-100"
           )} 
           style={{ 
@@ -1011,6 +1014,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
             zIndex: 20,
             WebkitUserSelect: 'text',
             userSelect: 'text',
+            WebkitTouchCallout: 'text',
             touchAction: 'auto',
           } as React.CSSProperties}
         />
