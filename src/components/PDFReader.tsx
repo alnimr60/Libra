@@ -982,7 +982,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
-      <div className="relative inline-block w-full overflow-hidden">
+      <div className="relative block w-full overflow-hidden">
         <canvas 
           ref={canvasRef} 
           className={cn(
