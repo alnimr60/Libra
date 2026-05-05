@@ -74,11 +74,14 @@ body {
 .textLayer {
   user-select: text !important;
   -webkit-user-select: text !important;
+  -webkit-touch-callout: text !important;
 }
 
 .textLayer span {
   user-select: text !important;
   -webkit-user-select: text !important;
+  -webkit-touch-callout: text !important;
+  -webkit-user-drag: none !important;
   color: rgba(0, 0, 0, 0.01) !important;
   pointer-events: auto !important;
 }
