@@ -718,6 +718,26 @@ function ReaderSheet({
 }) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
+  // Calculate display width in pixels to pass to sub-components
+  const [displayWidth, setDisplayWidth] = useState(0);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      const vh = window.innerHeight / 100;
+      const vw = window.innerWidth / 100;
+      let w = 0;
+      if (viewMode === 'double') {
+        w = isLandscape ? (renderScale * 50) * 0.707 * vh : 45 * renderScale * vw;
+      } else {
+        w = isLandscape ? (renderScale * 100) * 0.707 * vh : 85 * renderScale * vw;
+      }
+      setDisplayWidth(w);
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [renderScale, viewMode, isLandscape]);
+  
   // Transform distance into horizontal position
   const x = useTransform(distance, (d: number) => {
     const multiplier = direction === 'rtl' ? -100 : 100;
@@ -739,6 +759,17 @@ function ReaderSheet({
   const opacity = useTransform(distance, [-1.5, -0.5, 0, 0.5, 1.5], [0, 0.5, 1, 0.5, 0]);
   const visibility = useTransform(distance, (d: number) => Math.abs(d) > 1.5 ? 'hidden' : 'visible');
 
+  const panX = useMotionValue(0);
+  const panY = useMotionValue(0);
+
+  // Reset panning when zooming out
+  useEffect(() => {
+    if (renderScale <= 1.1) {
+      panX.set(0);
+      panY.set(0);
+    }
+  }, [renderScale, panX, panY]);
+
   return (
     <motion.div
       style={{ x, y: 0, opacity, visibility, zIndex, rotateY, scale: scaleTransform }}
@@ -749,13 +780,13 @@ function ReaderSheet({
       )}
     >
       <motion.div 
-        style={{ scale }}
-        drag={false}
+        style={{ scale, x: panX, y: panY }}
+        drag={renderScale > 1.1}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center select-text",
           viewMode === 'double' ? "flex-row" : "flex-col",
           "mx-auto"
         )}
@@ -764,27 +795,26 @@ function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
               </>
             )}
           </>
         ) : (
           <div 
-            className="flex-shrink-0 h-auto shadow-2xl bg-white relative"
+            className="flex-shrink-0 h-auto relative select-text"
             style={{ 
-              width: isLandscape ? `${(renderScale * 100) * 0.707}vh` : `${85 * renderScale}vw`,
+              width: displayWidth || 'auto',
               maxHeight: '90vh',
-              aspectRatio: '0.707',
               transition: 'width 0.1s ease-out'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} scale={renderScale} isSelectingText={isSelectingText} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} targetWidth={displayWidth} isSelectingText={isSelectingText} />
           </div>
         )}
       </motion.div>
@@ -792,18 +822,17 @@ function ReaderSheet({
   );
 }
 
-function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLandscape, isSelectingText }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, renderScale: number, side: 'left' | 'right', isLandscape?: boolean, isSelectingText: React.RefObject<boolean> }) {
-  if (pageNumber > numPages) return <div className="flex-shrink-0" style={{ width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`, aspectRatio: '0.707' }} />;
+function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSelectingText }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, width: number, side: 'left' | 'right', isLandscape?: boolean, isSelectingText: React.RefObject<boolean> }) {
+  if (pageNumber > numPages) return <div className="flex-shrink-0 bg-white" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />;
   
   return (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto shadow-2xl bg-white relative flex items-center justify-center",
+        "flex-shrink-0 h-auto relative flex items-center justify-center select-text",
         side === 'left' ? "rounded-l-sm" : "rounded-r-sm"
       )}
       style={{ 
-        width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`,
-        aspectRatio: '0.707',
+        width: width || 'auto',
         transition: 'width 0.1s ease-out'
       }}
     >
@@ -812,7 +841,7 @@ function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLan
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} scale={renderScale} isSelectingText={isSelectingText} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} targetWidth={width} isSelectingText={isSelectingText} />
     </div>
   );
 }
@@ -820,11 +849,11 @@ function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLan
 interface PDFPageProps {
   pageNumber: number;
   pdf: pdfjs.PDFDocumentProxy;
-  scale: number;
+  targetWidth: number;
   isSelectingText: React.RefObject<boolean>;
 }
 
-const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingText }) => {
+const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelectingText }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
@@ -837,19 +866,35 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
     setRenderError(false);
 
     const render = async () => {
-      if (!canvasRef.current) return;
+      if (!canvasRef.current || !textLayerDivRef.current) return;
 
       try {
         const page = await pdf.getPage(pageNumber);
         if (!isMounted || !canvasRef.current) return;
 
-        const viewport = page.getViewport({ scale: Math.max(1.5, Math.min(3, scale * 2)) });
+        // 1. Use the explicitly passed target width or fallback safely
+        const displayWidth = targetWidth || canvasRef.current.parentElement?.clientWidth || 500;
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const displayScale = displayWidth / unscaledViewport.width;
+
+        // 2. Canvas Rendering Viewport (High DPI for sharpness)
+        const dpr = window.devicePixelRatio || 1;
+        const canvasScale = displayScale * dpr;
+        const canvasViewport = page.getViewport({ scale: canvasScale });
+
+        // 3. Text Layer Viewport (1:1 with display size)
+        const textViewport = page.getViewport({ scale: displayScale });
+
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
 
         if (context) {
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
+          canvas.height = canvasViewport.height;
+          canvas.width = canvasViewport.width;
+          
+          // CSS size ensures it fits the container
+          canvas.style.width = `${displayWidth}px`;
+          canvas.style.height = `${textViewport.height}px`;
 
           // Clear with white background explicitly
           context.fillStyle = 'white';
@@ -857,6 +902,11 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
 
           if (textLayerDivRef.current) {
             textLayerDivRef.current.innerHTML = '';
+            // Match the text layer container exactly to the display size
+            textLayerDivRef.current.style.width = `${textViewport.width}px`;
+            textLayerDivRef.current.style.height = `${textViewport.height}px`;
+            // Remove any previous transforms
+            textLayerDivRef.current.style.transform = 'none';
           }
 
           if (renderTaskRef.current) {
@@ -865,30 +915,31 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
 
           renderTaskRef.current = page.render({
             canvasContext: context,
-            viewport: viewport,
+            viewport: canvasViewport,
             intent: 'display'
           } as any);
           
           await renderTaskRef.current.promise;
 
           try {
-            if (textLayerDivRef.current) {
+            if (textLayerDivRef.current && isMounted) {
               const textContent = await page.getTextContent();
-              
-              // Ensure container has same internal dimensions for correctly positioning text spans
-              textLayerDivRef.current.style.width = `${viewport.width}px`;
-              textLayerDivRef.current.style.height = `${viewport.height}px`;
-              textLayerDivRef.current.style.setProperty('--scale-factor', viewport.scale.toString());
               
               const textLayer = new pdfjs.TextLayer({
                 textContentSource: textContent,
                 container: textLayerDivRef.current,
-                viewport: viewport
+                viewport: textViewport // Rendered at exact screen size
               });
               await textLayer.render();
             }
           } catch (textLayerErr) {
             console.warn("Text layer failed to render", textLayerErr);
+          }
+
+          // Force a micro-sync of the container size after render
+          if (textLayerDivRef.current) {
+            textLayerDivRef.current.style.width = `${textViewport.width}px`;
+            textLayerDivRef.current.style.height = `${textViewport.height}px`;
           }
 
           if (isMounted) setIsRendering(false);
@@ -905,30 +956,16 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
 
     render();
 
-    // Setup resize observer for dynamic scale factor
-    const resizeObserver = new ResizeObserver(() => {
-      if (canvasRef.current && textLayerDivRef.current) {
-        const clientWidth = canvasRef.current.clientWidth;
-        const width = canvasRef.current.width || 1;
-        textLayerDivRef.current.style.setProperty('--custom-scale', String(clientWidth / width));
-      }
-    });
-
-    if (canvasRef.current) {
-      resizeObserver.observe(canvasRef.current);
-    }
-
     return () => {
       isMounted = false;
-      resizeObserver.disconnect();
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber, scale]);
+  }, [pdf, pageNumber, targetWidth]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5">
+    <div className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-text">
       {isRendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
           <Loader2 className="w-6 h-6 animate-spin text-white/20" />
@@ -940,14 +977,16 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
-      <div className="relative inline-block w-full overflow-hidden">
+      <div className="relative inline-block overflow-hidden mx-auto shadow-2xl bg-white">
         <canvas 
           ref={canvasRef} 
           className={cn(
-            "w-full h-auto block transition-opacity duration-300 pointer-events-none",
+            "block transition-opacity duration-300 pointer-events-none",
             isRendering ? "opacity-0" : "opacity-100"
           )}
-          style={{ WebkitTouchCallout: 'none' }}
+          style={{ 
+            WebkitTouchCallout: 'none' 
+          }}
         />
         <div 
           ref={textLayerDivRef} 
@@ -956,17 +995,18 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
             e.stopPropagation();
             if (isSelectingText) (isSelectingText as any).current = true;
           }}
+          onMouseDown={(e) => {
+            // Backup for standard mouse events
+            e.stopPropagation();
+          }}
           onPointerUp={() => {
             if (isSelectingText) (isSelectingText as any).current = false;
           }}
           className={cn(
-            "textLayer transition-opacity duration-300",
+            "textLayer transition-opacity duration-300 pointer-events-auto absolute top-0 left-0",
             isRendering ? "opacity-0" : "opacity-100"
           )} 
           style={{ 
-            '--custom-scale': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1),
-            transform: 'scale(var(--custom-scale, 1))',
-            transformOrigin: '0 0',
             zIndex: 100,
             WebkitUserSelect: 'text',
             userSelect: 'text',
