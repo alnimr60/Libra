@@ -65,7 +65,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   const [showControls, setShowControls] = useState(true);
   const [renderScale, setRenderScale] = useState(scale);
   const [retryKey, setRetryKey] = useState(0);
-  const [isSelectingText, setIsSelectingText] = useState(false);
+  const isSelectingText = useRef(false);
   
   const handleReupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -97,7 +97,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   // Double tap to zoom handler
   const lastTap = useRef<number>(0);
   const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent) => {
-    // Only handle double tap on the main viewport area, not on controls
+    // Only handle double tap on the main viewport area, not on controls or text
     if ((e.target as HTMLElement).closest('button, input, .textLayer')) return;
 
     const now = Date.now();
@@ -135,28 +135,16 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     }
   }, [pageIndex, isDragging, virtualPage]);
 
-  // Global cleanup for selection state
-  useEffect(() => {
-    if (isSelectingText) {
-      const handleGlobalPointerUp = () => setIsSelectingText(false);
-      window.addEventListener('pointerup', handleGlobalPointerUp);
-      return () => window.removeEventListener('pointerup', handleGlobalPointerUp);
-    }
-  }, [isSelectingText]);
-
   const handlePanStart = (e: any) => {
-    // Check if the user is currently selecting text
-    if (isSelectingText) {
-      setIsDragging(false);
-      return;
-    }
-
-    // If the target is a text span in the text layer, don't start the pan gesture.
+    // Check if the user is clicking on text
     const target = e.target as HTMLElement;
-    if (target && (target.tagName.toLowerCase() === 'span' || target.closest('.textLayer'))) {
+    const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer');
+    
+    if (isText) {
       setIsDragging(false);
       return;
     }
+    
     setIsDragging(true);
   };
 
@@ -184,18 +172,6 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   const handlePanEnd = (_: any, info: any) => {
     if (!isDragging) return;
     setIsDragging(false);
-    
-    // If user is selecting text, do not flip page
-    const selection = window.getSelection()?.toString();
-    if (selection && selection.length > 5) {
-      // Re-snapping to current page
-      animate(virtualPage, pageIndex, {
-        type: 'spring',
-        stiffness: 450,
-        damping: 45
-      });
-      return;
-    }
     
     const offset = info.offset.x;
     const velocity = info.velocity.x;
@@ -568,6 +544,8 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
             return;
           }
 
+          if ((e.target as HTMLElement).closest('.textLayer')) return;
+
           handleDoubleTap(e);
           // If controls are shown, clicking hides them. If hidden, clicking might show them OR turn page.
           if (!showControls) {
@@ -592,30 +570,15 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
         }}
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
         onTouchStart={(e) => {
-          if (e.touches.length === 2) {
-            const dist = Math.hypot(
-              e.touches[0].pageX - e.touches[1].pageX,
-              e.touches[0].pageY - e.touches[1].pageY
-            );
-            touchStateRef.current = { initialDist: dist, initialScale: scale };
-          }
+          // TEMPORARILY DISABLED
         }}
         onTouchMove={(e) => {
-          if (e.touches.length === 2 && touchStateRef.current.initialDist > 0) {
-            const dist = Math.hypot(
-              e.touches[0].pageX - e.touches[1].pageX,
-              e.touches[0].pageY - e.touches[1].pageY
-            );
-            const newScale = Math.min(5, Math.max(1, touchStateRef.current.initialScale * (dist / touchStateRef.current.initialDist)));
-            visualScale.set(newScale);
-          }
+          // TEMPORARILY DISABLED
         }}
         onTouchEnd={() => {
-          if (touchStateRef.current.initialDist > 0) {
-            setScale(visualScale.get());
-          }
-          touchStateRef.current.initialDist = 0;
+          // TEMPORARILY DISABLED
         }}
+        style={{ touchAction: 'auto' }}
       >
         {isLoading ? (
           <div className="flex flex-col items-center gap-4 text-white/40">
@@ -652,11 +615,11 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
         ) : (
           <motion.div 
             className="relative w-full h-full"
-            onPanStart={handlePanStart}
-            onPan={handlePanMove}
-            onPanEnd={handlePanEnd}
-            style={{ touchAction: 'pan-y' }}
-          >
+          onPanStart={handlePanStart}
+          onPan={handlePanMove}
+          onPanEnd={handlePanEnd}
+          style={{ touchAction: 'auto' }}
+        >
             {/* Windowed view of pages */}
             {Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i).map(sheetIndex => {
               if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
@@ -675,7 +638,6 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
                   isLandscape={isLandscape}
                   constraintsRef={viewportRef}
                   isSelectingText={isSelectingText}
-                  setIsSelectingText={setIsSelectingText}
                 />
               );
             })}
@@ -732,15 +694,14 @@ function ReaderSheet({
   index, 
   pdf, 
   numPages, 
-  viewMode,
-  direction,
-  virtualPage,
-  scale,
-  renderScale,
+  viewMode, 
+  direction, 
+  virtualPage, 
+  scale, 
+  renderScale, 
   isLandscape,
   constraintsRef,
-  isSelectingText,
-  setIsSelectingText
+  isSelectingText
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -752,8 +713,7 @@ function ReaderSheet({
   renderScale: number,
   isLandscape: boolean,
   constraintsRef: React.RefObject<HTMLDivElement>,
-  isSelectingText: boolean,
-  setIsSelectingText: (val: boolean) => void,
+  isSelectingText: React.RefObject<boolean>,
   key?: React.Key
 }) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
@@ -790,8 +750,7 @@ function ReaderSheet({
     >
       <motion.div 
         style={{ scale }}
-        drag={renderScale > 1.05 && !isSelectingText}
-        dragListener={!isSelectingText}
+        drag={false}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
@@ -805,13 +764,13 @@ function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} setIsSelectingText={setIsSelectingText} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} setIsSelectingText={setIsSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} setIsSelectingText={setIsSelectingText} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} setIsSelectingText={setIsSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} scale={renderScale} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} scale={renderScale} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
               </>
             )}
           </>
@@ -825,7 +784,7 @@ function ReaderSheet({
               transition: 'width 0.1s ease-out'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} scale={renderScale} isSelectingText={isSelectingText} setIsSelectingText={setIsSelectingText} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} scale={renderScale} isSelectingText={isSelectingText} />
           </div>
         )}
       </motion.div>
@@ -833,7 +792,7 @@ function ReaderSheet({
   );
 }
 
-function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLandscape, isSelectingText, setIsSelectingText }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, renderScale: number, side: 'left' | 'right', isLandscape?: boolean, isSelectingText: boolean, setIsSelectingText: (val: boolean) => void }) {
+function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLandscape, isSelectingText }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, scale: number, renderScale: number, side: 'left' | 'right', isLandscape?: boolean, isSelectingText: React.RefObject<boolean> }) {
   if (pageNumber > numPages) return <div className="flex-shrink-0" style={{ width: isLandscape ? `${(scale * 50) * 0.707}vh` : `${45 * scale}vw`, aspectRatio: '0.707' }} />;
   
   return (
@@ -853,7 +812,7 @@ function SpreadPage({ pdf, pageNumber, numPages, scale, renderScale, side, isLan
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} scale={renderScale} isSelectingText={isSelectingText} setIsSelectingText={setIsSelectingText} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} scale={renderScale} isSelectingText={isSelectingText} />
     </div>
   );
 }
@@ -862,11 +821,10 @@ interface PDFPageProps {
   pageNumber: number;
   pdf: pdfjs.PDFDocumentProxy;
   scale: number;
-  isSelectingText: boolean;
-  setIsSelectingText: (val: boolean) => void;
+  isSelectingText: React.RefObject<boolean>;
 }
 
-const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingText, setIsSelectingText }) => {
+const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingText }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
@@ -982,39 +940,36 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, scale, isSelectingTe
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
-      <div className="relative block w-full overflow-hidden">
+      <div className="relative inline-block w-full overflow-hidden">
         <canvas 
           ref={canvasRef} 
           className={cn(
-            "w-full h-auto block transition-opacity duration-300 pointer-events-none select-none",
+            "w-full h-auto block transition-opacity duration-300 pointer-events-none",
             isRendering ? "opacity-0" : "opacity-100"
           )}
-          style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
+          style={{ WebkitTouchCallout: 'none' }}
         />
         <div 
           ref={textLayerDivRef} 
           onPointerDown={(e) => {
-            const isSpan = (e.target as HTMLElement).tagName.toLowerCase() === 'span';
-            if (isSpan) {
-              setIsSelectingText(true);
-              e.stopPropagation();
-            }
+            // Stop propagation to prevent motion from thinking this is a drag/pan
+            e.stopPropagation();
+            if (isSelectingText) (isSelectingText as any).current = true;
           }}
-          onPointerUp={(e) => {
-            setIsSelectingText(false);
+          onPointerUp={() => {
+            if (isSelectingText) (isSelectingText as any).current = false;
           }}
           className={cn(
-            "textLayer absolute top-0 left-0 transition-opacity duration-300 select-text",
+            "textLayer transition-opacity duration-300",
             isRendering ? "opacity-0" : "opacity-100"
           )} 
           style={{ 
             '--custom-scale': (canvasRef.current?.clientWidth || 1) / (canvasRef.current?.width || 1),
             transform: 'scale(var(--custom-scale, 1))',
             transformOrigin: '0 0',
-            zIndex: 20,
+            zIndex: 100,
             WebkitUserSelect: 'text',
             userSelect: 'text',
-            WebkitTouchCallout: 'text',
             touchAction: 'auto',
           } as React.CSSProperties}
         />
