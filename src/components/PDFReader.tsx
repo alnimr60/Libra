@@ -343,7 +343,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500",
+        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500 select-none",
         direction === 'rtl' ? "rtl" : "ltr"
       )}
     >
@@ -560,6 +560,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       {/* Main Viewport */}
       <div 
         ref={readerContainerRef}
+        className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden select-none"
         onClick={(e) => {
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
@@ -590,7 +591,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             setShowControls(true);
           }
         }}
-        className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
         onTouchStart={(e) => {
           // TEMPORARILY DISABLED
         }}
@@ -803,7 +803,7 @@ function ReaderSheet({
     <motion.div
       style={{ x, y: 0, opacity, visibility, zIndex, rotateY, scale: scaleTransform }}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8 overflow-hidden",
+        "absolute inset-0 flex p-4 md:p-8 overflow-hidden select-none",
         viewMode === 'double' ? "flex-row" : "flex-col",
         "items-center justify-center transform-gpu perspective-[1500px]"
       )}
@@ -815,7 +815,7 @@ function ReaderSheet({
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center select-none",
           viewMode === 'double' ? "flex-row" : "flex-col",
           "mx-auto"
         )}
@@ -857,7 +857,7 @@ function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSel
   return (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto relative flex items-center justify-center",
+        "flex-shrink-0 h-auto relative flex items-center justify-center select-none",
         side === 'left' ? "rounded-l-sm" : "rounded-r-sm"
       )}
       style={{ 
@@ -1034,7 +1034,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
   }, [pdf, pageNumber, measuredWidth]);
 
   return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-none">
       {isRendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
           <Loader2 className="w-6 h-6 animate-spin text-white/20" />
@@ -1046,7 +1046,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
-      <div className="relative inline-block overflow-hidden mx-auto shadow-2xl bg-white">
+      <div className="relative inline-block overflow-hidden mx-auto shadow-2xl bg-white select-none">
         <canvas 
           ref={canvasRef} 
           className={cn(
@@ -1065,7 +1065,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
           )} 
           style={{ 
             zIndex: 1,
-            pointerEvents: 'auto'
+            pointerEvents: 'none'
           }} 
         />
       </div>
