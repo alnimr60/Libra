@@ -90,6 +90,7 @@ body {
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  transform: none !important;
   pointer-events: auto !important;
   user-select: text !important;
   -webkit-user-select: text !important;
