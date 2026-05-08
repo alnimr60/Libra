@@ -814,7 +814,7 @@ function ReaderSheet({
               transition: 'width 0.1s ease-out'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} targetWidth={displayWidth} isSelectingText={isSelectingText} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} />
           </div>
         )}
       </motion.div>
@@ -841,7 +841,7 @@ function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSel
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} targetWidth={width} isSelectingText={isSelectingText} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} />
     </div>
   );
 }
@@ -849,19 +849,65 @@ function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSel
 interface PDFPageProps {
   pageNumber: number;
   pdf: pdfjs.PDFDocumentProxy;
-  targetWidth: number;
   isSelectingText: React.RefObject<boolean>;
 }
 
-const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelectingText }) => {
+const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+
+  // Measure the actual width of the container
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        // Use contentRect for precise available width
+        const width = entry.contentRect.width;
+        if (width > 0) {
+          setMeasuredWidth(width);
+        }
+      }
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const textLayer = textLayerDivRef.current;
+    if (!textLayer) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      e.stopPropagation();
+      if (isSelectingText) (isSelectingText as any).current = true;
+    };
+
+    const handlePointerUp = () => {
+      if (isSelectingText) (isSelectingText as any).current = false;
+    };
+
+    textLayer.addEventListener('pointerdown', handlePointerDown, { capture: false });
+    window.addEventListener('pointerup', handlePointerUp);
+    
+    return () => {
+      textLayer.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [measuredWidth, isRendering, isSelectingText]);
 
   useEffect(() => {
     let isMounted = true;
+    
+    // Don't render until we have a measurement
+    if (measuredWidth === 0) return;
+
     setIsRendering(true);
     setRenderError(false);
 
@@ -872,8 +918,8 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelec
         const page = await pdf.getPage(pageNumber);
         if (!isMounted || !canvasRef.current) return;
 
-        // 1. Use the explicitly passed target width or fallback safely
-        const displayWidth = targetWidth || canvasRef.current.parentElement?.clientWidth || 500;
+        // 1. Use the measured width from ResizeObserver for pixel-perfect scale
+        const displayWidth = measuredWidth;
         const unscaledViewport = page.getViewport({ scale: 1 });
         const displayScale = displayWidth / unscaledViewport.width;
 
@@ -892,7 +938,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelec
           canvas.height = canvasViewport.height;
           canvas.width = canvasViewport.width;
           
-          // CSS size ensures it fits the container
+          // CSS size ensures it fits the container exactly
           canvas.style.width = `${displayWidth}px`;
           canvas.style.height = `${textViewport.height}px`;
 
@@ -936,12 +982,6 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelec
             console.warn("Text layer failed to render", textLayerErr);
           }
 
-          // Force a micro-sync of the container size after render
-          if (textLayerDivRef.current) {
-            textLayerDivRef.current.style.width = `${textViewport.width}px`;
-            textLayerDivRef.current.style.height = `${textViewport.height}px`;
-          }
-
           if (isMounted) setIsRendering(false);
         }
       } catch (error: any) {
@@ -962,10 +1002,10 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelec
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber, targetWidth]);
+  }, [pdf, pageNumber, measuredWidth]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-text">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-text">
       {isRendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
           <Loader2 className="w-6 h-6 animate-spin text-white/20" />
@@ -990,18 +1030,6 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, targetWidth, isSelec
         />
         <div 
           ref={textLayerDivRef} 
-          onPointerDown={(e) => {
-            // Stop propagation to prevent motion from thinking this is a drag/pan
-            e.stopPropagation();
-            if (isSelectingText) (isSelectingText as any).current = true;
-          }}
-          onMouseDown={(e) => {
-            // Backup for standard mouse events
-            e.stopPropagation();
-          }}
-          onPointerUp={() => {
-            if (isSelectingText) (isSelectingText as any).current = false;
-          }}
           className={cn(
             "textLayer transition-opacity duration-300 pointer-events-auto absolute top-0 left-0",
             isRendering ? "opacity-0" : "opacity-100"
