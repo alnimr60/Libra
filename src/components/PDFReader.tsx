@@ -780,7 +780,7 @@ function ReaderSheet({
       )}
     >
       <motion.div 
-        style={{ scale, x: panX, y: panY }}
+        style={{ scale, x: panX, y: panY, userSelect: 'text', WebkitUserSelect: 'text' } as any}
         drag={renderScale > 1.1}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
