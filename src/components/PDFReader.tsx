@@ -843,7 +843,7 @@ function ReaderSheet({
               transition: 'width 0.1s ease-out'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} width={displayWidth} />
           </div>
         )}
       </motion.div>
@@ -870,7 +870,7 @@ function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSel
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} width={width} />
     </div>
   );
 }
@@ -879,36 +879,17 @@ interface PDFPageProps {
   pageNumber: number;
   pdf: pdfjs.PDFDocumentProxy;
   isSelectingText: React.RefObject<boolean>;
+  width: number;
 }
 
-const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) => {
+const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText, width }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
-  const [measuredWidth, setMeasuredWidth] = useState(0);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
-
-  // Measure the actual width of the container
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        // Use contentRect for precise available width
-        const width = entry.contentRect.width;
-        if (width > 0) {
-          setMeasuredWidth(width);
-        }
-      }
-    });
-
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const textLayer = textLayerDivRef.current;
@@ -935,8 +916,28 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
   useEffect(() => {
     let isMounted = true;
     
-    // Don't render until we have a measurement
-    if (measuredWidth === 0) return;
+    // Initial size fetch to establish aspect ratio
+    const fetchSize = async () => {
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        if (isMounted) {
+          setPageSize({ width: viewport.width, height: viewport.height });
+        }
+      } catch (err) {
+        if (isMounted) console.error("Failed to fetch initial page size", err);
+      }
+    };
+    fetchSize();
+
+    return () => { isMounted = false; };
+  }, [pdf, pageNumber]);
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    // Don't render until we have a width and intrinsic page size
+    if (width === 0 || pageSize.width === 0) return;
 
     setIsRendering(true);
     setRenderError(false);
@@ -948,14 +949,11 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
         const page = await pdf.getPage(pageNumber);
         if (!isMounted) return;
 
-        // 1. Get the intrinsic viewport for the coordinate system
+        // 1. Get the viewport at scale 1 (intrinsic coordinates)
         const viewport = page.getViewport({ scale: 1 });
-        if (isMounted) {
-          setPageSize({ width: viewport.width, height: viewport.height });
-        }
 
         // 2. Canvas Rendering Viewport (High DPI for sharpness)
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = window.devicePixelRatio || 2;
         const canvasViewport = page.getViewport({ scale: dpr });
 
         const canvas = canvasRef.current;
@@ -971,7 +969,6 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
 
           if (textLayerDivRef.current) {
             textLayerDivRef.current.innerHTML = '';
-            // Match the text layer container exactly to the intrinsic page size
             textLayerDivRef.current.style.width = `${viewport.width}px`;
             textLayerDivRef.current.style.height = `${viewport.height}px`;
           }
@@ -988,18 +985,19 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
           
           await renderTaskRef.current.promise;
 
+          if (!isMounted) return;
+
           try {
-            if (textLayerDivRef.current && isMounted) {
+            if (textLayerDivRef.current) {
               const textContent = await page.getTextContent();
               
               const textLayer = new pdfjs.TextLayer({
                 textContentSource: textContent,
                 container: textLayerDivRef.current,
-                viewport: viewport // Use unscaled viewport (1:1)
+                viewport: viewport // scale 1
               });
               await textLayer.render();
               
-              // Set the scale factor variable for PDF.js 4/5 logic
               textLayerDivRef.current.style.setProperty('--scale-factor', '1');
             }
           } catch (textLayerErr) {
@@ -1026,12 +1024,21 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber, measuredWidth]);
+  }, [pdf, pageNumber, width, pageSize.width]);
 
-  const scaleFactor = pageSize.width > 0 ? measuredWidth / pageSize.width : 1;
+  const scaleFactor = pageSize.width > 0 ? width / pageSize.width : 1;
+  const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
+  const containerHeight = width * aspectRatio;
 
   return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-none">
+    <div 
+      ref={containerRef} 
+      className="relative flex items-center justify-center bg-white/5 select-none overflow-hidden"
+      style={{ 
+        width: width || 'auto',
+        height: containerHeight || 'auto'
+      }}
+    >
       {isRendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
           <Loader2 className="w-6 h-6 animate-spin text-white/20" />
@@ -1046,12 +1053,15 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
       
       {pageSize.width > 0 && (
         <div 
-          className="relative inline-block shadow-2xl bg-white select-none transition-opacity duration-300 transform-gpu"
+          className="relative shadow-2xl bg-white select-none transition-opacity duration-300 transform-gpu"
           style={{ 
             width: pageSize.width,
             height: pageSize.height,
             transform: `scale(${scaleFactor})`,
-            transformOrigin: 'center center',
+            transformOrigin: 'top left',
+            position: 'absolute',
+            top: 0,
+            left: 0,
             flexShrink: 0,
             opacity: isRendering ? 0 : 1
           }}
@@ -1069,7 +1079,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
             style={{ 
               zIndex: 1,
               pointerEvents: 'none',
-              transform: 'none' // Enforce no independent transform
+              transform: 'none'
             }} 
           />
         </div>
