@@ -73,15 +73,14 @@ body {
 /* PDF Text Layer Selection Styling */
 .textLayer {
   position: absolute;
-  top: 0;
-  left: 0;
+  text-align: initial;
+  inset: 0;
   overflow: hidden;
   opacity: 1.0;
-  line-height: 1 !important;
+  line-height: 1;
   text-indent: 0;
-  user-select: text !important;
-  -webkit-user-select: text !important;
-  -webkit-touch-callout: text !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
   pointer-events: none !important;
 }
 
@@ -94,7 +93,13 @@ body {
   pointer-events: auto !important;
   user-select: text !important;
   -webkit-user-select: text !important;
-  line-height: 1 !important;
+  line-height: 1;
+  touch-action: auto !important;
+}
+
+/* Hide the built-in selection highlights to use the native ones properly */
+.textLayer .highlight {
+  display: none;
 }
 
 ::selection {

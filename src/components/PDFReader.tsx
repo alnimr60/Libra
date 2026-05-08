@@ -12,11 +12,12 @@ interface PDFReaderProps {
   book: Book;
   initialPage: number;
   onPageChange: (page: number) => void;
+  updateBook: (book: Book) => void;
   onUpdateBookmarks: (bookmarks: Bookmark[]) => void;
   onClose: () => void;
 }
 
-export default function PDFReader({ book, initialPage, onPageChange, onUpdateBookmarks, onClose }: PDFReaderProps) {
+export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
@@ -66,6 +67,23 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
   const [renderScale, setRenderScale] = useState(scale);
   const [retryKey, setRetryKey] = useState(0);
   const isSelectingText = useRef(false);
+  const readerContainerRef = useRef<HTMLDivElement>(null);
+  const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!readerContainerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setReaderDimensions({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height
+        });
+      }
+    });
+    observer.observe(readerContainerRef.current);
+    return () => observer.disconnect();
+  }, []);
   
   const handleReupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -78,13 +96,16 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
       setIsLoading(true);
       setError(null);
       const arrayBuffer = await file.arrayBuffer();
-      // Use the existing fileDataId or generate a new one if somehow missing
-      const fileId = fileDataId || `pdf_${crypto.randomUUID()}`;
+      
+      // Generate a new ID to avoid any potential stale data issues
+      const fileId = `pdf_${crypto.randomUUID()}`;
       await set(fileId, arrayBuffer);
       
-      if (!fileDataId) {
-         // this is slightly tricky since it updates the book, we shouldn't really hit this
-      }
+      // Update the book in the parent state to persist the new link
+      updateBook({ 
+        ...book, 
+        fileDataId: fileId 
+      });
       
       setRetryKey(k => k + 1);
     } catch (err: any) {
@@ -229,7 +250,9 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
         
         const data = await get(fileDataId);
         
-        if (!data) throw new Error('This book\'s PDF file could not be found in local storage. Try re-adding the book.');
+        if (!data) {
+          throw new Error('This book\'s PDF file could not be found in local storage. This can happen if browser data was cleared. Please re-select the PDF file.');
+        }
         
     const loadingTask = pdfjs.getDocument({ 
       data: new Uint8Array(data),
@@ -312,7 +335,6 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pageIndex, totalSheets, direction, viewMode]);
 
-  const viewportRef = useRef<HTMLDivElement>(null);
   const touchStateRef = useRef({ initialDist: 0, initialScale: 1 });
 
   return (
@@ -537,7 +559,7 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
 
       {/* Main Viewport */}
       <div 
-        ref={viewportRef}
+        ref={readerContainerRef}
         onClick={(e) => {
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
@@ -636,8 +658,9 @@ export default function PDFReader({ book, initialPage, onPageChange, onUpdateBoo
                   scale={smoothScale}
                   renderScale={renderScale}
                   isLandscape={isLandscape}
-                  constraintsRef={viewportRef}
+                  constraintsRef={readerContainerRef}
                   isSelectingText={isSelectingText}
+                  containerDimensions={readerDimensions}
                 />
               );
             })}
@@ -701,7 +724,8 @@ function ReaderSheet({
   renderScale, 
   isLandscape,
   constraintsRef,
-  isSelectingText
+  isSelectingText,
+  containerDimensions
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -714,6 +738,7 @@ function ReaderSheet({
   isLandscape: boolean,
   constraintsRef: React.RefObject<HTMLDivElement>,
   isSelectingText: React.RefObject<boolean>,
+  containerDimensions: { width: number, height: number },
   key?: React.Key
 }) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
@@ -722,21 +747,25 @@ function ReaderSheet({
   const [displayWidth, setDisplayWidth] = useState(0);
 
   useEffect(() => {
-    const updateWidth = () => {
-      const vh = window.innerHeight / 100;
-      const vw = window.innerWidth / 100;
-      let w = 0;
-      if (viewMode === 'double') {
-        w = isLandscape ? (renderScale * 50) * 0.707 * vh : 45 * renderScale * vw;
-      } else {
-        w = isLandscape ? (renderScale * 100) * 0.707 * vh : 85 * renderScale * vw;
-      }
-      setDisplayWidth(w);
-    };
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
-  }, [renderScale, viewMode, isLandscape]);
+    if (containerDimensions.width === 0) return;
+    
+    // Better calculation based on actual container size
+    let w = 0;
+    if (viewMode === 'double') {
+      // Use 95% of container width shared between two pages, or constrained by height
+      const maxWidth = containerDimensions.width * 0.95;
+      const maxHeight = containerDimensions.height * 0.9;
+      // standard PDF aspect ratio is roughly 1.414 (A4)
+      const idealWidth = (maxHeight * 0.707) * 2;
+      w = Math.min(idealWidth, maxWidth) / 2 * renderScale;
+    } else {
+      const maxWidth = containerDimensions.width * 0.9;
+      const maxHeight = containerDimensions.height * 0.9;
+      const idealWidth = maxHeight * 0.707;
+      w = Math.min(idealWidth, maxWidth) * renderScale;
+    }
+    setDisplayWidth(w);
+  }, [renderScale, viewMode, containerDimensions]);
   
   // Transform distance into horizontal position
   const x = useTransform(distance, (d: number) => {
@@ -780,13 +809,13 @@ function ReaderSheet({
       )}
     >
       <motion.div 
-        style={{ scale, x: panX, y: panY, userSelect: 'text', WebkitUserSelect: 'text' } as any}
+        style={{ scale, x: panX, y: panY } as any}
         drag={renderScale > 1.1}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center select-text",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center",
           viewMode === 'double' ? "flex-row" : "flex-col",
           "mx-auto"
         )}
@@ -807,7 +836,7 @@ function ReaderSheet({
           </>
         ) : (
           <div 
-            className="flex-shrink-0 h-auto relative select-text"
+            className="flex-shrink-0 h-auto relative"
             style={{ 
               width: displayWidth || 'auto',
               maxHeight: '90vh',
@@ -828,7 +857,7 @@ function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSel
   return (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto relative flex items-center justify-center select-text",
+        "flex-shrink-0 h-auto relative flex items-center justify-center",
         side === 'left' ? "rounded-l-sm" : "rounded-r-sm"
       )}
       style={{ 
@@ -1005,7 +1034,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
   }, [pdf, pageNumber, measuredWidth]);
 
   return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-text">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5">
       {isRendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
           <Loader2 className="w-6 h-6 animate-spin text-white/20" />
@@ -1031,15 +1060,13 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
         <div 
           ref={textLayerDivRef} 
           className={cn(
-            "textLayer transition-opacity duration-300 pointer-events-auto absolute top-0 left-0",
+            "textLayer transition-opacity duration-300 absolute top-0 left-0",
             isRendering ? "opacity-0" : "opacity-100"
           )} 
           style={{ 
-            zIndex: 100,
-            WebkitUserSelect: 'text',
-            userSelect: 'text',
-            touchAction: 'auto',
-          } as React.CSSProperties}
+            zIndex: 1,
+            pointerEvents: 'auto'
+          }} 
         />
       </div>
     </div>

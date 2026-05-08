@@ -145,6 +145,7 @@ export default function App() {
           <PDFReader 
             book={activeBook}
             initialPage={activeBook.currentPage}
+            updateBook={updateBook}
             onPageChange={(page) => {
               if (activeBook) {
                 const diff = page - activeBook.currentPage;
