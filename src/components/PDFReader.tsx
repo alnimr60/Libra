@@ -889,6 +889,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [measuredWidth, setMeasuredWidth] = useState(0);
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
   // Measure the actual width of the container
   useEffect(() => {
@@ -929,7 +930,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
       textLayer.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [measuredWidth, isRendering, isSelectingText]);
+  }, [isSelectingText]);
 
   useEffect(() => {
     let isMounted = true;
@@ -945,43 +946,34 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
 
       try {
         const page = await pdf.getPage(pageNumber);
-        if (!isMounted || !canvasRef.current) return;
+        if (!isMounted) return;
 
-        // 1. Use the measured width from ResizeObserver for pixel-perfect scale
-        const displayWidth = measuredWidth;
-        const unscaledViewport = page.getViewport({ scale: 1 });
-        const displayScale = displayWidth / unscaledViewport.width;
+        // 1. Get the intrinsic viewport for the coordinate system
+        const viewport = page.getViewport({ scale: 1 });
+        if (isMounted) {
+          setPageSize({ width: viewport.width, height: viewport.height });
+        }
 
         // 2. Canvas Rendering Viewport (High DPI for sharpness)
         const dpr = window.devicePixelRatio || 1;
-        const canvasScale = displayScale * dpr;
-        const canvasViewport = page.getViewport({ scale: canvasScale });
-
-        // 3. Text Layer Viewport (1:1 with display size)
-        const textViewport = page.getViewport({ scale: displayScale });
+        const canvasViewport = page.getViewport({ scale: dpr });
 
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
 
         if (context) {
-          canvas.height = canvasViewport.height;
           canvas.width = canvasViewport.width;
+          canvas.height = canvasViewport.height;
           
-          // CSS size ensures it fits the container exactly
-          canvas.style.width = `${displayWidth}px`;
-          canvas.style.height = `${textViewport.height}px`;
-
           // Clear with white background explicitly
           context.fillStyle = 'white';
           context.fillRect(0, 0, canvas.width, canvas.height);
 
           if (textLayerDivRef.current) {
             textLayerDivRef.current.innerHTML = '';
-            // Match the text layer container exactly to the display size
-            textLayerDivRef.current.style.width = `${textViewport.width}px`;
-            textLayerDivRef.current.style.height = `${textViewport.height}px`;
-            // Remove any previous transforms
-            textLayerDivRef.current.style.transform = 'none';
+            // Match the text layer container exactly to the intrinsic page size
+            textLayerDivRef.current.style.width = `${viewport.width}px`;
+            textLayerDivRef.current.style.height = `${viewport.height}px`;
           }
 
           if (renderTaskRef.current) {
@@ -1003,9 +995,12 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
               const textLayer = new pdfjs.TextLayer({
                 textContentSource: textContent,
                 container: textLayerDivRef.current,
-                viewport: textViewport // Rendered at exact screen size
+                viewport: viewport // Use unscaled viewport (1:1)
               });
               await textLayer.render();
+              
+              // Set the scale factor variable for PDF.js 4/5 logic
+              textLayerDivRef.current.style.setProperty('--scale-factor', '1');
             }
           } catch (textLayerErr) {
             console.warn("Text layer failed to render", textLayerErr);
@@ -1033,6 +1028,8 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
     };
   }, [pdf, pageNumber, measuredWidth]);
 
+  const scaleFactor = pageSize.width > 0 ? measuredWidth / pageSize.width : 1;
+
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative bg-white/5 select-none">
       {isRendering && (
@@ -1046,29 +1043,37 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText }) =
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
-      <div className="relative inline-block overflow-hidden mx-auto shadow-2xl bg-white select-none">
-        <canvas 
-          ref={canvasRef} 
-          className={cn(
-            "block transition-opacity duration-300 pointer-events-none",
-            isRendering ? "opacity-0" : "opacity-100"
-          )}
-          style={{ 
-            WebkitTouchCallout: 'none' 
-          }}
-        />
+      
+      {pageSize.width > 0 && (
         <div 
-          ref={textLayerDivRef} 
-          className={cn(
-            "textLayer transition-opacity duration-300 absolute top-0 left-0",
-            isRendering ? "opacity-0" : "opacity-100"
-          )} 
+          className="relative inline-block shadow-2xl bg-white select-none transition-opacity duration-300 transform-gpu"
           style={{ 
-            zIndex: 1,
-            pointerEvents: 'none'
-          }} 
-        />
-      </div>
+            width: pageSize.width,
+            height: pageSize.height,
+            transform: `scale(${scaleFactor})`,
+            transformOrigin: 'center center',
+            flexShrink: 0,
+            opacity: isRendering ? 0 : 1
+          }}
+        >
+          <canvas 
+            ref={canvasRef} 
+            className="block pointer-events-none absolute inset-0 w-full h-full"
+            style={{ 
+              WebkitTouchCallout: 'none' 
+            }}
+          />
+          <div 
+            ref={textLayerDivRef} 
+            className="textLayer absolute inset-0"
+            style={{ 
+              zIndex: 1,
+              pointerEvents: 'none',
+              transform: 'none' // Enforce no independent transform
+            }} 
+          />
+        </div>
+      )}
     </div>
   );
 };
