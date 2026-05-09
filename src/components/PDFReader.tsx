@@ -1280,7 +1280,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [pageText, setPageText] = useState<string>("");
   const [isExtracting, setIsExtracting] = useState(false);
-  const [extError, setExtError] = useState(false);
+  const [extError, setExtError] = useState<any>(null);
 
   useEffect(() => {
     if (selectionMode && textLayerDivRef.current) {
@@ -1417,31 +1417,30 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             if (textLayerDivRef.current) {
               // Robust Text Extraction for Diagnostic Flow Mode
               setIsExtracting(true);
-              setExtError(false);
+              setExtError(null);
               
-              console.log(`[PDFPage] Diagnostic Info:`, {
-                pdfjsVersion: pdfjs.version,
-                pageNumber,
-                isPageDestroyed: page.destroyed,
-                hasWorker: !!pdfjs.GlobalWorkerOptions.workerSrc,
-                workerSrc: pdfjs.GlobalWorkerOptions.workerSrc
+              console.log(`[PDFPage] Page ${pageNumber} Extraction Pre-Check:`, {
+                pageObject: page,
+                isDestroyed: (page as any)._destroyed || (page as any).destroyed,
+                pageNumber: (page as any).pageNumber,
+                getTextContentAvailable: typeof page.getTextContent,
+                workerSrc: pdfjs.GlobalWorkerOptions.workerSrc,
+                pdfjsVersion: pdfjs.version
               });
 
+              console.log("[PDFPage] getTextContent started...");
               let textContent;
               try {
                 textContent = await page.getTextContent();
-                console.log(`[PDFPage] Page ${pageNumber} text extraction success. Items:`, textContent.items.length);
+                console.log(`[PDFPage] getTextContent resolved for Page ${pageNumber}. Items:`, textContent.items.length);
                 if (textContent.items.length === 0) {
                   console.warn(`[PDFPage] Page ${pageNumber} returned ZERO text items. This may be a scanned PDF or images-only.`);
                 }
               } catch (getContentErr: any) {
-                console.error(`[PDFPage] CRITICAL: page.getTextContent() FAILED for Page ${pageNumber}`, {
-                  message: getContentErr.message,
-                  stack: getContentErr.stack,
-                  name: getContentErr.name,
-                  cause: getContentErr.cause,
-                  full: getContentErr
-                });
+                console.log("[PDFPage] getTextContent rejected!");
+                console.error(`[PDFPage] RAW ERROR for Page ${pageNumber}:`, getContentErr);
+                setExtError(getContentErr);
+                setIsExtracting(false);
                 throw getContentErr;
               }
               
@@ -1449,8 +1448,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
 
               const extractedText = textContent.items
                 .map((item: any) => item.str)
-                .join(" "); // Joining with space as requested
-              
+                .join(" ");
+
               setPageText(extractedText);
               setIsExtracting(false);
 
@@ -1478,32 +1477,11 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
                     span.style.color = 'rgba(0,0,0,0.01)';
                   });
                 }
-
-                if (spans.length > 0) {
-                  const firstSpan = spans[0];
-                  const style = window.getComputedStyle(firstSpan);
-                  const rect = firstSpan.getBoundingClientRect();
-                  console.log(`[PDFPage] Diagnostic - First Span (Page ${pageNumber}):`, {
-                    text: firstSpan.textContent,
-                    html: firstSpan.innerHTML,
-                    width: rect.width,
-                    height: rect.height,
-                    opacity: style.opacity,
-                    color: style.color,
-                    visibility: style.visibility,
-                    ariaHidden: firstSpan.getAttribute('aria-hidden'),
-                    display: style.display,
-                    pointerEvents: style.pointerEvents,
-                    userSelect: style.userSelect,
-                    fontSize: style.fontSize,
-                    lineHeight: style.lineHeight
-                  });
-                }
               }
             }
           } catch (textLayerErr) {
-            console.warn("Text layer failed to render or extract", textLayerErr);
-            setExtError(true);
+            console.warn("Text layer processing failed", textLayerErr);
+            if (!extError) setExtError(textLayerErr);
             setIsExtracting(false);
           }
 
@@ -1623,9 +1601,16 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
                 {isExtracting && <span className="text-[10px] text-zinc-500 animate-pulse">Extracting...</span>}
               </div>
               {extError ? (
-                <div className="text-red-500 flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5" />
-                  <span>Text extraction failed</span>
+                <div className="bg-red-50 p-4 border border-red-200 rounded-lg">
+                  <div className="text-red-600 font-bold flex items-center gap-2 mb-4">
+                    <AlertCircle className="w-5 h-5" />
+                    <span>CRITICAL EXTRACTION FAILURE</span>
+                  </div>
+                  <pre className="text-[10px] font-mono text-red-800 whitespace-pre-wrap overflow-auto max-h-[300px] leading-tight">
+                    {`Error: ${String(extError)}\n\n`}
+                    {extError.stack && `Stack:\n${extError.stack}\n\n`}
+                    {`JSON:\n${JSON.stringify(extError, Object.getOwnPropertyNames(extError), 2)}`}
+                  </pre>
                 </div>
               ) : (isExtracting && !pageText) ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-400">
