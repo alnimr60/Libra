@@ -1,22 +1,9 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-
-// Polyfill Promise.withResolvers for older environments (e.g. iOS < 17.4)
-if (typeof (Promise as any).withResolvers === 'undefined') {
-  (Promise as any).withResolvers = function() {
-    let resolve, reject;
-    const promise = new Promise((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    return { promise, resolve, reject };
-  };
-}
+import * as pdfjs from 'pdfjs-dist';
 
 // Use Vite's URL import for the worker to ensure version matching and local serving
 // @ts-ignore
-import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
-// For PDF.js 5+, we must use matching versions for the main lib and the worker.
 // @ts-ignore
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 

@@ -1441,6 +1441,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               try {
                 textContent = await page.getTextContent();
                 console.log(`[PDFPage] getTextContent resolved for Page ${pageNumber}. Items:`, textContent.items.length);
+                // SIMPLE EXTRACTION TEST ON PAGE LOAD (as requested)
+                console.log(`[PDFPage] TEXT ITEMS: ${textContent.items.length}`);
+                
                 if (textContent.items.length === 0) {
                   console.warn(`[PDFPage] Page ${pageNumber} returned ZERO text items. This may be a scanned PDF or images-only.`);
                 }
@@ -1461,12 +1464,11 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               setPageText(extractedText);
               setIsExtracting(false);
 
-              const textLayer = new pdfjs.TextLayer({
+              await pdfjs.renderTextLayer({
                 textContentSource: textContent,
                 container: textLayerDivRef.current,
                 viewport: viewport
-              });
-              await textLayer.render();
+              }).promise;
               
               textLayerDivRef.current.style.setProperty('--scale-factor', textLayerViewportScale.toString());
 
