@@ -1258,6 +1258,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [pageText, setPageText] = useState<string>("");
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extError, setExtError] = useState(false);
 
   useEffect(() => {
     if (selectionMode && textLayerDivRef.current) {
@@ -1392,13 +1394,21 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
 
           try {
             if (textLayerDivRef.current) {
+              // Robust Text Extraction for Diagnostic Flow Mode
+              setIsExtracting(true);
+              setExtError(false);
+              
               const textContent = await page.getTextContent();
               
-              // EXTRACT TEXT FOR FLOW MODE
+              console.log(`[PDFPage] Page ${pageNumber} text extraction items:`, textContent.items.length);
+              console.log(`[PDFPage] Page ${pageNumber} strings (first 10):`, textContent.items.slice(0, 10).map((i: any) => i.str));
+
               const extractedText = textContent.items
                 .map((item: any) => item.str)
-                .join(textContent.items.some((item: any) => item.hasEOL) ? '' : ' ');
+                .join(" "); // Joining with space as requested
+              
               setPageText(extractedText);
+              setIsExtracting(false);
 
               const textLayer = new pdfjs.TextLayer({
                 textContentSource: textContent,
@@ -1448,7 +1458,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               }
             }
           } catch (textLayerErr) {
-            console.warn("Text layer failed to render", textLayerErr);
+            console.warn("Text layer failed to render or extract", textLayerErr);
+            setExtError(true);
+            setIsExtracting(false);
           }
 
           if (isMounted) setIsRendering(false);
@@ -1545,20 +1557,40 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           
           {selectionMode && (
             <div 
-              className="flow-text-page absolute inset-0 bg-white/95 p-8 md:p-12 overflow-auto z-[150] text-black"
+              className="flow-text-page"
               style={{
-                userSelect: 'text',
-                WebkitUserSelect: 'text',
-                fontSize: '18px',
-                lineHeight: '1.6',
-                whiteSpace: 'pre-wrap',
+                position: "absolute",
+                inset: 0,
+                background: "white",
+                color: "black",
+                zIndex: 99999,
+                overflow: "auto",
+                padding: 20,
+                fontSize: 18,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                userSelect: "text",
+                WebkitUserSelect: "text",
                 textAlign: 'left'
               }}
             >
-              <div className="mb-6 pb-2 border-b border-zinc-200">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Flow Text Diagnostic Layer (Page {pageNumber})</span>
+              <div className="mb-4 pb-2 border-b border-zinc-200 flex justify-between items-center">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Flow Text Diagnostic (Page {pageNumber})</span>
+                {isExtracting && <span className="text-[10px] text-zinc-500 animate-pulse">Extracting...</span>}
               </div>
-              {pageText || "Extracting text content..."}
+              {extError ? (
+                <div className="text-red-500 flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Text extraction failed</span>
+                </div>
+              ) : (isExtracting && !pageText) ? (
+                <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-400">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                  <p>Extracting text content...</p>
+                </div>
+              ) : (
+                pageText || "NO TEXT EXTRACTED"
+              )}
             </div>
           )}
         </div>
