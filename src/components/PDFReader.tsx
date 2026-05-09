@@ -512,43 +512,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       dir={direction === 'rtl' ? "rtl" : "ltr"}
     >
       <AnimatePresence>
-        {selectionMode && (
-          <div 
-            id="global-selection-diagnostic"
-            className="fixed inset-0 z-[999999] bg-white flex flex-col p-8 overflow-auto"
-            style={{
-              userSelect: 'text',
-              WebkitUserSelect: 'text',
-              pointerEvents: 'auto'
-            }}
-          >
-            <div className="flex justify-between items-center mb-8 border-b pb-4">
-              <h1 className="text-2xl font-bold text-black">MOBILE SELECTION DIAGNOSTIC</h1>
-              <button 
-                onClick={() => setSelectionMode(false)}
-                className="bg-black text-white px-4 py-2 rounded-lg font-bold"
-              >
-                EXIT
-              </button>
-            </div>
-            
-            <p className="text-3xl text-black mb-8 leading-relaxed">
-              THIS IS STANDALONE TEXT IN A PURE HTML OVERLAY. 
-              IF YOU CANNOT SELECT THIS TEXT ON MOBILE, THE APP IS GLOBALLY SUPPRESSING NATIVE SELECTION.
-            </p>
-            
-            <div className="space-y-4">
-              <div className="p-4 bg-zinc-100 rounded text-black font-mono text-sm">
-                Selection Active: {selectionMode.toString()}<br/>
-                User Agent: {navigator.userAgent}<br/>
-              </div>
-              
-              <div className="p-4 border-2 border-dashed border-zinc-300 rounded text-zinc-500 italic">
-                Try long-pressing this text to trigger native selection handles.
-              </div>
-            </div>
-          </div>
-        )}
         {isNavigatorOpen && (
           <motion.div 
             initial={{ opacity: 0 }}
@@ -763,8 +726,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         ref={readerContainerRef}
         className={cn(
         "flex-1 relative flex items-center justify-center bg-zinc-950/40",
-        selectionMode ? "overflow-visible" : "overflow-hidden",
-        !selectionMode && "select-none"
+        selectionMode ? "overflow-visible select-text" : "overflow-hidden select-none"
       )}
         onClick={(e) => {
           if (selectionMode) return;
@@ -1395,8 +1357,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
       ref={containerRef} 
       className={cn(
         "relative flex items-center justify-center bg-white/5",
-        selectionMode ? "overflow-visible" : "overflow-hidden",
-        !selectionMode && "select-none"
+        selectionMode ? "overflow-visible select-text" : "overflow-hidden select-none"
       )}
       style={{ 
         width: displayWidth,
@@ -1420,7 +1381,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           id={`page-${pageNumber}-container`}
           className={cn(
             "relative shadow-2xl bg-white transition-opacity duration-300",
-            !selectionMode && "transform-gpu select-none"
+            selectionMode ? "select-text" : "transform-gpu select-none"
           )}
           style={{ 
             width: displayWidth,
@@ -1446,7 +1407,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           />
           <div 
             ref={textLayerDivRef} 
-            className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active")}
+            className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active select-text")}
             style={{ 
               zIndex: selectionMode ? 100 : 1,
               width: displayWidth,
@@ -1457,22 +1418,16 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               touchAction: selectionMode ? 'auto' : 'none',
               transform: 'none'
             }} 
-          />
-          
-          {selectionMode && (
-            <div 
-              id="mobile-selection-diagnostic"
-              className="absolute top-5 left-5 bg-yellow-400 text-black p-3 z-[9999] font-bold shadow-xl border-2 border-black"
-              style={{
-                userSelect: 'text',
-                WebkitUserSelect: 'text',
-                pointerEvents: 'auto',
-                fontSize: '18px'
-              }}
-            >
-              DIAGNOSTIC: SELECT ME (MOBILE)
-            </div>
-          )}
+          >
+            {selectionMode && (
+              <div 
+                className="absolute top-0 right-0 bg-red-500 text-white p-2 z-[1000] font-mono text-[8px] uppercase select-text"
+                style={{ pointerEvents: 'auto' }}
+              >
+                Layer Select Test
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
