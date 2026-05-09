@@ -18,6 +18,7 @@ interface PDFReaderProps {
 }
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
+  console.log("[PDFReader] Render");
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
@@ -775,7 +776,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   );
 }
 
-function ReaderSheet({ 
+const ReaderSheet = React.memo(function ReaderSheet({ 
   index, 
   pdf, 
   numPages, 
@@ -803,6 +804,7 @@ function ReaderSheet({
   containerDimensions: { width: number, height: number },
   key?: React.Key
 }) {
+  console.log(`[ReaderSheet] Render Index: ${index} Scale: ${renderScale}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
   // Calculate specific visual scale relative to what's rendered
@@ -852,7 +854,13 @@ function ReaderSheet({
   
   // Fast fade for non-visible sheets to save render cycles
   const opacity = useTransform(distance, [-1.5, -0.5, 0, 0.5, 1.5], [0, 0.5, 1, 0.5, 0]);
-  const visibility = useTransform(distance, (d: number) => Math.abs(d) > 1.5 ? 'hidden' : 'visible');
+  const visibility = useTransform(distance, (d: number) => {
+    const isVisible = Math.abs(d) <= 1.5;
+    if (!isVisible && Math.abs(d) < 2) {
+      console.log(`[ReaderSheet] Offloading Sheet ${index} (distance: ${d.toFixed(2)})`);
+    }
+    return isVisible ? 'visible' : 'hidden';
+  });
 
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
@@ -921,9 +929,9 @@ function ReaderSheet({
       </motion.div>
     </motion.div>
   );
-}
+});
 
-function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSelectingText }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, width: number, side: 'left' | 'right', isLandscape?: boolean, isSelectingText: React.RefObject<boolean> }) {
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSelectingText }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, numPages: number, width: number, side: 'left' | 'right', isLandscape?: boolean, isSelectingText: React.RefObject<boolean> }) {
   if (pageNumber > numPages) return <div className="flex-shrink-0 bg-white" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />;
   
   return (
@@ -945,7 +953,7 @@ function SpreadPage({ pdf, pageNumber, numPages, width, side, isLandscape, isSel
       <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} width={width} />
     </div>
   );
-}
+});
 
 interface PDFPageProps {
   pageNumber: number;
@@ -954,7 +962,8 @@ interface PDFPageProps {
   width: number;
 }
 
-const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText, width }) => {
+const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelectingText, width }) => {
+  console.log(`[PDFPage] Render Page: ${pageNumber} Width: ${width}`);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1049,6 +1058,7 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText, wid
             renderTaskRef.current.cancel();
           }
 
+          console.log(`[PDFPage] Creating PDF Render Task for Page ${pageNumber}`);
           renderTaskRef.current = page.render({
             canvasContext: context,
             viewport: canvasViewport,
@@ -1158,4 +1168,4 @@ const PDFPage: React.FC<PDFPageProps> = ({ pageNumber, pdf, isSelectingText, wid
       )}
     </div>
   );
-};
+});
