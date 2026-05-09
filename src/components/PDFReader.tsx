@@ -380,6 +380,38 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const touchStateRef = useRef({ initialDist: 0, initialScale: 1, lastScale: 1 });
 
+  useEffect(() => {
+    if (selectionMode) {
+      document.body.classList.add('selection-active');
+      
+      const logPrevented = (e: Event) => {
+        if (e.defaultPrevented) {
+          console.warn(`[SelectionDebug] Event ${e.type} was prevented!`, {
+            target: e.target,
+            currentTarget: e.currentTarget,
+            defaultPrevented: e.defaultPrevented
+          });
+        }
+      };
+      
+      window.addEventListener('touchstart', logPrevented, true);
+      window.addEventListener('touchmove', logPrevented, true);
+      window.addEventListener('touchend', logPrevented, true);
+      window.addEventListener('mousedown', logPrevented, true);
+      window.addEventListener('selectstart', logPrevented, true);
+      
+      return () => {
+        window.removeEventListener('touchstart', logPrevented, true);
+        window.removeEventListener('touchmove', logPrevented, true);
+        window.removeEventListener('touchend', logPrevented, true);
+        window.removeEventListener('mousedown', logPrevented, true);
+        window.removeEventListener('selectstart', logPrevented, true);
+      };
+    } else {
+      document.body.classList.remove('selection-active');
+    }
+  }, [selectionMode]);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     // Debug hit testing
     const touch = e.touches[0];
@@ -388,7 +420,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       console.log(`[PDFReader] TouchStart Target:`, element?.tagName, element?.className, element?.id);
     }
 
-    if (selectionMode) return;
+    if (selectionMode) {
+      console.log("[PDFReader] selectionMode active - bypassing custom handlers");
+      return;
+    }
     
     startLongPressTimer(e);
 
@@ -411,15 +446,26 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (selectionMode) return;
+    if (selectionMode) {
+      console.log(`[PDFReader] Bypassing touchmove preventDefault in selectionMode`);
+      return;
+    }
 
     // Cancel long press if moved significantly
     if (longPressTimer.current && e.touches.length === 1) {
       cancelLongPressTimer();
     }
 
-    if (e.touches.length === 2 && isPinching.current) {
+    const safePreventDefault = (e: any, source: string) => {
+      if (selectionMode) {
+        console.warn(`[SelectionDebug] ${source} attempted preventDefault() but it was BYPASSED during selectionMode.`);
+        return;
+      }
       e.preventDefault();
+    };
+
+    if (e.touches.length === 2 && isPinching.current) {
+      safePreventDefault(e, 'handleTouchMove (pinch)');
       const dist = Math.hypot(
         e.touches[0].pageX - e.touches[1].pageX,
         e.touches[0].pageY - e.touches[1].pageY
@@ -461,11 +507,48 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       className={cn(
         "fixed inset-0 z-[300] bg-zinc-950 flex flex-col transition-all duration-500",
         selectionMode ? "overflow-visible" : "overflow-hidden",
-        !selectionMode && "select-none",
-        direction === 'rtl' ? "rtl" : "ltr"
+        !selectionMode && "select-none"
       )}
+      dir={direction === 'rtl' ? "rtl" : "ltr"}
     >
       <AnimatePresence>
+        {selectionMode && (
+          <div 
+            id="global-selection-diagnostic"
+            className="fixed inset-0 z-[999999] bg-white flex flex-col p-8 overflow-auto"
+            style={{
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+              pointerEvents: 'auto'
+            }}
+          >
+            <div className="flex justify-between items-center mb-8 border-b pb-4">
+              <h1 className="text-2xl font-bold text-black">MOBILE SELECTION DIAGNOSTIC</h1>
+              <button 
+                onClick={() => setSelectionMode(false)}
+                className="bg-black text-white px-4 py-2 rounded-lg font-bold"
+              >
+                EXIT
+              </button>
+            </div>
+            
+            <p className="text-3xl text-black mb-8 leading-relaxed">
+              THIS IS STANDALONE TEXT IN A PURE HTML OVERLAY. 
+              IF YOU CANNOT SELECT THIS TEXT ON MOBILE, THE APP IS GLOBALLY SUPPRESSING NATIVE SELECTION.
+            </p>
+            
+            <div className="space-y-4">
+              <div className="p-4 bg-zinc-100 rounded text-black font-mono text-sm">
+                Selection Active: {selectionMode.toString()}<br/>
+                User Agent: {navigator.userAgent}<br/>
+              </div>
+              
+              <div className="p-4 border-2 border-dashed border-zinc-300 rounded text-zinc-500 italic">
+                Try long-pressing this text to trigger native selection handles.
+              </div>
+            </div>
+          </div>
+        )}
         {isNavigatorOpen && (
           <motion.div 
             initial={{ opacity: 0 }}
@@ -718,7 +801,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ touchAction: 'none' }}
+        style={{ touchAction: selectionMode ? 'auto' : 'none' }}
       >
         {isLoading ? (
           <div className="flex flex-col items-center gap-4 text-white/40">
@@ -1151,7 +1234,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
     if (!textLayer) return;
 
     const handlePointerDown = (e: PointerEvent) => {
-      e.stopPropagation();
+      if (!selectionMode) e.stopPropagation();
+      else console.log("[SelectionDebug] Bypassing stopPropagation on textLayer pointerdown");
       if (isSelectingText) (isSelectingText as any).current = true;
     };
 
