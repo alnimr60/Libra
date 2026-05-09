@@ -505,10 +505,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col transition-all duration-500",
-        selectionMode ? "overflow-visible" : "overflow-hidden",
+        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col",
+        selectionMode ? "overflow-visible" : "overflow-hidden transition-all duration-500",
         !selectionMode && "select-none"
       )}
+      style={{ 
+        transform: selectionMode ? 'none' : undefined,
+        perspective: selectionMode ? 'none' : undefined,
+        willChange: selectionMode ? 'auto' : undefined
+      }}
       dir={direction === 'rtl' ? "rtl" : "ltr"}
     >
       <AnimatePresence>
@@ -726,7 +731,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         ref={readerContainerRef}
         className={cn(
         "flex-1 relative flex items-center justify-center bg-zinc-950/40",
-        selectionMode ? "overflow-visible select-text" : "overflow-hidden select-none"
+        selectionMode ? "overflow-visible" : "overflow-hidden",
+        !selectionMode && "select-none"
       )}
         onClick={(e) => {
           if (selectionMode) return;
@@ -795,6 +801,96 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
               >
                 Close Reader
               </button>
+            </div>
+          </div>
+        ) : selectionMode ? (
+          <div 
+            id="selection-isolation-layer"
+            className="absolute inset-0 z-[500] bg-zinc-950 overflow-auto p-4 md:p-8 flex flex-col items-center"
+            style={{ 
+              touchAction: 'auto', 
+              WebkitUserSelect: 'text',
+              userSelect: 'text'
+            }}
+          >
+            <div 
+              className={cn(
+                "flex-shrink-0 gap-0 lg:gap-4 mx-auto relative my-auto",
+                viewMode === 'double' ? "flex-row" : "flex-col"
+              )}
+            >
+              {viewMode === 'double' ? (
+                <>
+                  {direction === 'rtl' ? (
+                    <>
+                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
+                        <PDFPage 
+                          pageNumber={(pageIndex * 2) + 2} 
+                          pdf={pdf!} 
+                          isSelectingText={isSelectingText} 
+                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
+                          renderScale={renderScale} 
+                          currentScale={scale} 
+                          selectionMode={true} 
+                          visualScale={visualScale} 
+                        />
+                      </div>
+                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
+                        <PDFPage 
+                          pageNumber={(pageIndex * 2) + 1} 
+                          pdf={pdf!} 
+                          isSelectingText={isSelectingText} 
+                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
+                          renderScale={renderScale} 
+                          currentScale={scale} 
+                          selectionMode={true} 
+                          visualScale={visualScale} 
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
+                        <PDFPage 
+                          pageNumber={(pageIndex * 2) + 1} 
+                          pdf={pdf!} 
+                          isSelectingText={isSelectingText} 
+                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
+                          renderScale={renderScale} 
+                          currentScale={scale} 
+                          selectionMode={true} 
+                          visualScale={visualScale} 
+                        />
+                      </div>
+                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
+                        <PDFPage 
+                          pageNumber={(pageIndex * 2) + 2} 
+                          pdf={pdf!} 
+                          isSelectingText={isSelectingText} 
+                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
+                          renderScale={renderScale} 
+                          currentScale={scale} 
+                          selectionMode={true} 
+                          visualScale={visualScale} 
+                        />
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
+                  <PDFPage 
+                    pageNumber={pageIndex + 1} 
+                    pdf={pdf!} 
+                    isSelectingText={isSelectingText} 
+                    width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
+                    renderScale={renderScale} 
+                    currentScale={scale} 
+                    selectionMode={true} 
+                    visualScale={visualScale} 
+                  />
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -1357,7 +1453,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
       ref={containerRef} 
       className={cn(
         "relative flex items-center justify-center bg-white/5",
-        selectionMode ? "overflow-visible select-text" : "overflow-hidden select-none"
+        selectionMode ? "overflow-visible" : "overflow-hidden",
+        !selectionMode && "select-none"
       )}
       style={{ 
         width: displayWidth,
@@ -1381,7 +1478,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           id={`page-${pageNumber}-container`}
           className={cn(
             "relative shadow-2xl bg-white transition-opacity duration-300",
-            selectionMode ? "select-text" : "transform-gpu select-none"
+            !selectionMode && "transform-gpu select-none"
           )}
           style={{ 
             width: displayWidth,
@@ -1407,7 +1504,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           />
           <div 
             ref={textLayerDivRef} 
-            className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active select-text")}
+            className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active")}
             style={{ 
               zIndex: selectionMode ? 100 : 1,
               width: displayWidth,
@@ -1418,16 +1515,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               touchAction: selectionMode ? 'auto' : 'none',
               transform: 'none'
             }} 
-          >
-            {selectionMode && (
-              <div 
-                className="absolute top-0 right-0 bg-red-500 text-white p-2 z-[1000] font-mono text-[8px] uppercase select-text"
-                style={{ pointerEvents: 'auto' }}
-              >
-                Layer Select Test
-              </div>
-            )}
-          </div>
+          />
         </div>
       )}
     </div>
