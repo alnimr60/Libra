@@ -1257,6 +1257,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [pageText, setPageText] = useState<string>("");
 
   useEffect(() => {
     if (selectionMode && textLayerDivRef.current) {
@@ -1393,6 +1394,12 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             if (textLayerDivRef.current) {
               const textContent = await page.getTextContent();
               
+              // EXTRACT TEXT FOR FLOW MODE
+              const extractedText = textContent.items
+                .map((item: any) => item.str)
+                .join(textContent.items.some((item: any) => item.hasEOL) ? '' : ' ');
+              setPageText(extractedText);
+
               const textLayer = new pdfjs.TextLayer({
                 textContentSource: textContent,
                 container: textLayerDivRef.current,
@@ -1531,9 +1538,29 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               userSelect: selectionMode ? 'text' : 'none',
               WebkitUserSelect: selectionMode ? 'text' : 'none',
               touchAction: selectionMode ? 'auto' : 'none',
-              transform: 'none'
+              transform: 'none',
+              display: selectionMode ? 'none' : 'block'
             }} 
           />
+          
+          {selectionMode && (
+            <div 
+              className="flow-text-page absolute inset-0 bg-white/95 p-8 md:p-12 overflow-auto z-[150] text-black"
+              style={{
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                fontSize: '18px',
+                lineHeight: '1.6',
+                whiteSpace: 'pre-wrap',
+                textAlign: 'left'
+              }}
+            >
+              <div className="mb-6 pb-2 border-b border-zinc-200">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Flow Text Diagnostic Layer (Page {pageNumber})</span>
+              </div>
+              {pageText || "Extracting text content..."}
+            </div>
+          )}
         </div>
       )}
     </div>
