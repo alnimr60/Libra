@@ -459,7 +459,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500",
+        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col transition-all duration-500",
+        selectionMode ? "overflow-visible" : "overflow-hidden",
         !selectionMode && "select-none",
         direction === 'rtl' ? "rtl" : "ltr"
       )}
@@ -678,7 +679,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       <div 
         ref={readerContainerRef}
         className={cn(
-        "flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden",
+        "flex-1 relative flex items-center justify-center bg-zinc-950/40",
+        selectionMode ? "overflow-visible" : "overflow-hidden",
         !selectionMode && "select-none"
       )}
         onClick={(e) => {
@@ -918,23 +920,41 @@ const ReaderSheet = React.memo(function ReaderSheet({
   
   // Virtualization position
   const x = useTransform(distance, (d: number) => {
+    if (selectionMode && index === Math.round(virtualPage.get())) {
+      return 0; // Disable virtualization shift for active page in selection mode
+    }
     const multiplier = direction === 'rtl' ? -100 : 100;
     return d * multiplier; // Using percentage in template
   });
   
-  const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
+  const zIndex = useTransform(distance, (d: number) => {
+    if (selectionMode && index === Math.round(virtualPage.get())) return 500;
+    return 10 - Math.abs(Math.round(d));
+  });
 
   const rotateY = useTransform(distance, (d: number) => {
+    if (selectionMode) return 0;
     const multiplier = direction === 'rtl' ? -10 : 10;
     return d * multiplier;
   });
 
   const transitionScale = useTransform(distance, (d: number) => {
+    if (selectionMode) return 1.0;
     return 1 - (Math.abs(d) * 0.05);
   });
   
-  const opacity = useTransform(distance, [-1.5, -0.5, 0, 0.5, 1.5], [0, 0.5, 1, 0.5, 0]);
-  const visibility = useTransform(distance, (d: number) => Math.abs(d) <= 1.5 ? 'visible' : 'hidden');
+  const opacity = useTransform(distance, (d: number) => {
+    if (selectionMode && index === Math.round(virtualPage.get())) return 1;
+    if (d <= -1.5 || d >= 1.5) return 0;
+    if (d <= -0.5) return (d + 1.5);
+    if (d >= 0.5) return (1.5 - d);
+    return 1;
+  });
+  
+  const visibility = useTransform(distance, (d: number) => {
+    if (selectionMode && index === Math.round(virtualPage.get())) return 'visible';
+    return Math.abs(d) <= 1.5 ? 'visible' : 'hidden';
+  });
 
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
@@ -954,16 +974,20 @@ const ReaderSheet = React.memo(function ReaderSheet({
   // NOTE: x is percentage base, panX is pixels. We'll use calc or motion template
   const transform = React.useMemo(() => {
     return (latest: { x: number, panX: number, panY: number, rotateY: number, scale: number }) => {
-      // transform: translate3d(calc(x% + panXpx), panYpx, 0) scale(scale) rotateY(rotateYdeg)
-      // IF selectionMode is active, we strip the CSS scale from the sheet container
-      // and let the internal components handle layout dimensions.
+      // IF selectionMode is active, we strip ALL transformations from the active sheet
+      // to avoid GPU compositing issues that block text selection on mobile.
+      const isActive = index === Math.round(virtualPage.get());
+      if (selectionMode && isActive) {
+        return 'none';
+      }
+      
       const s = selectionMode ? 1.0 : latest.scale;
       const t = `translate3d(calc(${latest.x}% + ${latest.panX}px), ${latest.panY}px, 0) scale(${s}) rotateY(${latest.rotateY}deg)`;
       // Log only occasionally
       if (Math.random() < 0.01) console.log(`[TransformContainer] Index ${index} | Rendered Transform: ${t}`);
       return t;
     };
-  }, [index, selectionMode]);
+  }, [index, selectionMode, virtualPage]);
 
   const transformValue = useTransform(
     [x, panX, panY, rotateY, totalScale],
@@ -974,23 +998,26 @@ const ReaderSheet = React.memo(function ReaderSheet({
     <motion.div
       style={{ opacity, visibility, zIndex }}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8 overflow-hidden",
-        !selectionMode && "select-none",
+        "absolute inset-0 flex p-4 md:p-8",
+        !selectionMode && "overflow-hidden select-none",
+        selectionMode && "overflow-visible",
         viewMode === 'double' ? "flex-row" : "flex-col",
-        "items-center justify-center transform-gpu perspective-[1500px]"
+        "items-center justify-center",
+        !selectionMode && "transform-gpu perspective-[1500px]"
       )}
     >
       <motion.div 
         id={`sheet-${index}-transform-container`}
         style={{ 
           transform: transformValue,
-          transformStyle: 'preserve-3d',
-          backfaceVisibility: 'hidden',
+          transformStyle: selectionMode ? 'flat' : 'preserve-3d',
+          backfaceVisibility: selectionMode ? 'visible' : 'hidden',
           width: 'fit-content',
           height: 'fit-content',
           touchAction: selectionMode ? 'auto' : 'none',
           userSelect: selectionMode ? 'text' : 'none',
-          WebkitUserSelect: selectionMode ? 'text' : 'none'
+          WebkitUserSelect: selectionMode ? 'text' : 'none',
+          willChange: selectionMode ? 'auto' : 'transform'
         } as any}
         drag={scale.get() > 1.1 && !selectionMode}
         dragConstraints={constraintsRef}
@@ -1051,7 +1078,8 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   return (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto relative flex items-center justify-center select-none",
+        "flex-shrink-0 h-auto relative flex items-center justify-center",
+        !selectionMode && "select-none",
         side === 'left' ? "rounded-l-sm" : "rounded-r-sm"
       )}
       style={{ 
@@ -1088,6 +1116,26 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (selectionMode && textLayerDivRef.current) {
+      console.log(`[PDFPage] Debugging Ancestors for selectionMode (Page ${pageNumber})`);
+      let el = textLayerDivRef.current.parentElement;
+      while (el) {
+        const style = window.getComputedStyle(el);
+        console.log(`Ancestor [${el.tagName}${el.id ? '#' + el.id : ''}${el.className ? '.' + el.className.split(' ').join('.') : ''}]:`, {
+          transform: style.transform,
+          overflow: style.overflow,
+          contain: style.contain,
+          willChange: style.willChange,
+          perspective: (style as any).perspective,
+          filter: style.filter,
+          backdropFilter: (style as any).backdropFilter
+        });
+        el = el.parentElement;
+      }
+    }
+  }, [selectionMode, pageNumber]);
 
   const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
   const containerHeight = width * aspectRatio;
@@ -1241,7 +1289,11 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   return (
     <div 
       ref={containerRef} 
-      className={cn("relative flex items-center justify-center bg-white/5 overflow-hidden", !selectionMode && "select-none")}
+      className={cn(
+        "relative flex items-center justify-center bg-white/5",
+        selectionMode ? "overflow-visible" : "overflow-hidden",
+        !selectionMode && "select-none"
+      )}
       style={{ 
         width: displayWidth,
         height: displayHeight
@@ -1262,7 +1314,10 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
       {pageSize.width > 0 && (
         <div 
           id={`page-${pageNumber}-container`}
-          className={cn("relative shadow-2xl bg-white transition-opacity duration-300 transform-gpu", !selectionMode && "select-none")}
+          className={cn(
+            "relative shadow-2xl bg-white transition-opacity duration-300",
+            !selectionMode && "transform-gpu select-none"
+          )}
           style={{ 
             width: displayWidth,
             height: displayHeight,
@@ -1271,7 +1326,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             top: 0,
             left: 0,
             flexShrink: 0,
-            opacity: isRendering ? 0 : 1
+            opacity: isRendering ? 0 : 1,
+            contain: selectionMode ? 'none' : 'content'
           }}
         >
           <canvas 
