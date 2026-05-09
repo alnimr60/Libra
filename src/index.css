@@ -117,7 +117,10 @@ body.selection-active {
 }
 
 .textLayer.selection-active span {
-  outline: 1px solid rgba(0, 255, 0, 0.2); /* Debug outline */
+  color: rgba(0, 0, 0, 0.01) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  outline: 1px solid rgba(0, 255, 0, 0.05); /* Very faint debug outline */
   pointer-events: auto !important;
   user-select: text !important;
   -webkit-user-select: text !important;
