@@ -381,6 +381,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const touchStateRef = useRef({ initialDist: 0, initialScale: 1, lastScale: 1 });
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    // Debug hit testing
+    const touch = e.touches[0];
+    if (touch) {
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      console.log(`[PDFReader] TouchStart Target:`, element?.tagName, element?.className, element?.id);
+    }
+
     if (selectionMode) return;
     
     startLongPressTimer(e);
@@ -452,7 +459,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className={cn(
-        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500 select-none",
+        "fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500",
+        !selectionMode && "select-none",
         direction === 'rtl' ? "rtl" : "ltr"
       )}
     >
@@ -669,7 +677,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       {/* Main Viewport */}
       <div 
         ref={readerContainerRef}
-        className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden select-none"
+        className={cn(
+        "flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden",
+        !selectionMode && "select-none"
+      )}
         onClick={(e) => {
           if (selectionMode) return;
           
@@ -957,7 +968,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
     <motion.div
       style={{ opacity, visibility, zIndex }}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8 overflow-hidden select-none",
+        "absolute inset-0 flex p-4 md:p-8 overflow-hidden",
+        !selectionMode && "select-none",
         viewMode === 'double' ? "flex-row" : "flex-col",
         "items-center justify-center transform-gpu perspective-[1500px]"
       )}
@@ -969,14 +981,18 @@ const ReaderSheet = React.memo(function ReaderSheet({
           transformStyle: 'preserve-3d',
           backfaceVisibility: 'hidden',
           width: 'fit-content',
-          height: 'fit-content'
+          height: 'fit-content',
+          touchAction: selectionMode ? 'auto' : 'none',
+          userSelect: selectionMode ? 'text' : 'none',
+          WebkitUserSelect: selectionMode ? 'text' : 'none'
         } as any}
         drag={scale.get() > 1.1 && !selectionMode}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center select-none transform-gpu",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center transform-gpu",
+          !selectionMode && "select-none",
           viewMode === 'double' ? "flex-row" : "flex-col",
           "mx-auto"
         )}
@@ -1206,7 +1222,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   return (
     <div 
       ref={containerRef} 
-      className="relative flex items-center justify-center bg-white/5 select-none overflow-hidden"
+      className={cn("relative flex items-center justify-center bg-white/5 overflow-hidden", !selectionMode && "select-none")}
       style={{ 
         width: width || 'auto',
         height: containerHeight || 'auto'
@@ -1227,7 +1243,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
       {pageSize.width > 0 && (
         <div 
           id={`page-${pageNumber}-container`}
-          className="relative shadow-2xl bg-white select-none transition-opacity duration-300 transform-gpu"
+          className={cn("relative shadow-2xl bg-white transition-opacity duration-300 transform-gpu", !selectionMode && "select-none")}
           style={{ 
             width: width,
             height: containerHeight,
@@ -1248,9 +1264,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           />
           <div 
             ref={textLayerDivRef} 
-            className="textLayer absolute inset-0 origin-top-left"
+            className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active")}
             style={{ 
-              zIndex: 1,
+              zIndex: selectionMode ? 100 : 1,
               pointerEvents: selectionMode ? 'auto' : 'none',
               userSelect: selectionMode ? 'text' : 'none',
               WebkitUserSelect: selectionMode ? 'text' : 'none',

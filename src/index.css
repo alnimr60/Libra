@@ -82,6 +82,17 @@ body {
   user-select: none !important;
   -webkit-user-select: none !important;
   pointer-events: none !important;
+  z-index: 1;
+}
+
+.textLayer.selection-active {
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+  touch-action: auto !important;
+  background: rgba(255, 0, 0, 0.05); /* Debug background */
+  z-index: 100 !important;
 }
 
 .textLayer span {
@@ -96,6 +107,13 @@ body {
   -webkit-user-select: text !important;
   line-height: 1;
   touch-action: auto !important;
+}
+
+.textLayer.selection-active span {
+  outline: 1px solid rgba(0, 255, 0, 0.2); /* Debug outline */
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 /* Hide the built-in selection highlights to use the native ones properly */
