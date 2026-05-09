@@ -98,8 +98,8 @@ body.selection-active {
   -webkit-user-select: text !important;
   -webkit-touch-callout: default !important;
   touch-action: auto !important;
-  background: rgba(255, 0, 0, 0.1); /* Debug background */
-  z-index: 500 !important;
+  background: rgba(255, 0, 0, 0.05); /* Debug background */
+  z-index: 100 !important;
 }
 
 .textLayer span {
@@ -117,12 +117,10 @@ body.selection-active {
 }
 
 .textLayer.selection-active span {
-  color: rgba(255, 0, 0, 0.2) !important; /* DEBUG: Make text semi-visible */
-  outline: 1px solid rgba(0, 255, 0, 0.3) !important; /* Debug outline */
+  outline: 1px solid rgba(0, 255, 0, 0.2); /* Debug outline */
   pointer-events: auto !important;
   user-select: text !important;
   -webkit-user-select: text !important;
-  z-index: 501 !important;
 }
 
 /* Hide the built-in selection highlights to use the native ones properly */
