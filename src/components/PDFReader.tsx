@@ -27,11 +27,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const visualScale = useMotionValue(1.0);
 
   const [isLoading, setIsLoading] = useState(true);
-  // Synchronize visualScale with scale state for control updates
-  useEffect(() => {
-    visualScale.set(scale);
-  }, [scale]);
-
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>(book.readingDirection || 'ltr');
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
@@ -382,8 +377,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   useEffect(() => {
     if (selectionMode) {
-      document.body.classList.add('selection-active');
-      
       const logPrevented = (e: Event) => {
         if (e.defaultPrevented) {
           console.warn(`[SelectionDebug] Event ${e.type} was prevented!`, {
@@ -407,8 +400,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         window.removeEventListener('mousedown', logPrevented, true);
         window.removeEventListener('selectstart', logPrevented, true);
       };
-    } else {
-      document.body.classList.remove('selection-active');
     }
   }, [selectionMode]);
 
@@ -803,96 +794,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
               </button>
             </div>
           </div>
-        ) : selectionMode ? (
-          <div 
-            id="selection-isolation-layer"
-            className="absolute inset-0 z-[500] bg-zinc-950 overflow-auto p-4 md:p-8 flex flex-col items-center"
-            style={{ 
-              touchAction: 'auto', 
-              WebkitUserSelect: 'text',
-              userSelect: 'text'
-            }}
-          >
-            <div 
-              className={cn(
-                "flex-shrink-0 gap-0 lg:gap-4 mx-auto relative my-auto",
-                viewMode === 'double' ? "flex-row" : "flex-col"
-              )}
-            >
-              {viewMode === 'double' ? (
-                <>
-                  {direction === 'rtl' ? (
-                    <>
-                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
-                        <PDFPage 
-                          pageNumber={(pageIndex * 2) + 2} 
-                          pdf={pdf!} 
-                          isSelectingText={isSelectingText} 
-                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
-                          renderScale={renderScale} 
-                          currentScale={scale} 
-                          selectionMode={true} 
-                          visualScale={visualScale} 
-                        />
-                      </div>
-                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
-                        <PDFPage 
-                          pageNumber={(pageIndex * 2) + 1} 
-                          pdf={pdf!} 
-                          isSelectingText={isSelectingText} 
-                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
-                          renderScale={renderScale} 
-                          currentScale={scale} 
-                          selectionMode={true} 
-                          visualScale={visualScale} 
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
-                        <PDFPage 
-                          pageNumber={(pageIndex * 2) + 1} 
-                          pdf={pdf!} 
-                          isSelectingText={isSelectingText} 
-                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
-                          renderScale={renderScale} 
-                          currentScale={scale} 
-                          selectionMode={true} 
-                          visualScale={visualScale} 
-                        />
-                      </div>
-                      <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
-                        <PDFPage 
-                          pageNumber={(pageIndex * 2) + 2} 
-                          pdf={pdf!} 
-                          isSelectingText={isSelectingText} 
-                          width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
-                          renderScale={renderScale} 
-                          currentScale={scale} 
-                          selectionMode={true} 
-                          visualScale={visualScale} 
-                        />
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div style={{ width: (readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300 }}>
-                  <PDFPage 
-                    pageNumber={pageIndex + 1} 
-                    pdf={pdf!} 
-                    isSelectingText={isSelectingText} 
-                    width={(readerDimensions.width > 0) ? (viewMode === 'double' ? Math.min((readerDimensions.height * 0.9 * 0.707) * 2, readerDimensions.width * 0.95) / 2 : Math.min(readerDimensions.height * 0.9 * 0.707, readerDimensions.width * 0.9)) : 300} 
-                    renderScale={renderScale} 
-                    currentScale={scale} 
-                    selectionMode={true} 
-                    visualScale={visualScale} 
-                  />
-                </div>
-              )}
-            </div>
-          </div>
         ) : (
           <motion.div 
             className="relative w-full h-full"
@@ -940,39 +841,18 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[450] flex flex-col items-center gap-4"
+            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[450]"
           >
-            <div className="flex gap-2">
-              <button
-                onClick={async () => {
-                  console.log("[SelectionDebug] Manual Extraction Test Triggered");
-                  const activePageNum = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
-                  try {
-                    const page = await pdf?.getPage(activePageNum);
-                    if (page) {
-                      const content = await page.getTextContent();
-                      const text = content.items.map((i: any) => i.str).join(' ');
-                      alert(`Extraction Test Success!\nItems: ${content.items.length}\nText Length: ${text.length}\nPreview: ${text.substring(0, 200)}...`);
-                    }
-                  } catch (err: any) {
-                    alert(`Extraction Test Failed: ${err.message}`);
-                  }
-                }}
-                className="px-4 py-3 bg-zinc-800 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2 hover:bg-zinc-700"
-              >
-                Test Extraction
-              </button>
-              <button
-                onClick={() => {
-                  setSelectionMode(false);
-                  window.getSelection()?.removeAllRanges();
-                }}
-                className="px-6 py-3 bg-orange-500 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2"
-              >
-                <Check className="w-4 h-4" />
-                Done Selecting
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                setSelectionMode(false);
+                window.getSelection()?.removeAllRanges();
+              }}
+              className="px-6 py-3 bg-orange-500 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2"
+            >
+              <Check className="w-4 h-4" />
+              Done Selecting
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1278,9 +1158,6 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
-  const [pageText, setPageText] = useState<string>("");
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [extError, setExtError] = useState<any>(null);
 
   useEffect(() => {
     if (selectionMode && textLayerDivRef.current) {
@@ -1402,7 +1279,6 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             renderTaskRef.current.cancel();
           }
 
-          console.log(`[PDFPage] Rendering Page ${pageNumber} | selectionMode: ${selectionMode} | viewportScale: ${textLayerViewportScale.toFixed(2)}`);
           renderTaskRef.current = page.render({
             canvasContext: context,
             viewport: canvasViewport,
@@ -1415,55 +1291,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
 
           try {
             if (textLayerDivRef.current) {
-              // Robust Text Extraction for Diagnostic Flow Mode
-              setIsExtracting(true);
-              setExtError(null);
+              const textContent = await page.getTextContent();
               
-              console.log(`[PDFPage] Page ${pageNumber} Extraction Pre-Check:`, {
-                pageObject: page,
-                isDestroyed: (page as any)._destroyed || (page as any).destroyed,
-                pageNumber: (page as any).pageNumber,
-                getTextContentAvailable: typeof page.getTextContent,
-                workerSrc: pdfjs.GlobalWorkerOptions.workerSrc,
-                pdfjsVersion: pdfjs.version,
-                compatibility: {
-                  PromiseWithResolvers: typeof (Promise as any).withResolvers,
-                  structuredClone: typeof window.structuredClone,
-                  ReadableStream: typeof window.ReadableStream,
-                  ArrayFrom: typeof Array.from,
-                  SymbolIterator: typeof Symbol.iterator,
-                  OffscreenCanvas: typeof window.OffscreenCanvas
-                }
-              });
-
-              console.log("[PDFPage] getTextContent started...");
-              let textContent;
-              try {
-                textContent = await page.getTextContent();
-                console.log(`[PDFPage] getTextContent resolved for Page ${pageNumber}. Items:`, textContent.items.length);
-                // SIMPLE EXTRACTION TEST ON PAGE LOAD (as requested)
-                console.log(`[PDFPage] TEXT ITEMS: ${textContent.items.length}`);
-                
-                if (textContent.items.length === 0) {
-                  console.warn(`[PDFPage] Page ${pageNumber} returned ZERO text items. This may be a scanned PDF or images-only.`);
-                }
-              } catch (getContentErr: any) {
-                console.log("[PDFPage] getTextContent rejected!");
-                console.error(`[PDFPage] RAW ERROR for Page ${pageNumber}:`, getContentErr);
-                setExtError(getContentErr);
-                setIsExtracting(false);
-                throw getContentErr;
-              }
-              
-              console.log(`[PDFPage] Page ${pageNumber} strings (first 10):`, textContent.items.slice(0, 10).map((i: any) => i.str));
-
-              const extractedText = textContent.items
-                .map((item: any) => item.str)
-                .join(" ");
-
-              setPageText(extractedText);
-              setIsExtracting(false);
-
               await pdfjs.renderTextLayer({
                 textContentSource: textContent,
                 container: textLayerDivRef.current,
@@ -1471,28 +1300,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               }).promise;
               
               textLayerDivRef.current.style.setProperty('--scale-factor', textLayerViewportScale.toString());
-
-              // DIAGNOSTIC LOGGING
-              if (textLayerDivRef.current) {
-                const spans = textLayerDivRef.current.querySelectorAll('span');
-                console.log(`[PDFPage] Page ${pageNumber} textLayer rendered with ${spans.length} spans.`);
-                
-                if (selectionMode) {
-                  spans.forEach(span => {
-                    // Ensure text is accessible to browser selection
-                    if (span.getAttribute('aria-hidden') === 'true') {
-                      span.removeAttribute('aria-hidden');
-                    }
-                    // PDF.js often uses transparent text, our CSS handles it but we can force it here too
-                    span.style.color = 'rgba(0,0,0,0.01)';
-                  });
-                }
-              }
             }
           } catch (textLayerErr) {
             console.warn("Text layer processing failed", textLayerErr);
-            if (!extError) setExtError(textLayerErr);
-            setIsExtracting(false);
           }
 
           if (isMounted) setIsRendering(false);
@@ -1573,82 +1383,15 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           />
           <div 
             ref={textLayerDivRef} 
-            className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active")}
+            className="textLayer"
             style={{ 
-              zIndex: selectionMode ? 100 : 1,
               width: displayWidth,
               height: displayHeight,
               pointerEvents: selectionMode ? 'auto' : 'none',
-              userSelect: selectionMode ? 'text' : 'none',
-              WebkitUserSelect: selectionMode ? 'text' : 'none',
-              touchAction: selectionMode ? 'auto' : 'none',
               transform: 'none',
-              display: selectionMode ? 'none' : 'block'
+              zIndex: 5
             }} 
           />
-          
-          {selectionMode && (
-            <div 
-              className="flow-text-page"
-              style={{
-                position: "absolute",
-                inset: 0,
-                background: "white",
-                color: "black",
-                zIndex: 99999,
-                overflow: "auto",
-                padding: 20,
-                fontSize: 18,
-                lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
-                userSelect: "text",
-                WebkitUserSelect: "text",
-                textAlign: 'left'
-              }}
-            >
-              <div className="mb-4 pb-2 border-b border-zinc-200 flex justify-between items-center">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Flow Text Diagnostic (Page {pageNumber})</span>
-                {isExtracting && <span className="text-[10px] text-zinc-500 animate-pulse">Extracting...</span>}
-              </div>
-              {extError ? (
-                <div className="bg-red-50 p-4 border border-red-200 rounded-lg">
-                  <div className="text-red-600 font-bold flex items-center gap-2 mb-4">
-                    <AlertCircle className="w-5 h-5" />
-                    <span>CRITICAL EXTRACTION FAILURE</span>
-                  </div>
-                  <pre className="text-[10px] font-mono text-red-800 whitespace-pre-wrap overflow-auto max-h-[300px] leading-tight">
-                    {`Error: ${String(extError)}\n\n`}
-                    {extError.stack && `Stack:\n${extError.stack}\n\n`}
-                    {`JSON:\n${JSON.stringify(extError, Object.getOwnPropertyNames(extError), 2)}`}
-                  </pre>
-                </div>
-              ) : (isExtracting && !pageText) ? (
-                <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-400">
-                  <Loader2 className="w-8 h-8 animate-spin" />
-                  <p>Extracting text content...</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pageText ? (
-                    <>
-                      <div className="p-4 bg-zinc-50 border border-zinc-100 rounded text-xs text-zinc-500 font-mono">
-                        Extracted {pageText.split(' ').length} words | {pageText.length} characters
-                      </div>
-                      <div className="whitespace-pre-wrap">
-                        {pageText}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center p-12 text-zinc-400 border-2 border-dashed border-zinc-100 rounded-xl">
-                      <AlertCircle className="w-8 h-8 mb-4 opacity-20" />
-                      <p className="font-medium">No selectable text found on this page.</p>
-                      <p className="text-xs mt-2 opacity-60">This typically happens with scanned documents or PDFs where text is rendered as images.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -70,36 +70,16 @@ body {
   @apply antialiased transition-colors duration-200;
 }
 
-body.selection-active {
-  user-select: text !important;
-  -webkit-user-select: text !important;
-  touch-action: auto !important;
-  overscroll-behavior: auto !important;
-}
-
 /* PDF Text Layer Selection Styling */
 .textLayer {
   position: absolute;
-  text-align: initial;
   inset: 0;
   overflow: hidden;
-  opacity: 1.0;
-  line-height: 1;
-  text-indent: 0;
-  user-select: none !important;
-  -webkit-user-select: none !important;
-  pointer-events: none !important;
-  z-index: 1;
-}
-
-.textLayer.selection-active {
-  pointer-events: auto !important;
   user-select: text !important;
   -webkit-user-select: text !important;
-  -webkit-touch-callout: default !important;
-  touch-action: auto !important;
-  background: rgba(255, 0, 0, 0.05); /* Debug background */
-  z-index: 100 !important;
+  pointer-events: auto !important;
+  z-index: 5;
+  line-height: 1;
 }
 
 .textLayer span {
@@ -108,35 +88,14 @@ body.selection-active {
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
-  transform: none !important;
-  pointer-events: auto !important;
-  user-select: text !important;
-  -webkit-user-select: text !important;
-  line-height: 1;
-  touch-action: auto !important;
-}
-
-.textLayer.selection-active span {
-  color: rgba(0, 0, 0, 0.01) !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  outline: 1px solid rgba(0, 255, 0, 0.05); /* Very faint debug outline */
-  pointer-events: auto !important;
-  user-select: text !important;
-  -webkit-user-select: text !important;
-}
-
-/* Hide the built-in selection highlights to use the native ones properly */
-.textLayer .highlight {
-  display: none;
-}
-
-::selection {
-  background: rgba(59, 130, 246, 0.3) !important;
 }
 
 .textLayer ::selection {
-  background: rgba(59, 130, 246, 0.4) !important;
+  background: rgba(59, 130, 246, 0.4);
+}
+
+canvas {
+  pointer-events: none;
 }
 
 /* Custom scrollbar for desktop */
