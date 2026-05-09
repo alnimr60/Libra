@@ -70,15 +70,27 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
 
+  const readerDimensionsRef = useRef({ width: 0, height: 0 });
+  const isPinching = useRef(false);
+
   useEffect(() => {
     if (!readerContainerRef.current) return;
     const observer = new ResizeObserver((entries) => {
+      // Prevent recalculations during active pinching to avoid layout thrashing
+      if (isPinching.current) {
+        console.log("[PDFReader] ResizeObserver suppressed during pinch");
+        return;
+      }
+      
       const entry = entries[0];
       if (entry) {
-        setReaderDimensions({
+        console.log("[PDFReader] Recalculating layout dimensions", entry.contentRect.width, entry.contentRect.height);
+        const newDims = {
           width: entry.contentRect.width,
           height: entry.contentRect.height
-        });
+        };
+        setReaderDimensions(newDims);
+        readerDimensionsRef.current = newDims;
       }
     });
     observer.observe(readerContainerRef.current);
@@ -335,7 +347,61 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pageIndex, totalSheets, direction, viewMode]);
 
-  const touchStateRef = useRef({ initialDist: 0, initialScale: 1 });
+  const touchStateRef = useRef({ initialDist: 0, initialScale: 1, lastScale: 1 });
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      isPinching.current = true;
+      const dist = Math.hypot(
+        e.touches[0].pageX - e.touches[1].pageX,
+        e.touches[0].pageY - e.touches[1].pageY
+      );
+      touchStateRef.current = {
+        initialDist: dist,
+        initialScale: scale,
+        lastScale: scale
+      };
+      console.log("[PDFReader] Pinch Start - Initial Dist:", dist, "Scale:", scale);
+      
+      // Stop ongoing animations if any
+      visualScale.stop();
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && isPinching.current) {
+      e.preventDefault();
+      const dist = Math.hypot(
+        e.touches[0].pageX - e.touches[1].pageX,
+        e.touches[0].pageY - e.touches[1].pageY
+      );
+      
+      // Calculate new scale relative to start
+      const delta = dist / touchStateRef.current.initialDist;
+      let nextScale = touchStateRef.current.initialScale * delta;
+      
+      // Clamp scale to safe limits (0.5 to 5.0)
+      const MIN_SAFE_SCALE = 0.5;
+      const MAX_SAFE_SCALE = 5.0;
+      nextScale = Math.max(MIN_SAFE_SCALE, Math.min(MAX_SAFE_SCALE, nextScale));
+      
+      touchStateRef.current.lastScale = nextScale;
+      visualScale.set(nextScale);
+      
+      // Throttle state updates for performance, or just use motion value
+      if (Math.abs(nextScale - scale) > 0.05) {
+        setScale(nextScale);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isPinching.current) {
+      console.log("[PDFReader] Pinch End - Final Scale:", touchStateRef.current.lastScale);
+      isPinching.current = false;
+      setScale(touchStateRef.current.lastScale);
+    }
+  };
 
   return (
     <motion.div
@@ -591,16 +657,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             setShowControls(true);
           }
         }}
-        onTouchStart={(e) => {
-          // TEMPORARILY DISABLED
-        }}
-        onTouchMove={(e) => {
-          // TEMPORARILY DISABLED
-        }}
-        onTouchEnd={() => {
-          // TEMPORARILY DISABLED
-        }}
-        style={{ touchAction: 'auto' }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ touchAction: 'none' }}
       >
         {isLoading ? (
           <div className="flex flex-col items-center gap-4 text-white/40">
@@ -809,13 +869,19 @@ function ReaderSheet({
       )}
     >
       <motion.div 
-        style={{ scale, x: panX, y: panY } as any}
+        style={{ 
+          scale, 
+          x: panX, 
+          y: panY,
+          transformStyle: 'preserve-3d',
+          backfaceVisibility: 'hidden'
+        } as any}
         drag={renderScale > 1.1}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center select-none",
+          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center select-none transform-gpu",
           viewMode === 'double' ? "flex-row" : "flex-col",
           "mx-auto"
         )}
