@@ -70,6 +70,13 @@ body {
   @apply antialiased transition-colors duration-200;
 }
 
+body.selection-active {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  touch-action: auto !important;
+  overscroll-behavior: auto !important;
+}
+
 /* PDF Text Layer Selection Styling */
 .textLayer {
   position: absolute;
