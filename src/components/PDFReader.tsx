@@ -78,13 +78,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const observer = new ResizeObserver((entries) => {
       // Prevent recalculations during active pinching to avoid layout thrashing
       if (isPinching.current) {
-        console.log("[PDFReader] ResizeObserver suppressed during pinch");
+        console.log("[PDFReader] ResizeObserver suppressed during active scaling gesture");
         return;
       }
       
       const entry = entries[0];
       if (entry) {
-        console.log("[PDFReader] Recalculating layout dimensions", entry.contentRect.width, entry.contentRect.height);
+        console.log("[PDFReader] Recalculating layout dimensions:", entry.contentRect.width, entry.contentRect.height);
         const newDims = {
           width: entry.contentRect.width,
           height: entry.contentRect.height
@@ -228,8 +228,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
   useEffect(() => {
     const timer = setTimeout(() => {
-      setRenderScale(scale);
-    }, 250); // Faster resolution settle
+      if (!isPinching.current) {
+        console.log("[PDFReader] Settle: Updating renderScale to", scale);
+        setRenderScale(scale);
+      }
+    }, 400); // Increased settle time for better stability
     return () => clearTimeout(timer);
   }, [scale]);
 
@@ -361,9 +364,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         initialScale: scale,
         lastScale: scale
       };
-      console.log("[PDFReader] Pinch Start - Initial Dist:", dist, "Scale:", scale);
+      console.log("[PDFReader] PINCH_START - Initial Scale:", scale);
       
-      // Stop ongoing animations if any
+      // Stop ongoing animations
       visualScale.stop();
     }
   };
@@ -376,11 +379,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         e.touches[0].pageY - e.touches[1].pageY
       );
       
-      // Calculate new scale relative to start
       const delta = dist / touchStateRef.current.initialDist;
       let nextScale = touchStateRef.current.initialScale * delta;
       
-      // Clamp scale to safe limits (0.5 to 5.0)
       const MIN_SAFE_SCALE = 0.5;
       const MAX_SAFE_SCALE = 5.0;
       nextScale = Math.max(MIN_SAFE_SCALE, Math.min(MAX_SAFE_SCALE, nextScale));
@@ -388,16 +389,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       touchStateRef.current.lastScale = nextScale;
       visualScale.set(nextScale);
       
-      // Throttle state updates for performance, or just use motion value
-      if (Math.abs(nextScale - scale) > 0.05) {
-        setScale(nextScale);
+      // DO NOT setScale state here to avoid continuous rerenders
+      // Only log at intervals to avoid flooding
+      if (Math.random() < 0.1) {
+        console.log("[PDFReader] PINCH_MOVE - Visual Scale:", nextScale.toFixed(2));
       }
     }
   };
 
   const handleTouchEnd = () => {
     if (isPinching.current) {
-      console.log("[PDFReader] Pinch End - Final Scale:", touchStateRef.current.lastScale);
+      console.log("[PDFReader] PINCH_END - Settle Scale:", touchStateRef.current.lastScale.toFixed(2));
       isPinching.current = false;
       setScale(touchStateRef.current.lastScale);
     }
@@ -793,7 +795,7 @@ function ReaderSheet({
   viewMode: 'single' | 'double',
   direction: 'ltr' | 'rtl',
   virtualPage: any,
-  scale: any, // MotionValue
+  scale: any, // smoothScale MotionValue
   renderScale: number,
   isLandscape: boolean,
   constraintsRef: React.RefObject<HTMLDivElement>,
@@ -802,6 +804,10 @@ function ReaderSheet({
   key?: React.Key
 }) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
+  
+  // Calculate specific visual scale relative to what's rendered
+  // If renderScale is 2 but visual scale is 2, the transform scale should be 1.
+  const visualTransformScale = useTransform(scale, (v: number) => v / renderScale);
   
   // Calculate display width in pixels to pass to sub-components
   const [displayWidth, setDisplayWidth] = useState(0);
@@ -870,7 +876,7 @@ function ReaderSheet({
     >
       <motion.div 
         style={{ 
-          scale, 
+          scale: visualTransformScale, 
           x: panX, 
           y: panY,
           transformStyle: 'preserve-3d',
