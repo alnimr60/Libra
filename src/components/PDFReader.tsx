@@ -940,18 +940,39 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[450]"
+            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[450] flex flex-col items-center gap-4"
           >
-            <button
-              onClick={() => {
-                setSelectionMode(false);
-                window.getSelection()?.removeAllRanges();
-              }}
-              className="px-6 py-3 bg-orange-500 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2"
-            >
-              <Check className="w-4 h-4" />
-              Done Selecting
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  console.log("[SelectionDebug] Manual Extraction Test Triggered");
+                  const activePageNum = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
+                  try {
+                    const page = await pdf?.getPage(activePageNum);
+                    if (page) {
+                      const content = await page.getTextContent();
+                      const text = content.items.map((i: any) => i.str).join(' ');
+                      alert(`Extraction Test Success!\nItems: ${content.items.length}\nText Length: ${text.length}\nPreview: ${text.substring(0, 200)}...`);
+                    }
+                  } catch (err: any) {
+                    alert(`Extraction Test Failed: ${err.message}`);
+                  }
+                }}
+                className="px-4 py-3 bg-zinc-800 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2 hover:bg-zinc-700"
+              >
+                Test Extraction
+              </button>
+              <button
+                onClick={() => {
+                  setSelectionMode(false);
+                  window.getSelection()?.removeAllRanges();
+                }}
+                className="px-6 py-3 bg-orange-500 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                Done Selecting
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1398,9 +1419,32 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               setIsExtracting(true);
               setExtError(false);
               
-              const textContent = await page.getTextContent();
+              console.log(`[PDFPage] Diagnostic Info:`, {
+                pdfjsVersion: pdfjs.version,
+                pageNumber,
+                isPageDestroyed: page.destroyed,
+                hasWorker: !!pdfjs.GlobalWorkerOptions.workerSrc,
+                workerSrc: pdfjs.GlobalWorkerOptions.workerSrc
+              });
+
+              let textContent;
+              try {
+                textContent = await page.getTextContent();
+                console.log(`[PDFPage] Page ${pageNumber} text extraction success. Items:`, textContent.items.length);
+                if (textContent.items.length === 0) {
+                  console.warn(`[PDFPage] Page ${pageNumber} returned ZERO text items. This may be a scanned PDF or images-only.`);
+                }
+              } catch (getContentErr: any) {
+                console.error(`[PDFPage] CRITICAL: page.getTextContent() FAILED for Page ${pageNumber}`, {
+                  message: getContentErr.message,
+                  stack: getContentErr.stack,
+                  name: getContentErr.name,
+                  cause: getContentErr.cause,
+                  full: getContentErr
+                });
+                throw getContentErr;
+              }
               
-              console.log(`[PDFPage] Page ${pageNumber} text extraction items:`, textContent.items.length);
               console.log(`[PDFPage] Page ${pageNumber} strings (first 10):`, textContent.items.slice(0, 10).map((i: any) => i.str));
 
               const extractedText = textContent.items
@@ -1589,7 +1633,24 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
                   <p>Extracting text content...</p>
                 </div>
               ) : (
-                pageText || "NO TEXT EXTRACTED"
+                <div className="space-y-4">
+                  {pageText ? (
+                    <>
+                      <div className="p-4 bg-zinc-50 border border-zinc-100 rounded text-xs text-zinc-500 font-mono">
+                        Extracted {pageText.split(' ').length} words | {pageText.length} characters
+                      </div>
+                      <div className="whitespace-pre-wrap">
+                        {pageText}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-12 text-zinc-400 border-2 border-dashed border-zinc-100 rounded-xl">
+                      <AlertCircle className="w-8 h-8 mb-4 opacity-20" />
+                      <p className="font-medium">No selectable text found on this page.</p>
+                      <p className="text-xs mt-2 opacity-60">This typically happens with scanned documents or PDFs where text is rendered as images.</p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
