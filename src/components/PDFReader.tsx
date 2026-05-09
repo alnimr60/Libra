@@ -1406,18 +1406,36 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               if (textLayerDivRef.current) {
                 const spans = textLayerDivRef.current.querySelectorAll('span');
                 console.log(`[PDFPage] Page ${pageNumber} textLayer rendered with ${spans.length} spans.`);
+                
+                if (selectionMode) {
+                  spans.forEach(span => {
+                    // Ensure text is accessible to browser selection
+                    if (span.getAttribute('aria-hidden') === 'true') {
+                      span.removeAttribute('aria-hidden');
+                    }
+                    // PDF.js often uses transparent text, our CSS handles it but we can force it here too
+                    span.style.color = 'rgba(0,0,0,0.01)';
+                  });
+                }
+
                 if (spans.length > 0) {
                   const firstSpan = spans[0];
+                  const style = window.getComputedStyle(firstSpan);
                   const rect = firstSpan.getBoundingClientRect();
-                  console.log(`[PDFPage] Diagnostic - First Span:`, {
+                  console.log(`[PDFPage] Diagnostic - First Span (Page ${pageNumber}):`, {
                     text: firstSpan.textContent,
+                    html: firstSpan.innerHTML,
                     width: rect.width,
                     height: rect.height,
-                    opacity: window.getComputedStyle(firstSpan).opacity,
-                    color: window.getComputedStyle(firstSpan).color,
+                    opacity: style.opacity,
+                    color: style.color,
+                    visibility: style.visibility,
                     ariaHidden: firstSpan.getAttribute('aria-hidden'),
-                    display: window.getComputedStyle(firstSpan).display,
-                    pointerEvents: window.getComputedStyle(firstSpan).pointerEvents
+                    display: style.display,
+                    pointerEvents: style.pointerEvents,
+                    userSelect: style.userSelect,
+                    fontSize: style.fontSize,
+                    lineHeight: style.lineHeight
                   });
                 }
               }
