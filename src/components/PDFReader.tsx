@@ -1259,6 +1259,26 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               await textLayer.render();
               
               textLayerDivRef.current.style.setProperty('--scale-factor', textLayerViewportScale.toString());
+
+              // DIAGNOSTIC LOGGING
+              if (textLayerDivRef.current) {
+                const spans = textLayerDivRef.current.querySelectorAll('span');
+                console.log(`[PDFPage] Page ${pageNumber} textLayer rendered with ${spans.length} spans.`);
+                if (spans.length > 0) {
+                  const firstSpan = spans[0];
+                  const rect = firstSpan.getBoundingClientRect();
+                  console.log(`[PDFPage] Diagnostic - First Span:`, {
+                    text: firstSpan.textContent,
+                    width: rect.width,
+                    height: rect.height,
+                    opacity: window.getComputedStyle(firstSpan).opacity,
+                    color: window.getComputedStyle(firstSpan).color,
+                    ariaHidden: firstSpan.getAttribute('aria-hidden'),
+                    display: window.getComputedStyle(firstSpan).display,
+                    pointerEvents: window.getComputedStyle(firstSpan).pointerEvents
+                  });
+                }
+              }
             }
           } catch (textLayerErr) {
             console.warn("Text layer failed to render", textLayerErr);
@@ -1354,6 +1374,21 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               transform: 'none'
             }} 
           />
+          
+          {selectionMode && (
+            <div 
+              id="mobile-selection-diagnostic"
+              className="absolute top-5 left-5 bg-yellow-400 text-black p-3 z-[9999] font-bold shadow-xl border-2 border-black"
+              style={{
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                pointerEvents: 'auto',
+                fontSize: '18px'
+              }}
+            >
+              DIAGNOSTIC: SELECT ME (MOBILE)
+            </div>
+          )}
         </div>
       )}
     </div>
