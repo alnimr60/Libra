@@ -62,6 +62,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [showControls, setShowControls] = useState(true);
   const [renderScale, setRenderScale] = useState(scale);
   const [retryKey, setRetryKey] = useState(0);
+  const [selectionMode, setSelectionMode] = useState(false);
   const isSelectingText = useRef(false);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
@@ -125,6 +126,35 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   
   // Double tap to zoom handler
   const lastTap = useRef<number>(0);
+  const longPressTimer = useRef<any>(null);
+
+  const startLongPressTimer = (e: React.TouchEvent) => {
+    if (selectionMode) return;
+    
+    // Only for single touch
+    if (e.touches.length !== 1) return;
+
+    const target = e.target as HTMLElement;
+    // Only trigger if touching near/on text elements or page area
+    if (target.closest('.textLayer') || target.closest('[id^="page-"]')) {
+      longPressTimer.current = setTimeout(() => {
+        if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate(50);
+        }
+        setSelectionMode(true);
+        setShowControls(false);
+        console.log("[PDFReader] Entering Selection Mode via long press");
+      }, 600);
+    }
+  };
+
+  const cancelLongPressTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent) => {
     // Only handle double tap on the main viewport area, not on controls or text
     if ((e.target as HTMLElement).closest('button, input, .textLayer')) return;
@@ -165,6 +195,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [pageIndex, isDragging, virtualPage]);
 
   const handlePanStart = (e: any) => {
+    if (selectionMode) return;
+
     // Check if the user is clicking on text
     const target = e.target as HTMLElement;
     const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer');
@@ -178,7 +210,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanMove = (_: any, info: any) => {
-    if (!isDragging) return;
+    if (!isDragging || selectionMode) return;
 
     // If zoomed in, we only allow swiping if it's a clear horizontal intent
     const currentScale = visualScale.get();
@@ -349,6 +381,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const touchStateRef = useRef({ initialDist: 0, initialScale: 1, lastScale: 1 });
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (selectionMode) return;
+    
+    startLongPressTimer(e);
+
     if (e.touches.length === 2) {
       isPinching.current = true;
       const dist = Math.hypot(
@@ -368,6 +404,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    if (selectionMode) return;
+
+    // Cancel long press if moved significantly
+    if (longPressTimer.current && e.touches.length === 1) {
+      cancelLongPressTimer();
+    }
+
     if (e.touches.length === 2 && isPinching.current) {
       e.preventDefault();
       const dist = Math.hypot(
@@ -394,6 +437,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchEnd = () => {
+    cancelLongPressTimer();
+
     if (isPinching.current) {
       console.log("[PDFReader] PINCH_END - Settle Scale:", touchStateRef.current.lastScale.toFixed(2));
       isPinching.current = false;
@@ -626,6 +671,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         ref={readerContainerRef}
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden select-none"
         onClick={(e) => {
+          if (selectionMode) return;
+          
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
             return;
@@ -695,11 +742,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         ) : (
           <motion.div 
             className="relative w-full h-full"
-          onPanStart={handlePanStart}
-          onPan={handlePanMove}
-          onPanEnd={handlePanEnd}
-          style={{ touchAction: 'auto' }}
-        >
+            onPanStart={handlePanStart}
+            onPan={handlePanMove}
+            onPanEnd={handlePanEnd}
+            style={{ 
+              touchAction: selectionMode ? 'auto' : 'none',
+              userSelect: selectionMode ? 'text' : 'none',
+              WebkitUserSelect: selectionMode ? 'text' : 'none'
+            }}
+          >
             {/* Windowed view of pages */}
             {Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i).map(sheetIndex => {
               if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
@@ -719,12 +770,36 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   constraintsRef={readerContainerRef}
                   isSelectingText={isSelectingText}
                   containerDimensions={readerDimensions}
+                  selectionMode={selectionMode}
                 />
               );
             })}
           </motion.div>
         )}
       </div>
+
+      {/* Selection Mode Close Button */}
+      <AnimatePresence>
+        {selectionMode && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[450]"
+          >
+            <button
+              onClick={() => {
+                setSelectionMode(false);
+                window.getSelection()?.removeAllRanges();
+              }}
+              className="px-6 py-3 bg-orange-500 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2"
+            >
+              <Check className="w-4 h-4" />
+              Done Selecting
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Progress Footer */}
       <AnimatePresence>
@@ -783,7 +858,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   isLandscape,
   constraintsRef,
   isSelectingText,
-  containerDimensions
+  containerDimensions,
+  selectionMode
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -797,6 +873,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   constraintsRef: React.RefObject<HTMLDivElement>,
   isSelectingText: React.RefObject<boolean>,
   containerDimensions: { width: number, height: number },
+  selectionMode: boolean,
   key?: React.Key
 }) {
   console.log(`[ReaderSheet] Rendering Sheet ${index} | renderScale: ${renderScale}`);
@@ -894,7 +971,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
           width: 'fit-content',
           height: 'fit-content'
         } as any}
-        drag={scale.get() > 1.1}
+        drag={scale.get() > 1.1 && !selectionMode}
         dragConstraints={constraintsRef}
         dragElastic={0.1}
         dragMomentum={true}
@@ -908,13 +985,13 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
               </>
             )}
           </>
@@ -926,7 +1003,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
               maxHeight: '90vh'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} width={displayWidth} renderScale={renderScale} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} width={displayWidth} renderScale={renderScale} selectionMode={selectionMode} />
           </div>
         )}
       </motion.div>
@@ -934,7 +1011,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   );
 });
 
-const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, side, isLandscape, isSelectingText }: { 
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, side, isLandscape, isSelectingText, selectionMode }: { 
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
@@ -942,7 +1019,8 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   renderScale: number,
   side: 'left' | 'right', 
   isLandscape?: boolean, 
-  isSelectingText: React.RefObject<boolean> 
+  isSelectingText: React.RefObject<boolean>,
+  selectionMode: boolean
 }) {
   if (pageNumber > numPages) return <div className="flex-shrink-0 bg-white" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />;
   
@@ -961,7 +1039,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} width={width} renderScale={renderScale} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} width={width} renderScale={renderScale} selectionMode={selectionMode} />
     </div>
   );
 });
@@ -972,9 +1050,10 @@ interface PDFPageProps {
   isSelectingText: React.RefObject<boolean>;
   width: number;
   renderScale: number;
+  selectionMode: boolean;
 }
 
-const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelectingText, width, renderScale }) => {
+const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelectingText, width, renderScale, selectionMode }) => {
   console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
@@ -1172,7 +1251,10 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             className="textLayer absolute inset-0 origin-top-left"
             style={{ 
               zIndex: 1,
-              pointerEvents: 'none',
+              pointerEvents: selectionMode ? 'auto' : 'none',
+              userSelect: selectionMode ? 'text' : 'none',
+              WebkitUserSelect: selectionMode ? 'text' : 'none',
+              touchAction: selectionMode ? 'auto' : 'none',
               transform: 'none'
             }} 
           />
