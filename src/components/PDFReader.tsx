@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
-import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react';
+import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2, AlertCircle } from 'lucide-react';
 import { get, set } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book, Bookmark } from '../types';
@@ -777,6 +777,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   virtualPage={smoothPage}
                   scale={visualScale}
                   renderScale={renderScale}
+                  currentScale={scale}
                   isLandscape={isLandscape}
                   constraintsRef={readerContainerRef}
                   isSelectingText={isSelectingText}
@@ -866,6 +867,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   virtualPage, 
   scale, 
   renderScale, 
+  currentScale,
   isLandscape,
   constraintsRef,
   isSelectingText,
@@ -880,6 +882,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   virtualPage: any,
   scale: any, // smoothScale MotionValue
   renderScale: number,
+  currentScale: number,
   isLandscape: boolean,
   constraintsRef: React.RefObject<HTMLDivElement>,
   isSelectingText: React.RefObject<boolean>,
@@ -952,12 +955,15 @@ const ReaderSheet = React.memo(function ReaderSheet({
   const transform = React.useMemo(() => {
     return (latest: { x: number, panX: number, panY: number, rotateY: number, scale: number }) => {
       // transform: translate3d(calc(x% + panXpx), panYpx, 0) scale(scale) rotateY(rotateYdeg)
-      const t = `translate3d(calc(${latest.x}% + ${latest.panX}px), ${latest.panY}px, 0) scale(${latest.scale}) rotateY(${latest.rotateY}deg)`;
+      // IF selectionMode is active, we strip the CSS scale from the sheet container
+      // and let the internal components handle layout dimensions.
+      const s = selectionMode ? 1.0 : latest.scale;
+      const t = `translate3d(calc(${latest.x}% + ${latest.panX}px), ${latest.panY}px, 0) scale(${s}) rotateY(${latest.rotateY}deg)`;
       // Log only occasionally
       if (Math.random() < 0.01) console.log(`[TransformContainer] Index ${index} | Rendered Transform: ${t}`);
       return t;
     };
-  }, [index]);
+  }, [index, selectionMode]);
 
   const transformValue = useTransform(
     [x, panX, panY, rotateY, totalScale],
@@ -1001,13 +1007,13 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} visualScale={scale} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} visualScale={scale} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="left" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} visualScale={scale} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="right" isLandscape={isLandscape} isSelectingText={isSelectingText} selectionMode={selectionMode} visualScale={scale} />
               </>
             )}
           </>
@@ -1019,7 +1025,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
               maxHeight: '90vh'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} width={displayWidth} renderScale={renderScale} selectionMode={selectionMode} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} isSelectingText={isSelectingText} width={displayWidth} renderScale={renderScale} currentScale={currentScale} selectionMode={selectionMode} visualScale={scale} />
           </div>
         )}
       </motion.div>
@@ -1027,16 +1033,18 @@ const ReaderSheet = React.memo(function ReaderSheet({
   );
 });
 
-const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, side, isLandscape, isSelectingText, selectionMode }: { 
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, currentScale, side, isLandscape, isSelectingText, selectionMode, visualScale }: { 
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
   width: number, 
   renderScale: number,
+  currentScale: number,
   side: 'left' | 'right', 
   isLandscape?: boolean, 
   isSelectingText: React.RefObject<boolean>,
-  selectionMode: boolean
+  selectionMode: boolean,
+  visualScale: any
 }) {
   if (pageNumber > numPages) return <div className="flex-shrink-0 bg-white" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />;
   
@@ -1055,7 +1063,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         "absolute inset-y-0 w-8 z-10 pointer-events-none opacity-20",
         side === 'left' ? "right-0 bg-gradient-to-l from-black via-black/20 to-transparent" : "left-0 bg-gradient-to-r from-black via-black/20 to-transparent"
       )} />
-      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} width={width} renderScale={renderScale} selectionMode={selectionMode} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} isSelectingText={isSelectingText} width={width} renderScale={renderScale} currentScale={currentScale} selectionMode={selectionMode} visualScale={visualScale} />
     </div>
   );
 });
@@ -1066,10 +1074,12 @@ interface PDFPageProps {
   isSelectingText: React.RefObject<boolean>;
   width: number;
   renderScale: number;
+  currentScale: number;
   selectionMode: boolean;
+  visualScale: any;
 }
 
-const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelectingText, width, renderScale, selectionMode }) => {
+const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelectingText, width, renderScale, currentScale, selectionMode, visualScale }) => {
   console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
@@ -1078,6 +1088,15 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+
+  const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
+  const containerHeight = width * aspectRatio;
+
+  // Selection mode layout sizing (ISOLATION)
+  // When selecting, we expand dimensions physically instead of CSS scaling.
+  const displayScale = selectionMode ? currentScale : 1.0;
+  const displayWidth = width * displayScale;
+  const displayHeight = containerHeight * displayScale;
 
   useEffect(() => {
     const textLayer = textLayerDivRef.current;
@@ -1138,12 +1157,15 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
         if (!isMounted) return;
 
         // 1. Get the viewport at stable CSS target scale
-        const viewportScale = width / pageSize.width;
-        const viewport = page.getViewport({ scale: viewportScale });
+        // In selection mode, we render textLayer at full zoomed layout size
+        const baseViewportScale = width / pageSize.width;
+        const textLayerViewportScale = selectionMode ? (displayWidth / pageSize.width) : baseViewportScale;
+        
+        const viewport = page.getViewport({ scale: textLayerViewportScale });
 
         // 2. Canvas Rendering Viewport (Adaptive based on renderScale settle)
         const dpr = (window.devicePixelRatio || 1) * renderScale;
-        const canvasViewport = page.getViewport({ scale: viewportScale * dpr });
+        const canvasViewport = page.getViewport({ scale: baseViewportScale * dpr });
 
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
@@ -1166,7 +1188,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             renderTaskRef.current.cancel();
           }
 
-          console.log(`[PDFPage] Creating PDF Render Task for Page ${pageNumber}`);
+          console.log(`[PDFPage] Rendering Page ${pageNumber} | selectionMode: ${selectionMode} | viewportScale: ${textLayerViewportScale.toFixed(2)}`);
           renderTaskRef.current = page.render({
             canvasContext: context,
             viewport: canvasViewport,
@@ -1188,7 +1210,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
               });
               await textLayer.render();
               
-              textLayerDivRef.current.style.setProperty('--scale-factor', viewportScale.toString());
+              textLayerDivRef.current.style.setProperty('--scale-factor', textLayerViewportScale.toString());
             }
           } catch (textLayerErr) {
             console.warn("Text layer failed to render", textLayerErr);
@@ -1214,28 +1236,25 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber, width, pageSize.width, renderScale]);
-
-  const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
-  const containerHeight = width * aspectRatio;
+  }, [pdf, pageNumber, width, pageSize.width, renderScale, selectionMode, currentScale]);
 
   return (
     <div 
       ref={containerRef} 
       className={cn("relative flex items-center justify-center bg-white/5 overflow-hidden", !selectionMode && "select-none")}
       style={{ 
-        width: width || 'auto',
-        height: containerHeight || 'auto'
+        width: displayWidth,
+        height: displayHeight
       }}
     >
       {isRendering && (
-        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10">
-          <Loader2 className="w-6 h-6 animate-spin text-white/20" />
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10 text-white/20">
+          <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       )}
       {renderError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-red-500/50 p-4 text-center z-10">
-          <X className="w-8 h-8 mb-2" />
+          <AlertCircle className="w-8 h-8 mb-2" />
           <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
         </div>
       )}
@@ -1245,8 +1264,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
           id={`page-${pageNumber}-container`}
           className={cn("relative shadow-2xl bg-white transition-opacity duration-300 transform-gpu", !selectionMode && "select-none")}
           style={{ 
-            width: width,
-            height: containerHeight,
+            width: displayWidth,
+            height: displayHeight,
             transform: 'none',
             position: 'absolute',
             top: 0,
@@ -1257,8 +1276,11 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
         >
           <canvas 
             ref={canvasRef} 
-            className="block pointer-events-none absolute inset-0 w-full h-full"
+            className="block pointer-events-none absolute inset-0 origin-top-left"
             style={{ 
+              width: width,
+              height: containerHeight,
+              transform: `scale(${displayScale})`,
               WebkitTouchCallout: 'none' 
             }}
           />
@@ -1267,6 +1289,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             className={cn("textLayer absolute inset-0 origin-top-left", selectionMode && "selection-active")}
             style={{ 
               zIndex: selectionMode ? 100 : 1,
+              width: displayWidth,
+              height: displayHeight,
               pointerEvents: selectionMode ? 'auto' : 'none',
               userSelect: selectionMode ? 'text' : 'none',
               WebkitUserSelect: selectionMode ? 'text' : 'none',
