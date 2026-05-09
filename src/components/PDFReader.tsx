@@ -1425,7 +1425,15 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
                 pageNumber: (page as any).pageNumber,
                 getTextContentAvailable: typeof page.getTextContent,
                 workerSrc: pdfjs.GlobalWorkerOptions.workerSrc,
-                pdfjsVersion: pdfjs.version
+                pdfjsVersion: pdfjs.version,
+                compatibility: {
+                  PromiseWithResolvers: typeof (Promise as any).withResolvers,
+                  structuredClone: typeof window.structuredClone,
+                  ReadableStream: typeof window.ReadableStream,
+                  ArrayFrom: typeof Array.from,
+                  SymbolIterator: typeof Symbol.iterator,
+                  OffscreenCanvas: typeof window.OffscreenCanvas
+                }
               });
 
               console.log("[PDFPage] getTextContent started...");
