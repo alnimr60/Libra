@@ -48,8 +48,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       damping: 30
     });
     
-    // Reset panning smoothly when zooming out to base level
-    if (scale <= 1.1) {
+    // Reset panning smoothly when zooming out significantly or switching modes
+    if (scale <= 1.05) {
       animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
       animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
     }
@@ -568,7 +568,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       let nextScale = pinchRef.current.initialScale * scaleDelta;
       
       // Real-time clamping for architecture limits (0.5 to 10 for safety during pinch)
-      nextScale = Math.max(0.8, Math.min(6, nextScale)); 
+      nextScale = Math.max(0.5, Math.min(6, nextScale)); 
       
       visualScale.set(nextScale);
       
@@ -599,7 +599,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
 
     if (gestureMode.current === GestureMode.PinchZooming) {
-      const finalScale = Math.max(1.0, Math.min(5, visualScale.get()));
+      const finalScale = Math.max(0.5, Math.min(5, visualScale.get()));
       setScale(finalScale);
       isPinching.current = false;
       gestureMode.current = GestureMode.Idle;
@@ -853,7 +853,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       <div 
         ref={readerContainerRef}
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
-        style={{ touchAction: scale > 1.1 ? 'none' : 'pan-x pan-y' }}
+        style={{ touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
