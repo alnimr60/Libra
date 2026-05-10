@@ -201,7 +201,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     if (currentScale > 1.05) {
       // PANNING MODE (clamped)
       const aspect = 1.414;
-      const zoomedWidth = baseWidth * currentScale;
+      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+      const zoomedWidth = spreadWidth * currentScale;
       const zoomedHeight = (baseWidth * aspect) * currentScale;
       const viewportWidth = readerDimensions.width;
       const viewportHeight = readerDimensions.height;
@@ -240,7 +241,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const velocityY = info.velocity.y;
       
       const aspect = 1.414;
-      const zoomedWidth = baseWidth * currentScale;
+      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+      const zoomedWidth = spreadWidth * currentScale;
       const zoomedHeight = (baseWidth * aspect) * currentScale;
       const viewportWidth = readerDimensions.width;
       const viewportHeight = readerDimensions.height;
@@ -973,16 +975,14 @@ const ReaderSheet = React.memo(function ReaderSheet({
   
   const visibility = useTransform(distance, (d: number) => Math.abs(d) <= 1.5 ? 'visible' : 'hidden');
 
-  const transformValue = useTransform(
-    [x, panX, panY, rotateY, totalScale],
-    ([xv, px, py, ry, s]) => `translate3d(calc(${xv}% + ${px}px), ${py}px, 0) scale(${s}) rotateY(${ry}deg)`
-  );
-
   return (
     <motion.div
       style={{ 
-        opacity, visibility, zIndex,
-        transform: transformValue,
+        opacity, 
+        visibility, 
+        zIndex,
+        x,
+        rotateY,
         transformStyle: 'preserve-3d',
         backfaceVisibility: 'hidden',
         willChange: 'transform'
@@ -991,10 +991,21 @@ const ReaderSheet = React.memo(function ReaderSheet({
         "absolute inset-0 flex p-4 md:p-8",
         viewMode === 'double' ? "flex-row" : "flex-col",
         "items-center justify-center",
-        "transform-gpu perspective-[1500px]"
+        "perspective-[1500px]"
       )}
     >
-        <div 
+        <motion.div 
+          id={`sheet-${index}-transform-container`}
+          style={{ 
+            scale: totalScale,
+            x: panX,
+            y: panY,
+            transformStyle: 'preserve-3d',
+            backfaceVisibility: 'hidden',
+            width: 'fit-content',
+            height: 'fit-content',
+            willChange: 'transform'
+          } as any}
           className={cn(
             "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center transform-gpu",
             viewMode === 'double' ? "flex-row" : "flex-col",
@@ -1026,7 +1037,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
             <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} currentScale={currentScale} visualScale={scale} direction={direction} />
           </div>
         )}
-      </div>
+      </motion.div>
     </motion.div>
   );
 });
