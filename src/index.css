@@ -80,6 +80,7 @@ body {
   pointer-events: auto !important;
   z-index: 5;
   line-height: 1;
+  unicode-bidi: plaintext;
 }
 
 .textLayer span {
@@ -90,6 +91,7 @@ body {
   transform-origin: 0% 0%;
   user-select: text !important;
   -webkit-user-select: text !important;
+  direction: inherit;
 }
 
 .textLayer ::selection {
