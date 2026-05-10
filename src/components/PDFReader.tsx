@@ -79,6 +79,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
 
   const readerDimensionsRef = useRef({ width: 0, height: 0 });
+  const isPinching = useRef(false);
+  const pinchRef = useRef({ 
+    initialDist: 0, 
+    initialScale: 1, 
+    initialPanX: 0, 
+    initialPanY: 0, 
+    midpoint: { x: 0, y: 0 } 
+  });
 
   useEffect(() => {
     if (!readerContainerRef.current) return;
@@ -221,6 +229,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [pageIndex, isDragging, virtualPage]);
 
   const handlePanStart = (e: any, info: any) => {
+    if (isPinching.current) return;
+    
     // Check if the interaction starts on a text span
     const target = e.target as HTMLElement;
     const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
@@ -237,7 +247,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanMove = (_: any, info: any) => {
-    if (!isDragging || isSelectingGesture.current) return;
+    if (isPinching.current || !isDragging || isSelectingGesture.current) return;
     
     const currentScale = visualScale.get();
     
@@ -273,7 +283,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanEnd = (_: any, info: any) => {
-    if (!isDragging || isSelectingGesture.current) return;
+    if (isPinching.current || !isDragging || isSelectingGesture.current) return;
     setIsDragging(false);
     
     const currentScale = visualScale.get();
@@ -455,6 +465,81 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const displayPage = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
     onPageChange(Math.min(displayPage, numPages));
     setIsTemporal(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      isPinching.current = true;
+      setIsDragging(false);
+      
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.pageX - t2.pageX, t1.pageY - t2.pageY);
+      
+      if (!readerContainerRef.current) return;
+      const rect = readerContainerRef.current.getBoundingClientRect();
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      
+      // Midpoint relative to container center
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      pinchRef.current = {
+        initialDist: dist,
+        initialScale: visualScale.get(),
+        initialPanX: panX.get(),
+        initialPanY: panY.get(),
+        midpoint: { x: midX - centerX, y: midY - centerY }
+      };
+      
+      visualScale.stop();
+      panX.stop();
+      panY.stop();
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isPinching.current && e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.pageX - t2.pageX, t1.pageY - t2.pageY);
+      
+      const scaleDelta = dist / pinchRef.current.initialDist;
+      let nextScale = pinchRef.current.initialScale * scaleDelta;
+      
+      // Clamp scale
+      nextScale = Math.max(1.0, Math.min(5, nextScale));
+      const actualScaleDelta = nextScale / pinchRef.current.initialScale;
+      
+      visualScale.set(nextScale);
+      
+      // Zoom toward midpoint
+      // new_pan = p_v - (p_v - old_pan) * (new_scale / old_scale)
+      const p_v = pinchRef.current.midpoint;
+      const nextPanX = p_v.x - (p_v.x - pinchRef.current.initialPanX) * actualScaleDelta;
+      const nextPanY = p_v.y - (p_v.y - pinchRef.current.initialPanY) * actualScaleDelta;
+      
+      // Clamp pan
+      const aspect = 1.414;
+      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+      const zoomedWidth = spreadWidth * nextScale;
+      const zoomedHeight = (baseWidth * aspect) * nextScale;
+      const rect = readerContainerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const hMargin = Math.max(0, (zoomedWidth - rect.width) / 2);
+        const vMargin = Math.max(0, (zoomedHeight - rect.height) / 2);
+        panX.set(Math.max(-hMargin, Math.min(hMargin, nextPanX)));
+        panY.set(Math.max(-vMargin, Math.min(vMargin, nextPanY)));
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isPinching.current) {
+      isPinching.current = false;
+      setScale(visualScale.get());
+    }
   };
 
   const currentDisplayPage = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
@@ -703,6 +788,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
         style={{ touchAction: 'pan-x pan-y' }}
         onPointerDown={handlePointerDown}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onClick={(e) => {
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
