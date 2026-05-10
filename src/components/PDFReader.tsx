@@ -36,10 +36,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       damping: 30
     });
     
-    // Reset panning when zooming out
-    if (scale <= 1.05) {
-      animate(panX, 0);
-      animate(panY, 0);
+    // Reset panning smoothly when zooming out to base level
+    if (scale <= 1.1) {
+      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
     }
   }, [scale, visualScale, panX, panY]);
 
@@ -231,9 +231,16 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const handlePanStart = (e: any, info: any) => {
     if (isPinching.current) return;
     
-    // Check if the interaction starts on a text span
+    const currentScale = visualScale.get();
     const target = e.target as HTMLElement;
     const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
+    
+    // If zoomed in, prioritize panning for navigation even on text-heavy areas
+    if (currentScale > 1.1) {
+      isSelectingGesture.current = false;
+      setIsDragging(true);
+      return;
+    }
     
     if (isText) {
       console.log("[PDFReader] Interaction on text - allowing native selection");
@@ -508,30 +515,30 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const scaleDelta = dist / pinchRef.current.initialDist;
       let nextScale = pinchRef.current.initialScale * scaleDelta;
       
-      // Clamp scale
+      // Clamp scale to logical architectural bounds
       nextScale = Math.max(1.0, Math.min(5, nextScale));
       const actualScaleDelta = nextScale / pinchRef.current.initialScale;
       
       visualScale.set(nextScale);
       
-      // Zoom toward midpoint
-      // new_pan = p_v - (p_v - old_pan) * (new_scale / old_scale)
+      // Zoom toward midpoint (pan adjustment)
       const p_v = pinchRef.current.midpoint;
       const nextPanX = p_v.x - (p_v.x - pinchRef.current.initialPanX) * actualScaleDelta;
       const nextPanY = p_v.y - (p_v.y - pinchRef.current.initialPanY) * actualScaleDelta;
       
-      // Clamp pan
+      // Calculate margins for current scale
       const aspect = 1.414;
       const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
       const zoomedWidth = spreadWidth * nextScale;
       const zoomedHeight = (baseWidth * aspect) * nextScale;
-      const rect = readerContainerRef.current?.getBoundingClientRect();
-      if (rect) {
-        const hMargin = Math.max(0, (zoomedWidth - rect.width) / 2);
-        const vMargin = Math.max(0, (zoomedHeight - rect.height) / 2);
-        panX.set(Math.max(-hMargin, Math.min(hMargin, nextPanX)));
-        panY.set(Math.max(-vMargin, Math.min(vMargin, nextPanY)));
-      }
+      const containerW = readerDimensions.width || window.innerWidth;
+      const containerH = readerDimensions.height || window.innerHeight;
+      
+      const hMargin = Math.max(0, (zoomedWidth - containerW) / 2);
+      const vMargin = Math.max(0, (zoomedHeight - containerH) / 2);
+      
+      panX.set(Math.max(-hMargin, Math.min(hMargin, nextPanX)));
+      panY.set(Math.max(-vMargin, Math.min(vMargin, nextPanY)));
     }
   };
 
@@ -786,7 +793,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       <div 
         ref={readerContainerRef}
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
-        style={{ touchAction: 'pan-x pan-y' }}
+        style={{ touchAction: scale > 1.1 ? 'none' : 'pan-x pan-y' }}
         onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
