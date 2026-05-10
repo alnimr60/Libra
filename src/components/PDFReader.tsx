@@ -167,83 +167,87 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
-    if (!readerContainerRef.current) return;
-    
-    // Safety lock: Don't interrupt existing zoom animations or pinch gestures
-    if (isAnimatingZoom.current || isPinching.current) {
-      console.log("[DoubleTapZoom] Locked: animation or pinch in progress");
-      return;
-    }
+    try {
+      if (!readerContainerRef.current) {
+        console.warn("[DoubleTapZoom] Abort: No reader container ref");
+        return;
+      }
+      
+      // Safety lock: Don't interrupt existing zoom animations or pinch gestures
+      if (isAnimatingZoom.current || isPinching.current) {
+        console.log("[DoubleTapZoom] Locked: animation or pinch in progress");
+        return;
+      }
 
-    const currentScaleValue = liveScale.get();
-    
-    // Diagnostic logging
-    console.log("[DoubleTapZoom] Start", {
-      currentScale: currentScaleValue,
-      currentScaleType: typeof currentScaleValue,
-      currentScaleFinite: Number.isFinite(currentScaleValue)
-    });
+      const currentScaleValue = liveScale.get();
+      
+      // Diagnostic logging
+      console.log("[DoubleTapZoom] Start Event", {
+        currentScale: currentScaleValue,
+        currentScaleType: typeof currentScaleValue,
+        currentScaleFinite: Number.isFinite(currentScaleValue)
+      });
 
-    if (!Number.isFinite(currentScaleValue)) {
-      console.error("[DoubleTapZoom] Abort: non-finite current scale");
-      // Reset to safe state if corrupted
+      if (!Number.isFinite(currentScaleValue)) {
+        console.error("[DoubleTapZoom] Abort: non-finite current scale. Resetting.");
+        liveScale.set(1.0);
+        setCommittedScale(1.0);
+        return;
+      }
+
+      // Mark as animating zoom BEFORE anything else to lock other gestures
+      isAnimatingZoom.current = true;
+
+      // Stop all active animations to prevent conflicts during transition
+      liveScale.stop();
+      panX.stop();
+      panY.stop();
+
+      const isZoomedOut = currentScaleValue <= 1.05;
+      const target = isZoomedOut ? 2.5 : 1.0;
+      
+      console.log("[DoubleTapZoom] Setup Animation", { target, currentScale: currentScaleValue });
+
+      if (!Number.isFinite(target)) {
+        console.error("[DoubleTapZoom] Invalid target scale");
+        isAnimatingZoom.current = false;
+        return;
+      }
+
+      // Handle UI controls state change cautiously
+      if (isZoomedOut && showControls) {
+        setShowControls(false);
+      }
+
+      // Start the core imperative animation
+      animate(liveScale, target, { 
+        type: 'spring', 
+        stiffness: 300, 
+        damping: 30,
+        onComplete: () => {
+          try {
+            console.log("[DoubleTapZoom] Animation Complete, Syncing committedScale", { target });
+            // Defer React state update to ensure it doesn't interfere with the final frame of animation
+            setCommittedScale(target);
+            
+            // Wait one more frame before releasing the lock to allow React to settle
+            requestAnimationFrame(() => {
+              isAnimatingZoom.current = false;
+              console.log("[DoubleTapZoom] Lock Released Successfully");
+            });
+          } catch (syncErr) {
+            console.error("[DoubleTapZoom] Error in onComplete sync:", syncErr);
+            isAnimatingZoom.current = false;
+          }
+        }
+      });
+
+    } catch (err) {
+      console.error("[DoubleTapCrash] Critical failure in handleDoubleTapZoom", err);
+      // Fallback: recover state
+      isAnimatingZoom.current = false;
       liveScale.set(1.0);
       setCommittedScale(1.0);
-      return;
-    }
-
-    // Stop all active animations to prevent conflicts
-    liveScale.stop();
-    panX.stop();
-    panY.stop();
-
-    isAnimatingZoom.current = true;
-
-    if (currentScaleValue > 1.05) {
-      // Zoom out to 1.0
-      const target = 1.0;
-      
-      console.log("[DoubleTapZoom] Animating Zoom Out", { target, finite: Number.isFinite(target) });
-
-      if (!Number.isFinite(target)) {
-        isAnimatingZoom.current = false;
-        return;
-      }
-
-      animate(liveScale, target, { 
-        type: 'spring', 
-        stiffness: 300, 
-        damping: 30,
-        onComplete: () => {
-          setCommittedScale(target);
-          isAnimatingZoom.current = false;
-          console.log("[DoubleTapZoom] Zoom Out Complete");
-        }
-      });
-      // Note: panX/panY reset is handled by the useEffect watching committedScale
-    } else {
-      // Zoom in to 2.5
-      const target = 2.5;
-      
-      console.log("[DoubleTapZoom] Animating Zoom In", { target, finite: Number.isFinite(target) });
-
-      if (!Number.isFinite(target)) {
-        isAnimatingZoom.current = false;
-        return;
-      }
-
-      setShowControls(false);
-
-      animate(liveScale, target, { 
-        type: 'spring', 
-        stiffness: 300, 
-        damping: 30,
-        onComplete: () => {
-          setCommittedScale(target);
-          isAnimatingZoom.current = false;
-          console.log("[DoubleTapZoom] Zoom In Complete");
-        }
-      });
     }
   };
 
@@ -971,29 +975,33 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             onPanEnd={handlePanEnd}
           >
             {/* Windowed view of pages */}
-            {Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i).map(sheetIndex => {
-              if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
-              
-              return (
-                <ReaderSheet 
-                  key={sheetIndex}
-                  index={sheetIndex}
-                  pdf={pdf!}
-                  numPages={numPages}
-                  viewMode={viewMode}
-                  direction={direction}
-                  virtualPage={smoothPage}
-                  liveScale={liveScale}
-                  renderScale={renderScale}
-                  committedScale={committedScale}
-                  isLandscape={isLandscape}
-                  containerDimensions={readerDimensions}
-                  panX={panX}
-                  panY={panY}
-                  isCurrent={sheetIndex === pageIndex}
-                />
-              );
-            })}
+            {(() => {
+              // Freeze virtualization indices during zoom to prevent component remounts/recycling mid-animation
+              const indices = Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i);
+              return indices.map(sheetIndex => {
+                if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
+                
+                return (
+                  <ReaderSheet 
+                    key={sheetIndex}
+                    index={sheetIndex}
+                    pdf={pdf!}
+                    numPages={numPages}
+                    viewMode={viewMode}
+                    direction={direction}
+                    virtualPage={smoothPage}
+                    liveScale={liveScale}
+                    renderScale={renderScale}
+                    committedScale={committedScale}
+                    isLandscape={isLandscape}
+                    containerDimensions={readerDimensions}
+                    panX={panX}
+                    panY={panY}
+                    isCurrent={sheetIndex === pageIndex}
+                  />
+                );
+              });
+            })()}
           </motion.div>
         )}
       </div>
@@ -1167,16 +1175,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
     return combined;
   });
   
-  useEffect(() => {
-    if (isCurrent) {
-      const unsub = totalScale.on("change", (v) => {
-        if (v > 1.01 && Math.random() < 0.05) {
-          console.log(`[ReaderSheet ${index}] visual scale update:`, v.toFixed(3));
-        }
-      });
-      return unsub;
-    }
-  }, [isCurrent, index, totalScale]);
+  // Visual scale logging removed to prevent overhead during animations
 
   const opacity = useTransform(distance, (d: number) => {
     if (d <= -1.5 || d >= 1.5) return 0;
