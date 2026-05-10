@@ -160,32 +160,36 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   }, [pageIndex, isDragging, virtualPage]);
 
-  const handlePanStart = (e: any) => {
+  const handlePanStart = (e: any, info: any) => {
     // Check if the interaction starts on a text span
     const target = e.target as HTMLElement;
     const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
     
     if (isText) {
-      console.log("[PDFReader] Gesture started on text - disabling swipe for selection");
+      console.log("[PDFReader] Gesture started on text - disabling reader gestures");
       isSelectingGesture.current = true;
       setIsDragging(false);
       return;
     }
     
     isSelectingGesture.current = false;
+    
+    // Only allow reader-level dragging if we are NOT zoomed in
+    // If zoomed, we let the Sheet's internal drag handle panning
+    const currentScale = visualScale.get();
+    if (currentScale > 1.05) {
+      setIsDragging(false);
+      return;
+    }
+
     setIsDragging(true);
   };
 
   const handlePanMove = (_: any, info: any) => {
     if (!isDragging || isSelectingGesture.current) return;
-
-    // If zoomed in, we only allow swiping if it's a clear horizontal intent
+    
     const currentScale = visualScale.get();
-    if (currentScale > 1.3) {
-      const isHorizontal = Math.abs(info.velocity.x) > Math.abs(info.velocity.y) * 2;
-      const isFlick = Math.abs(info.velocity.x) > 600;
-      if (!isHorizontal || !isFlick) return;
-    }
+    if (currentScale > 1.05) return; // Yield to sheet drag
 
     const scrollWidth = window.innerWidth;
     const progress = info.offset.x / scrollWidth;
@@ -721,6 +725,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   isLandscape={isLandscape}
                   constraintsRef={readerContainerRef}
                   containerDimensions={readerDimensions}
+                  isSelectingGesture={isSelectingGesture}
                 />
               );
             })}
@@ -807,6 +812,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   isLandscape,
   constraintsRef,
   containerDimensions,
+  isSelectingGesture
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -820,6 +826,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   isLandscape: boolean,
   constraintsRef: React.RefObject<HTMLDivElement>,
   containerDimensions: { width: number, height: number },
+  isSelectingGesture: React.RefObject<boolean>,
   key?: React.Key
 }) {
   console.log(`[ReaderSheet] Rendering Sheet ${index} | renderScale: ${renderScale}`);
@@ -827,6 +834,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   
   // Calculate display width in pixels (BASE SIZE at scale 1.0)
   const [displayWidth, setDisplayWidth] = useState(0);
+  const aspect = 1.414; // Standard PDF aspect ratio (A4)
 
   useEffect(() => {
     if (containerDimensions.width === 0) return;
@@ -894,20 +902,42 @@ const ReaderSheet = React.memo(function ReaderSheet({
   const totalScale = useTransform([scale, transitionScale], ([s, ts]) => (s as number) * (ts as number));
   
   // NOTE: x is percentage base, panX is pixels. We'll use calc or motion template
-  const transform = React.useMemo(() => {
-    return (latest: { x: number, panX: number, panY: number, rotateY: number, scale: number }) => {
-      const s = latest.scale;
-      const t = `translate3d(calc(${latest.x}% + ${latest.panX}px), ${latest.panY}px, 0) scale(${s}) rotateY(${latest.rotateY}deg)`;
-      // Log only occasionally
-      if (Math.random() < 0.01) console.log(`[TransformContainer] Index ${index} | Rendered Transform: ${t}`);
-      return t;
-    };
-  }, [index]);
+    const transform = React.useMemo(() => {
+      return (latest: { x: number, panX: number, panY: number, rotateY: number, scale: number }) => {
+        // We use translate3d for hardware acceleration
+        const s = latest.scale;
+        return `translate3d(calc(${latest.x}% + ${latest.panX}px), ${latest.panY}px, 0) scale(${s}) rotateY(${latest.rotateY}deg)`;
+      };
+    }, []);
 
   const transformValue = useTransform(
     [x, panX, panY, rotateY, totalScale],
     ([xv, px, py, ry, s]) => transform({ x: xv as number, panX: px as number, panY: py as number, rotateY: ry as number, scale: s as number })
   );
+
+  // Calculate dynamic PAN constraints based on scale
+  const dragConstraints = React.useMemo(() => {
+    // Current total visible size
+    const zoomedWidth = displayWidth * currentScale;
+    const zoomedHeight = (displayWidth * aspect) * currentScale;
+    
+    const viewportWidth = containerDimensions.width;
+    const viewportHeight = containerDimensions.height;
+    
+    // Bounds: if content > viewport, we can pan the difference
+    // Note: Framer Motion drag coordinates are relative to initial position
+    const horizontalMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+    const verticalMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+    
+    return {
+      left: -horizontalMargin,
+      right: horizontalMargin,
+      top: -verticalMargin,
+      bottom: verticalMargin
+    };
+  }, [displayWidth, currentScale, aspect, containerDimensions]);
+
+  const [isPointerDownOnText, setIsPointerDownOnText] = useState(false);
 
   return (
     <motion.div
@@ -922,6 +952,18 @@ const ReaderSheet = React.memo(function ReaderSheet({
     >
       <motion.div 
         id={`sheet-${index}-transform-container`}
+        onPointerDown={(e: any) => {
+          const target = e.target as HTMLElement;
+          const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
+          setIsPointerDownOnText(!!isText);
+          if (isText) {
+            // If we are on text, we want to allow selection and block the pan gesture
+            // We set the ref for the parent as well
+            isSelectingGesture.current = true;
+          } else {
+            isSelectingGesture.current = false;
+          }
+        }}
         style={{ 
           transform: transformValue,
           transformStyle: 'preserve-3d',
@@ -931,8 +973,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
           touchAction: 'none',
           willChange: 'transform'
         } as any}
-        drag={scale.get() > 1.1}
-        dragConstraints={constraintsRef}
+        drag={currentScale > 1.05 && !isPointerDownOnText}
+        dragConstraints={dragConstraints}
         dragElastic={0.1}
         dragMomentum={true}
         className={cn(
@@ -1128,17 +1170,28 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             if (textLayerDivRef.current) {
               const textContent = await page.getTextContent();
               
-              // Sort items for RTL correctness if direction is RTL
-              const sortedItems = direction === 'rtl' ? [...textContent.items].sort((a: any, b: any) => {
-                // PDF space origin is bottom-left. transform[5] is Y.
-                // Group by horizontal lines (threshold of ~5 pixels)
-                const yDiff = b.transform[5] - a.transform[5];
-                if (Math.abs(yDiff) > 5) return yDiff; // Different line, top to bottom
-                
-                // Same line: RTL sort (right to left for Arabic)
-                // transform[4] is X. Higher X is more to the right.
-                return b.transform[4] - a.transform[4];
-              }) : textContent.items;
+              // Organize text items for RTL correctly
+              // Group by lines then sort horizontally
+              const items = [...textContent.items];
+              const lines: {[key: number]: any[]} = {};
+              
+              items.forEach((item: any) => {
+                const y = Math.round(item.transform[5] / 2) * 2; // Snap to 2px grid
+                if (!lines[y]) lines[y] = [];
+                lines[y].push(item);
+              });
+
+              const sortedItems: any[] = [];
+              const yCoords = Object.keys(lines).map(Number).sort((a, b) => b - a); // Top to bottom
+              
+              yCoords.forEach(y => {
+                const lineItems = lines[y];
+                // For RTL, items on the right (higher X) come first in the segment
+                lineItems.sort((a, b) => {
+                  return direction === 'rtl' ? b.transform[4] - a.transform[4] : a.transform[4] - b.transform[4];
+                });
+                sortedItems.push(...lineItems);
+              });
 
               await pdfjs.renderTextLayer({
                 textContentSource: { ...textContent, items: sortedItems },
