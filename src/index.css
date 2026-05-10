@@ -75,8 +75,8 @@ body {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  user-select: none !important;
-  -webkit-user-select: none !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
   pointer-events: auto !important;
   z-index: 5;
   line-height: 1;
@@ -90,7 +90,6 @@ body {
   transform-origin: 0% 0%;
   user-select: text !important;
   -webkit-user-select: text !important;
-  pointer-events: auto !important;
 }
 
 .textLayer ::selection {
