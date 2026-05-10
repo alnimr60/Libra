@@ -17,8 +17,20 @@ interface PDFReaderProps {
   onClose: () => void;
 }
 
+enum GestureMode {
+  Idle = 'Idle',
+  SwipingPages = 'SwipingPages',
+  PanningZoomedPage = 'PanningZoomedPage',
+  PinchZooming = 'PinchZooming',
+  SelectingText = 'SelectingText'
+}
+
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
   console.log("[PDFReader] Render");
+  const gestureMode = useRef<GestureMode>(GestureMode.Idle);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const touchStartInfo = useRef({ x: 0, y: 0, time: 0 });
+  const isPinching = useRef(false); // Keep for compatibility with debug overlay for now
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
@@ -69,7 +81,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
   const [isDragging, setIsDragging] = useState(false);
-  const isSelectingGesture = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -79,7 +90,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
 
   const readerDimensionsRef = useRef({ width: 0, height: 0 });
-  const isPinching = useRef(false);
   const pinchRef = useRef({ 
     initialDist: 0, 
     initialScale: 1, 
@@ -188,10 +198,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const target = e.target as HTMLElement;
     if (target.closest('button, input')) return;
     
-    // If it's a pointer down on text, we might be starting a selection
-    // isSelectingGesture will be set in handlePanStart, but we check selection here for double tap prevention
-    if (window.getSelection()?.toString().trim().length) return;
+    // Clear any existing long press timer
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    
+    // Reset selection if not already in selection mode
+    if (gestureMode.current !== GestureMode.SelectingText) {
+      // window.getSelection()?.removeAllRanges(); // Optional: clear selection on new tap
+    }
 
+    touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+
+    // Handle Double Tap Zoom
     const now = Date.now();
     const dx = e.clientX - lastTapInfo.current.x;
     const dy = e.clientY - lastTapInfo.current.y;
@@ -200,8 +217,22 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     if (now - lastTapInfo.current.time < 300 && dist < 15) {
       handleDoubleTapZoom(e.clientX, e.clientY);
       lastTapInfo.current = { time: 0, x: 0, y: 0 };
+      return;
     } else {
       lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
+    }
+
+    // Long press detection for text
+    const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
+    if (isText) {
+      longPressTimer.current = setTimeout(() => {
+        if (gestureMode.current === GestureMode.Idle) {
+          console.log("[PDFReader] Entering SelectingText mode via long press");
+          gestureMode.current = GestureMode.SelectingText;
+          // Trigger a small vibration if possible
+          if (navigator.vibrate) navigator.vibrate(50);
+        }
+      }, 500);
     }
   };
   
@@ -229,41 +260,42 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [pageIndex, isDragging, virtualPage]);
 
   const handlePanStart = (e: any, info: any) => {
-    if (isPinching.current) return;
+    // If we are already in a specific mode, don't re-evaluate
+    if (gestureMode.current !== GestureMode.Idle) return;
     
     // Stop any running animations
     panX.stop();
     panY.stop();
     visualScale.stop();
     
-    const currentScale = visualScale.get();
-    const target = e.target as HTMLElement;
-    const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
-    
-    // If zoomed in, prioritize panning for navigation even on text-heavy areas
-    if (currentScale > 1.1) {
-      isSelectingGesture.current = false;
-      setIsDragging(true);
-      return;
-    }
-    
-    if (isText) {
-      console.log("[PDFReader] Interaction on text - allowing native selection");
-      isSelectingGesture.current = true;
-      setIsDragging(false);
-      return;
-    }
-    
-    isSelectingGesture.current = false;
-    setIsDragging(true);
+    // We stay Idle until movement threshold is met or long-press triggers
   };
 
   const handlePanMove = (_: any, info: any) => {
-    if (isPinching.current || !isDragging || isSelectingGesture.current) return;
-    
+    // If in SelectingText, browsers handle everything
+    if (gestureMode.current === GestureMode.SelectingText) return;
+
+    // Movement threshold check to cancel long press
+    const moveDist = Math.sqrt(Math.pow(info.offset.x, 2) + Math.pow(info.offset.y, 2));
+    if (moveDist > 10 && longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+
     const currentScale = visualScale.get();
-    
-    if (currentScale > 1.1) {
+
+    // Determine mode if still Idle
+    if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
+      if (currentScale > 1.05) {
+        gestureMode.current = GestureMode.PanningZoomedPage;
+      } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
+        gestureMode.current = GestureMode.SwipingPages;
+      }
+      setIsDragging(true);
+    }
+
+    if (gestureMode.current === GestureMode.PanningZoomedPage) {
+      const currentScale = visualScale.get();
       // PANNING MODE (clamped)
       const aspect = 1.414;
       const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
@@ -283,31 +315,35 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       panX.set(clampedX);
       panY.set(clampedY);
-
-      if (Math.random() < 0.05) {
-        console.log(`[PDFReader] Panning: scale=${currentScale.toFixed(2)}, panX=${clampedX.toFixed(1)}, panY=${clampedY.toFixed(1)}`);
+    } else if (gestureMode.current === GestureMode.SwipingPages) {
+      // SWIPE MODE
+      const scrollWidth = window.innerWidth;
+      const progress = info.offset.x / scrollWidth;
+      
+      if (direction === 'rtl') {
+        virtualPage.set(pageIndex + progress);
+      } else {
+        virtualPage.set(pageIndex - progress);
       }
-      return;
-    }
-
-    // SWIPE MODE
-    const scrollWidth = window.innerWidth;
-    const progress = info.offset.x / scrollWidth;
-    
-    if (direction === 'rtl') {
-      virtualPage.set(pageIndex + progress);
-    } else {
-      virtualPage.set(pageIndex - progress);
     }
   };
 
   const handlePanEnd = (_: any, info: any) => {
-    if (isPinching.current || !isDragging || isSelectingGesture.current) return;
-    setIsDragging(false);
-    
-    const currentScale = visualScale.get();
-    
-    if (currentScale > 1.1) {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+
+    if (gestureMode.current === GestureMode.SelectingText) {
+      // Keep mode until touchend manually? Usually browsers handle selection handles.
+      // We reset on handleTouchEnd/pointerup
+      return;
+    }
+
+    const mode = gestureMode.current;
+    if (mode === GestureMode.PanningZoomedPage) {
+      setIsDragging(false);
+      const currentScale = visualScale.get();
       // INERTIAL PANNING
       const velocityX = info.velocity.x;
       const velocityY = info.velocity.y;
@@ -342,26 +378,25 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           if (v > vMargin) panY.set(vMargin);
         }
       });
-      return;
+    } else if (mode === GestureMode.SwipingPages) {
+      setIsDragging(false);
+      const offset = info.offset.x;
+      const velocity = info.velocity.x;
+      const threshold = 50;
+      const velocityThreshold = 500;
+      
+      let nextIndex = pageIndex;
+      if (direction === 'rtl') {
+        if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex + 1;
+        else if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex - 1;
+      } else {
+        if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
+        else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
+      }
+      handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
     }
-    
-    const offset = info.offset.x;
-    const velocity = info.velocity.x;
-    
-    const threshold = 50;
-    const velocityThreshold = 500;
-    
-    let nextIndex = pageIndex;
-    
-    if (direction === 'rtl') {
-      if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex + 1;
-      else if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex - 1;
-    } else {
-      if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
-      else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
-    }
-    
-    handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
+
+    gestureMode.current = GestureMode.Idle;
   };
 
   const baseWidth = React.useMemo(() => {
@@ -488,6 +523,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+      
+      gestureMode.current = GestureMode.PinchZooming;
       isPinching.current = true;
       setIsDragging(false);
       
@@ -500,7 +541,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const midX = (t1.clientX + t2.clientX) / 2;
       const midY = (t1.clientY + t2.clientY) / 2;
       
-      // Midpoint relative to container center
       const centerX = rect.left + rect.width / 2;
       const centerY = rect.top + rect.height / 2;
       
@@ -519,7 +559,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (isPinching.current && e.touches.length === 2) {
+    if (gestureMode.current === GestureMode.PinchZooming && e.touches.length === 2) {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dist = Math.hypot(t1.pageX - t2.pageX, t1.pageY - t2.pageY);
@@ -527,18 +567,16 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const scaleDelta = dist / pinchRef.current.initialDist;
       let nextScale = pinchRef.current.initialScale * scaleDelta;
       
-      // Clamp scale to logical architectural bounds
-      nextScale = Math.max(1.0, Math.min(5, nextScale));
-      const actualScaleDelta = nextScale / pinchRef.current.initialScale;
+      // Real-time clamping for architecture limits (0.5 to 10 for safety during pinch)
+      nextScale = Math.max(0.8, Math.min(6, nextScale)); 
       
       visualScale.set(nextScale);
       
-      // Zoom toward midpoint (pan adjustment)
+      const actualScaleDelta = nextScale / pinchRef.current.initialScale;
       const p_v = pinchRef.current.midpoint;
       const nextPanX = p_v.x - (p_v.x - pinchRef.current.initialPanX) * actualScaleDelta;
       const nextPanY = p_v.y - (p_v.y - pinchRef.current.initialPanY) * actualScaleDelta;
       
-      // Calculate margins for current scale
       const aspect = 1.414;
       const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
       const zoomedWidth = spreadWidth * nextScale;
@@ -555,9 +593,19 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchEnd = () => {
-    if (isPinching.current) {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+
+    if (gestureMode.current === GestureMode.PinchZooming) {
+      const finalScale = Math.max(1.0, Math.min(5, visualScale.get()));
+      setScale(finalScale);
       isPinching.current = false;
-      setScale(visualScale.get());
+      gestureMode.current = GestureMode.Idle;
+    } else if (gestureMode.current === GestureMode.SelectingText) {
+      // If we were selecting, reset mode on touch end to Allow new gestures
+      gestureMode.current = GestureMode.Idle;
     }
   };
 
@@ -923,7 +971,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           </div>
           <div className="flex justify-between gap-4">
             <span className="opacity-40 uppercase tracking-widest">Mode</span>
-            <span>{scale > 1.1 ? (isPinching.current ? 'Pinch' : 'Pan') : 'Swipe'}</span>
+            <span>{gestureMode.current}</span>
           </div>
         </div>
       )}
