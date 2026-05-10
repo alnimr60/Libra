@@ -146,6 +146,21 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
   
+  const baseWidth = React.useMemo(() => {
+    if (readerDimensions.width === 0) return 300; // Fallback
+    if (viewMode === 'double') {
+      const maxWidth = readerDimensions.width * 0.95;
+      const maxHeight = readerDimensions.height * 0.9;
+      const idealWidth = (maxHeight * 0.707) * 2;
+      return Math.min(idealWidth, maxWidth) / 2;
+    } else {
+      const maxWidth = readerDimensions.width * 0.9;
+      const maxHeight = readerDimensions.height * 0.9;
+      const idealWidth = maxHeight * 0.707;
+      return Math.min(idealWidth, maxWidth);
+    }
+  }, [viewMode, readerDimensions]);
+
   // Double tap to zoom handler
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   
@@ -159,26 +174,33 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const ox = clientX - cx;
     const oy = clientY - cy;
 
-    if (committedScale > 1.05) {
+    const currentScaleValue = liveScale.get();
+
+    if (currentScaleValue > 1.05) {
       // Zoom out to 1.0
-      setCommittedScale(1.0);
+      const target = 1.0;
+      animate(liveScale, target, { 
+        type: 'spring', 
+        stiffness: 300, 
+        damping: 30,
+        onComplete: () => setCommittedScale(target)
+      });
       animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
       animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
     } else {
       // Zoom in to 2.5
-      const nextScaleValue = 2.5;
-      setCommittedScale(nextScaleValue);
+      const target = 2.5;
       setShowControls(false);
 
       // Target pan to bring tap location to center
-      const targetPanX = -ox * nextScaleValue;
-      const targetPanY = -oy * nextScaleValue;
+      const targetPanX = -ox * target;
+      const targetPanY = -oy * target;
 
       // Clamp to margins
       const aspect = 1.414;
       const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-      const zoomedWidth = spreadWidth * nextScaleValue;
-      const zoomedHeight = (baseWidth * aspect) * nextScaleValue;
+      const zoomedWidth = spreadWidth * target;
+      const zoomedHeight = (baseWidth * aspect) * target;
       const viewportWidth = rect.width;
       const viewportHeight = rect.height;
       
@@ -188,6 +210,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const clampedX = Math.max(-hMargin, Math.min(hMargin, targetPanX));
       const clampedY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
 
+      animate(liveScale, target, { 
+        type: 'spring', 
+        stiffness: 300, 
+        damping: 30,
+        onComplete: () => setCommittedScale(target)
+      });
       animate(panX, clampedX, { type: 'spring', stiffness: 300, damping: 30 });
       animate(panY, clampedY, { type: 'spring', stiffness: 300, damping: 30 });
     }
@@ -398,20 +426,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     gestureMode.current = GestureMode.Idle;
   };
 
-  const baseWidth = React.useMemo(() => {
-    if (readerDimensions.width === 0) return 300; // Fallback
-    if (viewMode === 'double') {
-      const maxWidth = readerDimensions.width * 0.95;
-      const maxHeight = readerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      return Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = readerDimensions.width * 0.9;
-      const maxHeight = readerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      return Math.min(idealWidth, maxWidth);
-    }
-  }, [viewMode, readerDimensions]);
   useEffect(() => {
     const timer = setTimeout(() => {
       console.log("[PDFReader] Settle: Updating renderScale to", committedScale);
