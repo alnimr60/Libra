@@ -52,6 +52,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
   const [isDragging, setIsDragging] = useState(false);
+  const isSelectingGesture = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -159,12 +160,24 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   }, [pageIndex, isDragging, virtualPage]);
 
-  const handlePanStart = (_: any) => {
+  const handlePanStart = (e: any) => {
+    // Check if the interaction starts on a text span
+    const target = e.target as HTMLElement;
+    const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
+    
+    if (isText) {
+      console.log("[PDFReader] Gesture started on text - disabling swipe for selection");
+      isSelectingGesture.current = true;
+      setIsDragging(false);
+      return;
+    }
+    
+    isSelectingGesture.current = false;
     setIsDragging(true);
   };
 
   const handlePanMove = (_: any, info: any) => {
-    if (!isDragging) return;
+    if (!isDragging || isSelectingGesture.current) return;
 
     // If zoomed in, we only allow swiping if it's a clear horizontal intent
     const currentScale = visualScale.get();
@@ -1115,8 +1128,20 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             if (textLayerDivRef.current) {
               const textContent = await page.getTextContent();
               
+              // Sort items for RTL correctness if direction is RTL
+              const sortedItems = direction === 'rtl' ? [...textContent.items].sort((a: any, b: any) => {
+                // PDF space origin is bottom-left. transform[5] is Y.
+                // Group by horizontal lines (threshold of ~5 pixels)
+                const yDiff = b.transform[5] - a.transform[5];
+                if (Math.abs(yDiff) > 5) return yDiff; // Different line, top to bottom
+                
+                // Same line: RTL sort (right to left for Arabic)
+                // transform[4] is X. Higher X is more to the right.
+                return b.transform[4] - a.transform[4];
+              }) : textContent.items;
+
               await pdfjs.renderTextLayer({
-                textContentSource: textContent,
+                textContentSource: { ...textContent, items: sortedItems },
                 container: textLayerDivRef.current,
                 viewport: viewport
               }).promise;
