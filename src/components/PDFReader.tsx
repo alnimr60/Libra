@@ -79,17 +79,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
 
   const readerDimensionsRef = useRef({ width: 0, height: 0 });
-  const isPinching = useRef(false);
 
   useEffect(() => {
     if (!readerContainerRef.current) return;
     const observer = new ResizeObserver((entries) => {
-      // Prevent recalculations during active pinching to avoid layout thrashing
-      if (isPinching.current) {
-        console.log("[PDFReader] ResizeObserver suppressed during active scaling gesture");
-        return;
-      }
-      
       const entry = entries[0];
       if (entry) {
         console.log("[PDFReader] Recalculating layout dimensions:", entry.contentRect.width, entry.contentRect.height);
@@ -308,10 +301,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [viewMode, readerDimensions]);
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (!isPinching.current) {
-        console.log("[PDFReader] Settle: Updating renderScale to", scale);
-        setRenderScale(scale);
-      }
+      console.log("[PDFReader] Settle: Updating renderScale to", scale);
+      setRenderScale(scale);
     }, 400); // Increased settle time for better stability
     return () => clearTimeout(timer);
   }, [scale]);
@@ -429,68 +420,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pageIndex, totalSheets, direction, viewMode]);
-
-  const touchStateRef = useRef({ initialDist: 0, initialScale: 1, lastScale: 1 });
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    // Debug hit testing
-    const touch = e.touches[0];
-    if (touch) {
-      const element = document.elementFromPoint(touch.clientX, touch.clientY);
-      console.log(`[PDFReader] TouchStart Target:`, element?.tagName, element?.className, element?.id);
-    }
-
-    if (e.touches.length === 2) {
-      isPinching.current = true;
-      const dist = Math.hypot(
-        e.touches[0].pageX - e.touches[1].pageX,
-        e.touches[0].pageY - e.touches[1].pageY
-      );
-      touchStateRef.current = {
-        initialDist: dist,
-        initialScale: scale,
-        lastScale: scale
-      };
-      console.log("[PDFReader] PINCH_START - Initial Scale:", scale);
-      
-      // Stop ongoing animations
-      visualScale.stop();
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && isPinching.current) {
-      e.preventDefault();
-      const dist = Math.hypot(
-        e.touches[0].pageX - e.touches[1].pageX,
-        e.touches[0].pageY - e.touches[1].pageY
-      );
-      
-      const delta = dist / touchStateRef.current.initialDist;
-      let nextScale = touchStateRef.current.initialScale * delta;
-      
-      const MIN_SAFE_SCALE = 0.5;
-      const MAX_SAFE_SCALE = 5.0;
-      nextScale = Math.max(MIN_SAFE_SCALE, Math.min(MAX_SAFE_SCALE, nextScale));
-      
-      touchStateRef.current.lastScale = nextScale;
-      visualScale.set(nextScale);
-      
-      // DO NOT setScale state here to avoid continuous rerenders
-      // Only log at intervals to avoid flooding
-      if (Math.random() < 0.1) {
-        console.log("[PDFReader] PINCH_MOVE - Visual Scale:", nextScale.toFixed(2));
-      }
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (isPinching.current) {
-      console.log("[PDFReader] PINCH_END - Settle Scale:", touchStateRef.current.lastScale.toFixed(2));
-      isPinching.current = false;
-      setScale(touchStateRef.current.lastScale);
-    }
-  };
 
   return (
     <motion.div
@@ -722,6 +651,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       <div 
         ref={readerContainerRef}
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
+        style={{ touchAction: 'pan-x pan-y' }}
         onClick={(e) => {
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
@@ -752,9 +682,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             setShowControls(true);
           }
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
         {isLoading ? (
           <div className="flex flex-col items-center gap-4 text-white/40">
