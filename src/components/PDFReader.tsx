@@ -947,6 +947,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   containerDimensions={readerDimensions}
                   panX={panX}
                   panY={panY}
+                  isCurrent={sheetIndex === pageIndex}
                 />
               );
             })}
@@ -1055,7 +1056,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   isLandscape,
   containerDimensions,
   panX,
-  panY
+  panY,
+  isCurrent
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -1070,9 +1072,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   containerDimensions: { width: number, height: number },
   panX: any,
   panY: any,
-  key?: React.Key
+  isCurrent: boolean
 }) {
-  console.log(`[ReaderSheet] Rendering Sheet ${index}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
   // Calculate display width in pixels (BASE SIZE at scale 1.0)
@@ -1118,8 +1119,22 @@ const ReaderSheet = React.memo(function ReaderSheet({
   const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
   const rotateY = useTransform(distance, (d: number) => d * (direction === 'rtl' ? -10 : 10));
   const transitionScale = useTransform(distance, (d: number) => 1 - (Math.abs(d) * 0.05));
-  const totalScale = useTransform([scale, transitionScale], ([s, ts]) => (s as number) * (ts as number));
+  const totalScale = useTransform([scale, transitionScale], ([s, ts]) => {
+    const combined = (s as number) * (ts as number);
+    return combined;
+  });
   
+  useEffect(() => {
+    if (isCurrent) {
+      const unsub = totalScale.on("change", (v) => {
+        if (v > 1.01 && Math.random() < 0.05) {
+          console.log(`[ReaderSheet ${index}] visual scale update:`, v.toFixed(3));
+        }
+      });
+      return unsub;
+    }
+  }, [isCurrent, index, totalScale]);
+
   const opacity = useTransform(distance, (d: number) => {
     if (d <= -1.5 || d >= 1.5) return 0;
     if (d <= -0.5) return (d + 1.5);
@@ -1150,10 +1165,10 @@ const ReaderSheet = React.memo(function ReaderSheet({
     >
         <motion.div 
           id={`sheet-${index}-transform-container`}
-          x={panX}
-          y={panY}
-          scale={totalScale}
           style={{ 
+            x: panX,
+            y: panY,
+            scale: totalScale,
             transformStyle: 'preserve-3d',
             backfaceVisibility: 'hidden',
             width: 'fit-content',
