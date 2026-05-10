@@ -80,8 +80,6 @@ body {
   pointer-events: auto !important;
   z-index: 5;
   line-height: normal;
-  direction: rtl;
-  unicode-bidi: plaintext;
   padding-top: 2px;
 }
 
@@ -93,8 +91,6 @@ body {
   transform-origin: 0% 0%;
   user-select: text !important;
   -webkit-user-select: text !important;
-  direction: rtl;
-  unicode-bidi: plaintext;
   display: inline-block;
   line-height: normal;
   min-height: 1em;

@@ -764,7 +764,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500"
-      dir={direction === 'rtl' ? "rtl" : "ltr"}
     >
       <AnimatePresence>
         {isNavigatorOpen && (
@@ -774,6 +773,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[400] bg-zinc-950/90 backdrop-blur-3xl flex items-center justify-center p-6 select-none"
             onClick={() => setIsNavigatorOpen(false)}
+            dir={direction === 'rtl' ? 'rtl' : 'ltr'}
           >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0, y: 30 }}
@@ -902,6 +902,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             animate={{ y: 0 }}
             exit={{ y: -120 }}
             style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
+            dir={direction === 'rtl' ? "rtl" : "ltr"}
             className={cn(
               "fixed top-0 left-0 right-0 flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-950/90 backdrop-blur-2xl z-[310] transition-all select-none",
               isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
@@ -1146,6 +1147,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             initial={{ y: 120 }}
             animate={{ y: 0 }}
             exit={{ y: 120 }}
+            dir={direction === 'rtl' ? "rtl" : "ltr"}
             style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
             className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-zinc-950/90 backdrop-blur-2xl shadow-2xl border-t border-white/5 z-[310] select-none"
           >
@@ -1476,39 +1478,50 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
     setRenderError(false);
 
     const render = async () => {
-      if (!canvasRef.current || !textLayerDivRef.current) return;
+      if (!canvasRef.current || !textLayerDivRef.current || !containerRef.current) return;
 
       try {
         const page = await pdf.getPage(pageNumber);
         if (!isMounted) return;
 
-        // 1. Get the viewport at stable CSS target scale
-        const baseViewportScale = width / pageSize.width;
-        const textLayerViewportScale = baseViewportScale;
-        
-        const viewport = page.getViewport({ scale: textLayerViewportScale });
+        // 1. Unified viewport at total render scale (CSS scale * quality multiplier)
+        // This ensures identical coordinates for both canvas and text layer.
+        const totalScale = (width / pageSize.width) * renderScale;
+        const viewport = page.getViewport({ scale: totalScale });
 
-        // 2. Canvas Rendering Viewport (Adaptive based on renderScale settle)
-        const dpr = (window.devicePixelRatio || 1) * renderScale;
-        const canvasViewport = page.getViewport({ scale: baseViewportScale * dpr });
+        console.log(`[PDFPage] Rendering page ${pageNumber}`, {
+          renderScale,
+          totalScale,
+          viewportWidth: viewport.width,
+          viewportHeight: viewport.height,
+          cssWidth: width,
+          devicePixelRatio: window.devicePixelRatio
+        });
 
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
 
         if (context) {
-          canvas.width = canvasViewport.width;
-          canvas.height = canvasViewport.height;
+          // Set internal dimensions to match viewport exactly
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
           
-          // Clear with white background explicitly
           context.fillStyle = 'white';
           context.fillRect(0, 0, canvas.width, canvas.height);
 
-          if (textLayerDivRef.current) {
-            textLayerDivRef.current.innerHTML = '';
-            textLayerDivRef.current.style.width = `${viewport.width}px`;
-            textLayerDivRef.current.style.height = `${viewport.height}px`;
-            // Set scale factor BEFORE rendering text layer to satisfy PDF.js checks
-            textLayerDivRef.current.style.setProperty('--scale-factor', viewport.scale.toString());
+          const textLayerDiv = textLayerDivRef.current;
+          if (textLayerDiv) {
+            textLayerDiv.innerHTML = '';
+            textLayerDiv.style.width = `${viewport.width}px`;
+            textLayerDiv.style.height = `${viewport.height}px`;
+            textLayerDiv.dir = 'ltr';
+            textLayerDiv.style.direction = 'ltr';
+            textLayerDiv.style.setProperty('--scale-factor', viewport.scale.toString());
+            
+            // Map the high-res layer back to CSS box space via transform to avoid mismatches
+            const styleScale = 1 / renderScale;
+            textLayerDiv.style.transform = renderScale !== 1 ? `scale(${styleScale})` : 'none';
+            textLayerDiv.style.transformOrigin = 'top left';
           }
 
           if (renderTaskRef.current) {
@@ -1517,7 +1530,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
 
           renderTaskRef.current = page.render({
             canvasContext: context,
-            viewport: canvasViewport,
+            viewport: viewport,
             intent: 'display'
           } as any);
           
@@ -1526,12 +1539,11 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
           if (!isMounted) return;
 
           try {
-            if (textLayerDivRef.current) {
+            if (textLayerDiv) {
               const textContent = await page.getTextContent();
-              
               await pdfjs.renderTextLayer({
                 textContentSource: textContent,
-                container: textLayerDivRef.current,
+                container: textLayerDiv,
                 viewport: viewport
               }).promise;
             }
@@ -1539,7 +1551,37 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             console.warn("Text layer processing failed", textLayerErr);
           }
 
-          if (isMounted) setIsRendering(false);
+          // Diagnostic: Check rects and ancestors
+          if (isMounted) {
+            const canvasRect = canvas.getBoundingClientRect();
+            const textRect = textLayerDiv?.getBoundingClientRect();
+            
+            // Log ancestor transforms
+            const ancestors: any[] = [];
+            let curr: HTMLElement | null = containerRef.current;
+            while (curr) {
+              const style = window.getComputedStyle(curr);
+              if (style.transform !== 'none' || style.direction !== 'ltr') {
+                ancestors.push({
+                  tag: curr.tagName,
+                  id: curr.id,
+                  transform: style.transform,
+                  dir: style.direction
+                });
+              }
+              curr = curr.parentElement;
+            }
+
+            console.log(`[PDFPage-Diag] Page ${pageNumber} Render complete`, {
+              canvas: { w: canvasRect.width, h: canvasRect.height },
+              text: { w: textRect?.width, h: textRect?.height },
+              scale: renderScale,
+              viewport: { w: viewport.width, h: viewport.height },
+              ancestorCount: ancestors.length,
+              problematicAncestors: ancestors
+            });
+            setIsRendering(false);
+          }
         }
       } catch (error: any) {
         if (error.name === 'RenderingCancelledException') return;
@@ -1586,21 +1628,20 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         <div 
           id={`page-${pageNumber}-container`}
           className={cn(
-            "relative bg-white transition-opacity duration-300 select-none",
+            "relative bg-white transition-opacity duration-300 select-none ltr",
             isSpreadChild ? "shadow-none" : "shadow-2xl"
           )}
           style={{ 
             width: displayWidth,
             height: displayHeight,
             transform: 'none',
-            position: 'absolute',
-            top: 0,
-            left: 0,
+            position: 'relative',
             flexShrink: 0,
             opacity: isRendering ? 0 : 1,
             contain: 'content',
             userSelect: 'none',
-            WebkitUserSelect: 'none'
+            WebkitUserSelect: 'none',
+            direction: 'ltr'
           }}
         >
           <canvas 
@@ -1616,16 +1657,21 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
           <div 
             ref={textLayerDivRef} 
             className="textLayer"
-            dir={direction}
+            dir="ltr"
             style={{ 
-              width: displayWidth,
-              height: displayHeight,
+              width: width * renderScale,
+              height: containerHeight * renderScale,
               pointerEvents: 'auto',
-              transform: 'none',
               zIndex: 5,
               userSelect: 'text',
               WebkitUserSelect: 'text',
-              paddingTop: '2px'
+              direction: 'ltr',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              transform: renderScale !== 1 ? `scale(${1 / renderScale})` : 'none',
+              transformOrigin: 'top left',
+              whiteSpace: 'pre'
             }} 
           />
         </div>
