@@ -27,6 +27,13 @@ enum GestureMode {
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
   console.log("[PDFReader] Render");
+
+  useEffect(() => {
+    console.log("[PDFReader] COMPONENT MOUNTED");
+    return () => {
+      console.warn("[PDFReader] COMPONENT UNMOUNTED - Is this unexpected during gesture?");
+    };
+  }, []);
   const gestureMode = useRef<GestureMode>(GestureMode.Idle);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartInfo = useRef({ x: 0, y: 0, time: 0 });
@@ -44,16 +51,22 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   // Sync state scale to liveScale motion value
   useEffect(() => {
-    animate(liveScale, committedScale, {
-      type: 'spring',
-      stiffness: 300,
-      damping: 30
-    });
-    
-    // Reset panning smoothly when zooming out significantly or switching modes
-    if (committedScale <= 1.05) {
-      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+    try {
+      console.log("[PDFReader] Effect: Syncing liveScale to committedScale", { committedScale });
+      animate(liveScale, committedScale, {
+        type: 'spring',
+        stiffness: 300,
+        damping: 30
+      });
+      
+      // Reset panning smoothly when zooming out significantly or switching modes
+      if (committedScale <= 1.05) {
+        animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+        animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      }
+    } catch (err) {
+      console.error("[PDFReader] Error in scale sync effect:", err);
+      throw err;
     }
   }, [committedScale, liveScale, panX, panY]);
 
@@ -167,6 +180,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
+    console.log("[DoubleTap] STEP 1: Entry", { clientX, clientY });
     try {
       if (!readerContainerRef.current) {
         console.warn("[DoubleTapZoom] Abort: No reader container ref");
@@ -175,10 +189,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       
       // Safety lock: Don't interrupt existing zoom animations or pinch gestures
       if (isAnimatingZoom.current || isPinching.current) {
-        console.log("[DoubleTapZoom] Locked: animation or pinch in progress");
+        console.log("[DoubleTapZoom] Locked: animation or pinch in progress", {
+          isAnimatingZoom: isAnimatingZoom.current,
+          isPinching: isPinching.current
+        });
         return;
       }
 
+      console.log("[DoubleTap] STEP 2: Pre-read scale");
       const currentScaleValue = liveScale.get();
       
       // Diagnostic logging
@@ -189,15 +207,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       });
 
       if (!Number.isFinite(currentScaleValue)) {
-        console.error("[DoubleTapZoom] Abort: non-finite current scale. Resetting.");
-        liveScale.set(1.0);
-        setCommittedScale(1.0);
-        return;
+        console.error("[DoubleTapZoom] CRITICAL ERROR: non-finite current scale.");
+        // We no longer silently reset here to catch the true error
+        throw new Error(`Non-finite currentScaleValue: ${currentScaleValue}`);
       }
 
       // Mark as animating zoom BEFORE anything else to lock other gestures
       isAnimatingZoom.current = true;
 
+      console.log("[DoubleTap] STEP 3: Stopping previous animations");
       // Stop all active animations to prevent conflicts during transition
       liveScale.stop();
       panX.stop();
@@ -206,12 +224,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const isZoomedOut = currentScaleValue <= 1.05;
       const target = isZoomedOut ? 2.5 : 1.0;
       
-      console.log("[DoubleTapZoom] Setup Animation", { target, currentScale: currentScaleValue });
+      console.log("[DoubleTap] STEP 4: Animation setup complete", { target, isZoomedOut });
 
       if (!Number.isFinite(target)) {
         console.error("[DoubleTapZoom] Invalid target scale");
         isAnimatingZoom.current = false;
-        return;
+        throw new Error(`Invalid target scale: ${target}`);
       }
 
       // Handle UI controls state change cautiously
@@ -219,77 +237,85 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         setShowControls(false);
       }
 
+      console.log("[DoubleTap] STEP 5: Starting animate()");
       // Start the core imperative animation
       animate(liveScale, target, { 
         type: 'spring', 
         stiffness: 300, 
         damping: 30,
         onComplete: () => {
+          console.log("[DoubleTap] STEP 6: Animation complete callback start");
           try {
             console.log("[DoubleTapZoom] Animation Complete, Syncing committedScale", { target });
             // Defer React state update to ensure it doesn't interfere with the final frame of animation
             setCommittedScale(target);
             
+            console.log("[DoubleTap] STEP 7: committedScale updated");
             // Wait one more frame before releasing the lock to allow React to settle
             requestAnimationFrame(() => {
               isAnimatingZoom.current = false;
               console.log("[DoubleTapZoom] Lock Released Successfully");
             });
           } catch (syncErr) {
-            console.error("[DoubleTapZoom] Error in onComplete sync:", syncErr);
+            console.error("[DoubleTapCrash] Error in onComplete sync:", syncErr);
             isAnimatingZoom.current = false;
+            throw syncErr; // Re-throw to hit ErrorBoundary/Global
           }
         }
       });
 
     } catch (err) {
-      console.error("[DoubleTapCrash] Critical failure in handleDoubleTapZoom", err);
-      // Fallback: recover state
+      console.error("[DoubleTapCrash] CRITICAL FAILURE in handleDoubleTapZoom", err);
       isAnimatingZoom.current = false;
-      liveScale.set(1.0);
-      setCommittedScale(1.0);
+      // Re-throw to ensure the crash is visible to the ErrorBoundary or Global listeners
+      throw err;
     }
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('button, input')) return;
-    
-    // Clear any existing long press timer
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    
-    // Reset selection if not already in selection mode
-    if (gestureMode.current !== GestureMode.SelectingText) {
-      // window.getSelection()?.removeAllRanges(); // Optional: clear selection on new tap
-    }
+    try {
+      const target = e.target as HTMLElement;
+      if (target.closest('button, input')) return;
+      
+      // Clear any existing long press timer
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      
+      // Reset selection if not already in selection mode
+      if (gestureMode.current !== GestureMode.SelectingText) {
+        // window.getSelection()?.removeAllRanges(); // Optional: clear selection on new tap
+      }
 
-    touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+      touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
 
-    // Handle Double Tap Zoom
-    const now = Date.now();
-    const dx = e.clientX - lastTapInfo.current.x;
-    const dy = e.clientY - lastTapInfo.current.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+      // Handle Double Tap Zoom
+      const now = Date.now();
+      const dx = e.clientX - lastTapInfo.current.x;
+      const dy = e.clientY - lastTapInfo.current.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (now - lastTapInfo.current.time < 300 && dist < 15) {
-      handleDoubleTapZoom(e.clientX, e.clientY);
-      lastTapInfo.current = { time: 0, x: 0, y: 0 };
-      return;
-    } else {
-      lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
-    }
+      if (now - lastTapInfo.current.time < 300 && dist < 15) {
+        handleDoubleTapZoom(e.clientX, e.clientY);
+        lastTapInfo.current = { time: 0, x: 0, y: 0 };
+        return;
+      } else {
+        lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
+      }
 
-    // Long press detection for text
-    const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
-    if (isText) {
-      longPressTimer.current = setTimeout(() => {
-        if (gestureMode.current === GestureMode.Idle) {
-          console.log("[PDFReader] Entering SelectingText mode via long press");
-          gestureMode.current = GestureMode.SelectingText;
-          // Trigger a small vibration if possible
-          if (navigator.vibrate) navigator.vibrate(50);
-        }
-      }, 500);
+      // Long press detection for text
+      const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
+      if (isText) {
+        longPressTimer.current = setTimeout(() => {
+          if (gestureMode.current === GestureMode.Idle) {
+            console.log("[PDFReader] Entering SelectingText mode via long press");
+            gestureMode.current = GestureMode.SelectingText;
+            // Trigger a small vibration if possible
+            if (navigator.vibrate) navigator.vibrate(50);
+          }
+        }, 500);
+      }
+    } catch (err) {
+      console.error("[GestureCrash] Error in handlePointerDown:", err);
+      throw err;
     }
   };
   
@@ -317,145 +343,160 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [pageIndex, isDragging, virtualPage]);
 
   const handlePanStart = (e: any, info: any) => {
-    // If we are already in a specific mode, don't re-evaluate
-    if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
-    
-    // Stop any running animations
-    panX.stop();
-    panY.stop();
-    liveScale.stop();
-    
-    isPanning.current = true;
-    // We stay Idle until movement threshold is met or long-press triggers
+    try {
+      // If we are already in a specific mode, don't re-evaluate
+      if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
+      
+      // Stop any running animations
+      panX.stop();
+      panY.stop();
+      liveScale.stop();
+      
+      isPanning.current = true;
+      // We stay Idle until movement threshold is met or long-press triggers
+    } catch (err) {
+      console.error("[GestureCrash] Error in handlePanStart:", err);
+      throw err;
+    }
   };
 
   const handlePanMove = (_: any, info: any) => {
-    // If in SelectingText, browsers handle everything
-    if (gestureMode.current === GestureMode.SelectingText || isAnimatingZoom.current) return;
+    try {
+      // If in SelectingText, browsers handle everything
+      if (gestureMode.current === GestureMode.SelectingText || isAnimatingZoom.current) return;
 
-    // Movement threshold check to cancel long press
-    const moveDist = Math.sqrt(Math.pow(info.offset.x, 2) + Math.pow(info.offset.y, 2));
-    if (moveDist > 10 && longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-
-    const currentScaleValue = liveScale.get();
-
-    // Determine mode if still Idle
-    if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
-      if (currentScaleValue > 1.05) {
-        gestureMode.current = GestureMode.PanningZoomedPage;
-      } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
-        gestureMode.current = GestureMode.SwipingPages;
+      // Movement threshold check to cancel long press
+      const moveDist = Math.sqrt(Math.pow(info.offset.x, 2) + Math.pow(info.offset.y, 2));
+      if (moveDist > 10 && longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
       }
-      setIsDragging(true);
-    }
 
-    if (gestureMode.current === GestureMode.PanningZoomedPage) {
       const currentScaleValue = liveScale.get();
-      // PANNING MODE (clamped)
-      const aspect = 1.414;
-      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-      const zoomedWidth = spreadWidth * currentScaleValue;
-      const zoomedHeight = (baseWidth * aspect) * currentScaleValue;
-      const viewportWidth = readerDimensions.width;
-      const viewportHeight = readerDimensions.height;
-      
-      const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
-      const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
 
-      const nextX = panX.get() + info.delta.x;
-      const nextY = panY.get() + info.delta.y;
-
-      const clampedX = Math.max(-hMargin, Math.min(hMargin, nextX));
-      const clampedY = Math.max(-vMargin, Math.min(vMargin, nextY));
-
-      panX.set(clampedX);
-      panY.set(clampedY);
-    } else if (gestureMode.current === GestureMode.SwipingPages) {
-      // SWIPE MODE
-      const scrollWidth = window.innerWidth;
-      const progress = info.offset.x / scrollWidth;
-      
-      if (direction === 'rtl') {
-        virtualPage.set(pageIndex + progress);
-      } else {
-        virtualPage.set(pageIndex - progress);
+      // Determine mode if still Idle
+      if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
+        if (currentScaleValue > 1.05) {
+          gestureMode.current = GestureMode.PanningZoomedPage;
+        } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
+          gestureMode.current = GestureMode.SwipingPages;
+        }
+        setIsDragging(true);
       }
+
+      if (gestureMode.current === GestureMode.PanningZoomedPage) {
+        const currentScaleValue = liveScale.get();
+        // PANNING MODE (clamped)
+        const aspect = 1.414;
+        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+        const zoomedWidth = spreadWidth * currentScaleValue;
+        const zoomedHeight = (baseWidth * aspect) * currentScaleValue;
+        const viewportWidth = readerDimensions.width;
+        const viewportHeight = readerDimensions.height;
+        
+        const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+        const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+
+        const nextX = panX.get() + info.delta.x;
+        const nextY = panY.get() + info.delta.y;
+
+        const clampedX = Math.max(-hMargin, Math.min(hMargin, nextX));
+        const clampedY = Math.max(-vMargin, Math.min(vMargin, nextY));
+
+        panX.set(clampedX);
+        panY.set(clampedY);
+      } else if (gestureMode.current === GestureMode.SwipingPages) {
+        // SWIPE MODE
+        const scrollWidth = window.innerWidth;
+        const progress = info.offset.x / scrollWidth;
+        
+        if (direction === 'rtl') {
+          virtualPage.set(pageIndex + progress);
+        } else {
+          virtualPage.set(pageIndex - progress);
+        }
+      }
+    } catch (err) {
+      console.error("[GestureCrash] Error in handlePanMove:", err);
+      throw err;
     }
   };
 
   const handlePanEnd = (_: any, info: any) => {
-    isPanning.current = false;
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-
-    if (gestureMode.current === GestureMode.SelectingText) {
-      // Keep mode until touchend manually? Usually browsers handle selection handles.
-      // We reset on handleTouchEnd/pointerup
-      return;
-    }
-
-    const mode = gestureMode.current;
-    if (mode === GestureMode.PanningZoomedPage) {
-      setIsDragging(false);
-      const currentScaleValue = liveScale.get();
-      // INERTIAL PANNING
-      const velocityX = info.velocity.x;
-      const velocityY = info.velocity.y;
-      
-      const aspect = 1.414;
-      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-      const zoomedWidth = spreadWidth * currentScaleValue;
-      const zoomedHeight = (baseWidth * aspect) * currentScaleValue;
-      const viewportWidth = readerDimensions.width;
-      const viewportHeight = readerDimensions.height;
-      
-      const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
-      const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
-
-      animate(panX, panX.get() + velocityX * 0.1, {
-        type: 'spring',
-        stiffness: 100,
-        damping: 30,
-        restDelta: 0.5,
-        onUpdate: (v) => {
-          if (v < -hMargin) panX.set(-hMargin);
-          if (v > hMargin) panX.set(hMargin);
-        }
-      });
-      animate(panY, panY.get() + velocityY * 0.1, {
-        type: 'spring',
-        stiffness: 100,
-        damping: 30,
-        restDelta: 0.5,
-        onUpdate: (v) => {
-          if (v < -vMargin) panY.set(-vMargin);
-          if (v > vMargin) panY.set(vMargin);
-        }
-      });
-    } else if (mode === GestureMode.SwipingPages) {
-      setIsDragging(false);
-      const offset = info.offset.x;
-      const velocity = info.velocity.x;
-      const threshold = 50;
-      const velocityThreshold = 500;
-      
-      let nextIndex = pageIndex;
-      if (direction === 'rtl') {
-        if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex + 1;
-        else if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex - 1;
-      } else {
-        if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
-        else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
+    try {
+      isPanning.current = false;
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
       }
-      handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
-    }
 
-    gestureMode.current = GestureMode.Idle;
+      if (gestureMode.current === GestureMode.SelectingText) {
+        // Keep mode until touchend manually? Usually browsers handle selection handles.
+        // We reset on handleTouchEnd/pointerup
+        return;
+      }
+
+      const mode = gestureMode.current;
+      if (mode === GestureMode.PanningZoomedPage) {
+        setIsDragging(false);
+        const currentScaleValue = liveScale.get();
+        // INERTIAL PANNING
+        const velocityX = info.velocity.x;
+        const velocityY = info.velocity.y;
+        
+        const aspect = 1.414;
+        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+        const zoomedWidth = spreadWidth * currentScaleValue;
+        const zoomedHeight = (baseWidth * aspect) * currentScaleValue;
+        const viewportWidth = readerDimensions.width;
+        const viewportHeight = readerDimensions.height;
+        
+        const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+        const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+
+        animate(panX, panX.get() + velocityX * 0.1, {
+          type: 'spring',
+          stiffness: 100,
+          damping: 30,
+          restDelta: 0.5,
+          onUpdate: (v) => {
+            if (v < -hMargin) panX.set(-hMargin);
+            if (v > hMargin) panX.set(hMargin);
+          }
+        });
+        animate(panY, panY.get() + velocityY * 0.1, {
+          type: 'spring',
+          stiffness: 100,
+          damping: 30,
+          restDelta: 0.5,
+          onUpdate: (v) => {
+            if (v < -vMargin) panY.set(-vMargin);
+            if (v > vMargin) panY.set(vMargin);
+          }
+        });
+      } else if (mode === GestureMode.SwipingPages) {
+        setIsDragging(false);
+        const offset = info.offset.x;
+        const velocity = info.velocity.x;
+        const threshold = 50;
+        const velocityThreshold = 500;
+        
+        let nextIndex = pageIndex;
+        if (direction === 'rtl') {
+          if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex + 1;
+          else if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex - 1;
+        } else {
+          if (offset < -threshold || velocity < -velocityThreshold) nextIndex = pageIndex + 1;
+          else if (offset > threshold || velocity > velocityThreshold) nextIndex = pageIndex - 1;
+        }
+        handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
+      }
+
+      gestureMode.current = GestureMode.Idle;
+    } catch (err) {
+      console.error("[GestureCrash] Error in handlePanEnd:", err);
+      throw err;
+    }
   };
 
   useEffect(() => {
