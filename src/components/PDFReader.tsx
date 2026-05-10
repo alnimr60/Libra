@@ -129,22 +129,72 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
   
   // Double tap to zoom handler
-  const lastTap = useRef<number>(0);
+  const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   
-  const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent) => {
-    // Only handle double tap on the main viewport area, not on controls or text
-    if ((e.target as HTMLElement).closest('button, input, .textLayer')) return;
+  const handleDoubleTapZoom = (clientX: number, clientY: number) => {
+    if (!readerContainerRef.current) return;
+    const rect = readerContainerRef.current.getBoundingClientRect();
+    
+    // Tap position relative to container center
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const ox = clientX - cx;
+    const oy = clientY - cy;
+
+    if (scale > 1.05) {
+      // Zoom out to 1.0
+      setScale(1.0);
+      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+    } else {
+      // Zoom in to 2.5
+      const nextScale = 2.5;
+      setScale(nextScale);
+      setShowControls(false);
+
+      // Target pan to bring tap location to center
+      // Logic: Shift the sheet so that point (ox, oy) is at viewport center
+      const targetPanX = -ox * nextScale;
+      const targetPanY = -oy * nextScale;
+
+      // Clamp to margins
+      const aspect = 1.414;
+      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+      const zoomedWidth = spreadWidth * nextScale;
+      const zoomedHeight = (baseWidth * aspect) * nextScale;
+      const viewportWidth = rect.width;
+      const viewportHeight = rect.height;
+      
+      const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+      const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+
+      const clampedX = Math.max(-hMargin, Math.min(hMargin, targetPanX));
+      const clampedY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
+
+      animate(panX, clampedX, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panY, clampedY, { type: 'spring', stiffness: 300, damping: 30 });
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input')) return;
+    
+    // If it's a pointer down on text, we might be starting a selection
+    // isSelectingGesture will be set in handlePanStart, but we check selection here for double tap prevention
+    if (window.getSelection()?.toString().trim().length) return;
 
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300;
-    if (now - lastTap.current < DOUBLE_TAP_DELAY) {
-      // Toggle zoom
-      const nextScale = scale > 1.2 ? 1.0 : 2.5;
-      setScale(nextScale);
-      // Also hide controls when zooming in to focus
-      if (nextScale > 1.2) setShowControls(false);
+    const dx = e.clientX - lastTapInfo.current.x;
+    const dy = e.clientY - lastTapInfo.current.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (now - lastTapInfo.current.time < 300 && dist < 15) {
+      handleDoubleTapZoom(e.clientX, e.clientY);
+      lastTapInfo.current = { time: 0, x: 0, y: 0 };
+    } else {
+      lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
     }
-    lastTap.current = now;
   };
   
   const virtualPage = useMotionValue(pageIndex);
@@ -652,6 +702,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         ref={readerContainerRef}
         className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
         style={{ touchAction: 'pan-x pan-y' }}
+        onPointerDown={handlePointerDown}
         onClick={(e) => {
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
@@ -660,7 +711,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
           if ((e.target as HTMLElement).closest('.textLayer')) return;
 
-          handleDoubleTap(e);
           // If controls are shown, clicking hides them. If hidden, clicking might show them OR turn page.
           if (!showControls) {
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
