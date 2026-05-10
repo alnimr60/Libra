@@ -1484,27 +1484,41 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         const page = await pdf.getPage(pageNumber);
         if (!isMounted) return;
 
-        // 1. Unified viewport at total render scale (CSS scale * quality multiplier)
-        // This ensures identical coordinates for both canvas and text layer.
-        const totalScale = (width / pageSize.width) * renderScale;
-        const viewport = page.getViewport({ scale: totalScale });
+        // 1. Separate Visual scale from Render resolution
+        const dpr = window.devicePixelRatio || 1;
+        const qualityMultiplier = 1.2; // Extra quality boost for all displays
+        
+        const baseScale = width / pageSize.width;
+        // The scale for the UI layout (CSS pixels)
+        const cssScale = baseScale * renderScale;
+        // The scale for the internal canvas bitmap (Device pixels)
+        const renderResolutionScale = cssScale * dpr * qualityMultiplier;
+
+        const viewport = page.getViewport({ scale: cssScale });
+        const renderViewport = page.getViewport({ scale: renderResolutionScale });
 
         console.log(`[PDFPage] Rendering page ${pageNumber}`, {
-          renderScale,
-          totalScale,
+          dpr,
+          qualityMultiplier,
+          cssScale,
+          renderResolutionScale,
           viewportWidth: viewport.width,
           viewportHeight: viewport.height,
-          cssWidth: width,
-          devicePixelRatio: window.devicePixelRatio
+          canvasBitmapSize: { w: renderViewport.width, h: renderViewport.height },
+          effectiveDPI: 72 * renderResolutionScale
         });
 
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
 
         if (context) {
-          // Set internal dimensions to match viewport exactly
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
+          // Set internal bitmap size to match high-res resolution
+          canvas.width = renderViewport.width;
+          canvas.height = renderViewport.height;
+          
+          // Set CSS display size to match layout viewport
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
           
           context.fillStyle = 'white';
           context.fillRect(0, 0, canvas.width, canvas.height);
@@ -1512,16 +1526,13 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
           const textLayerDiv = textLayerDivRef.current;
           if (textLayerDiv) {
             textLayerDiv.innerHTML = '';
+            // Text layer matches visual viewport exactly
             textLayerDiv.style.width = `${viewport.width}px`;
             textLayerDiv.style.height = `${viewport.height}px`;
             textLayerDiv.dir = 'ltr';
             textLayerDiv.style.direction = 'ltr';
             textLayerDiv.style.setProperty('--scale-factor', viewport.scale.toString());
-            
-            // Map the high-res layer back to CSS box space via transform to avoid mismatches
-            const styleScale = 1 / renderScale;
-            textLayerDiv.style.transform = renderScale !== 1 ? `scale(${styleScale})` : 'none';
-            textLayerDiv.style.transformOrigin = 'top left';
+            textLayerDiv.style.transform = 'none';
           }
 
           if (renderTaskRef.current) {
@@ -1530,7 +1541,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
 
           renderTaskRef.current = page.render({
             canvasContext: context,
-            viewport: viewport,
+            viewport: renderViewport, // Render at high resolution
             intent: 'display'
           } as any);
           
@@ -1544,7 +1555,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
               await pdfjs.renderTextLayer({
                 textContentSource: textContent,
                 container: textLayerDiv,
-                viewport: viewport
+                viewport: viewport // Use visual viewport for text layout
               }).promise;
             }
           } catch (textLayerErr) {
@@ -1575,7 +1586,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             console.log(`[PDFPage-Diag] Page ${pageNumber} Render complete`, {
               canvas: { w: canvasRect.width, h: canvasRect.height },
               text: { w: textRect?.width, h: textRect?.height },
-              scale: renderScale,
+              renderScale,
               viewport: { w: viewport.width, h: viewport.height },
               ancestorCount: ancestors.length,
               problematicAncestors: ancestors
