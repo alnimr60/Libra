@@ -25,6 +25,23 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1.0);
   const visualScale = useMotionValue(1.0);
+  const panX = useMotionValue(0);
+  const panY = useMotionValue(0);
+
+  // Sync state scale to visualScale motion value
+  useEffect(() => {
+    animate(visualScale, scale, {
+      type: 'spring',
+      stiffness: 300,
+      damping: 30
+    });
+    
+    // Reset panning when zooming out
+    if (scale <= 1.05) {
+      animate(panX, 0);
+      animate(panY, 0);
+    }
+  }, [scale, visualScale, panX, panY]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -166,22 +183,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
     
     if (isText) {
-      console.log("[PDFReader] Gesture started on text - disabling reader gestures");
+      console.log("[PDFReader] Interaction on text - allowing native selection");
       isSelectingGesture.current = true;
       setIsDragging(false);
       return;
     }
     
     isSelectingGesture.current = false;
-    
-    // Only allow reader-level dragging if we are NOT zoomed in
-    // If zoomed, we let the Sheet's internal drag handle panning
-    const currentScale = visualScale.get();
-    if (currentScale > 1.05) {
-      setIsDragging(false);
-      return;
-    }
-
     setIsDragging(true);
   };
 
@@ -189,8 +197,27 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     if (!isDragging || isSelectingGesture.current) return;
     
     const currentScale = visualScale.get();
-    if (currentScale > 1.05) return; // Yield to sheet drag
+    
+    if (currentScale > 1.05) {
+      // PANNING MODE (clamped)
+      const aspect = 1.414;
+      const zoomedWidth = baseWidth * currentScale;
+      const zoomedHeight = (baseWidth * aspect) * currentScale;
+      const viewportWidth = readerDimensions.width;
+      const viewportHeight = readerDimensions.height;
+      
+      const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+      const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
 
+      const nextX = panX.get() + info.delta.x;
+      const nextY = panY.get() + info.delta.y;
+
+      panX.set(Math.max(-hMargin, Math.min(hMargin, nextX)));
+      panY.set(Math.max(-vMargin, Math.min(vMargin, nextY)));
+      return;
+    }
+
+    // SWIPE MODE
     const scrollWidth = window.innerWidth;
     const progress = info.offset.x / scrollWidth;
     
@@ -202,16 +229,53 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanEnd = (_: any, info: any) => {
-    if (!isDragging) return;
+    if (!isDragging || isSelectingGesture.current) return;
     setIsDragging(false);
+    
+    const currentScale = visualScale.get();
+    
+    if (currentScale > 1.05) {
+      // INERTIAL PANNING
+      const velocityX = info.velocity.x;
+      const velocityY = info.velocity.y;
+      
+      const aspect = 1.414;
+      const zoomedWidth = baseWidth * currentScale;
+      const zoomedHeight = (baseWidth * aspect) * currentScale;
+      const viewportWidth = readerDimensions.width;
+      const viewportHeight = readerDimensions.height;
+      
+      const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+      const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+
+      animate(panX, panX.get() + velocityX * 0.1, {
+        type: 'spring',
+        stiffness: 100,
+        damping: 30,
+        restDelta: 0.5,
+        onUpdate: (v) => {
+          if (v < -hMargin) panX.set(-hMargin);
+          if (v > hMargin) panX.set(hMargin);
+        }
+      });
+      animate(panY, panY.get() + velocityY * 0.1, {
+        type: 'spring',
+        stiffness: 100,
+        damping: 30,
+        restDelta: 0.5,
+        onUpdate: (v) => {
+          if (v < -vMargin) panY.set(-vMargin);
+          if (v > vMargin) panY.set(vMargin);
+        }
+      });
+      return;
+    }
     
     const offset = info.offset.x;
     const velocity = info.velocity.x;
     
-    const currentScale = visualScale.get();
-    // Adaptive thresholds based on scale
-    const threshold = currentScale > 1.3 ? 100 : 50;
-    const velocityThreshold = currentScale > 1.3 ? 800 : 500;
+    const threshold = 50;
+    const velocityThreshold = 500;
     
     let nextIndex = pageIndex;
     
@@ -225,6 +289,21 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     
     handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
   };
+
+  const baseWidth = React.useMemo(() => {
+    if (readerDimensions.width === 0) return 300; // Fallback
+    if (viewMode === 'double') {
+      const maxWidth = readerDimensions.width * 0.95;
+      const maxHeight = readerDimensions.height * 0.9;
+      const idealWidth = (maxHeight * 0.707) * 2;
+      return Math.min(idealWidth, maxWidth) / 2;
+    } else {
+      const maxWidth = readerDimensions.width * 0.9;
+      const maxHeight = readerDimensions.height * 0.9;
+      const idealWidth = maxHeight * 0.707;
+      return Math.min(idealWidth, maxWidth);
+    }
+  }, [viewMode, readerDimensions]);
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!isPinching.current) {
@@ -609,7 +688,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                 isLandscape ? "px-1 py-0.5" : "px-2 py-1"
               )}>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); setScale(s => Math.max(0.2, s - 0.2)); }} 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    const next = Math.max(0.5, scale - 0.5);
+                    setScale(next);
+                  }} 
                   className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
                 >
                   <Minus className={cn(isLandscape ? "w-3 h-3" : "w-4 h-4")} />
@@ -618,7 +701,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   <span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">{Math.round(scale * 100)}%</span>
                 </div>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); setScale(s => Math.min(5, s + 0.2)); }} 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    const next = Math.min(5, scale + 0.5);
+                    setScale(next);
+                  }} 
                   className="p-2 hover:bg-white/10 rounded-full transition-all active:scale-75 text-white/80"
                 >
                   <Plus className={cn(isLandscape ? "w-3 h-3" : "w-4 h-4")} />
@@ -723,9 +810,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   renderScale={renderScale}
                   currentScale={scale}
                   isLandscape={isLandscape}
-                  constraintsRef={readerContainerRef}
                   containerDimensions={readerDimensions}
-                  isSelectingGesture={isSelectingGesture}
+                  panX={panX}
+                  panY={panY}
                 />
               );
             })}
@@ -810,9 +897,9 @@ const ReaderSheet = React.memo(function ReaderSheet({
   renderScale, 
   currentScale,
   isLandscape,
-  constraintsRef,
   containerDimensions,
-  isSelectingGesture
+  panX,
+  panY
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -820,26 +907,38 @@ const ReaderSheet = React.memo(function ReaderSheet({
   viewMode: 'single' | 'double',
   direction: 'ltr' | 'rtl',
   virtualPage: any,
-  scale: any, // smoothScale MotionValue
+  scale: any, // visualScale
   renderScale: number,
   currentScale: number,
   isLandscape: boolean,
-  constraintsRef: React.RefObject<HTMLDivElement>,
   containerDimensions: { width: number, height: number },
-  isSelectingGesture: React.RefObject<boolean>,
+  panX: any,
+  panY: any,
   key?: React.Key
 }) {
-  console.log(`[ReaderSheet] Rendering Sheet ${index} | renderScale: ${renderScale}`);
+  console.log(`[ReaderSheet] Rendering Sheet ${index}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
   // Calculate display width in pixels (BASE SIZE at scale 1.0)
-  const [displayWidth, setDisplayWidth] = useState(0);
-  const aspect = 1.414; // Standard PDF aspect ratio (A4)
+  const baseWidth = React.useMemo(() => {
+    if (containerDimensions.width === 0) return 0;
+    if (viewMode === 'double') {
+      const maxWidth = containerDimensions.width * 0.95;
+      const maxHeight = containerDimensions.height * 0.9;
+      const idealWidth = (maxHeight * 0.707) * 2;
+      return Math.min(idealWidth, maxWidth) / 2;
+    } else {
+      const maxWidth = containerDimensions.width * 0.9;
+      const maxHeight = containerDimensions.height * 0.9;
+      const idealWidth = maxHeight * 0.707;
+      return Math.min(idealWidth, maxWidth);
+    }
+  }, [viewMode, containerDimensions]);
 
+  // Use the recalculated one from parent if possible, but let's just use a simplified one here for CSS
+  const [displayWidth, setDisplayWidth] = useState(0);
   useEffect(() => {
     if (containerDimensions.width === 0) return;
-    
-    // Stable base sizing independent of renderScale
     let w = 0;
     if (viewMode === 'double') {
       const maxWidth = containerDimensions.width * 0.95;
@@ -853,27 +952,17 @@ const ReaderSheet = React.memo(function ReaderSheet({
       w = Math.min(idealWidth, maxWidth);
     }
     setDisplayWidth(w);
-    console.log(`[ReaderSheet] Recalculated stable base width for Sheet ${index}: ${w}`);
-  }, [viewMode, containerDimensions, index]);
+  }, [viewMode, containerDimensions]);
   
-  // Virtualization position
   const x = useTransform(distance, (d: number) => {
     const multiplier = direction === 'rtl' ? -100 : 100;
-    return d * multiplier; // Using percentage in template
-  });
-  
-  const zIndex = useTransform(distance, (d: number) => {
-    return 10 - Math.abs(Math.round(d));
-  });
-
-  const rotateY = useTransform(distance, (d: number) => {
-    const multiplier = direction === 'rtl' ? -10 : 10;
     return d * multiplier;
   });
-
-  const transitionScale = useTransform(distance, (d: number) => {
-    return 1 - (Math.abs(d) * 0.05);
-  });
+  
+  const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
+  const rotateY = useTransform(distance, (d: number) => d * (direction === 'rtl' ? -10 : 10));
+  const transitionScale = useTransform(distance, (d: number) => 1 - (Math.abs(d) * 0.05));
+  const totalScale = useTransform([scale, transitionScale], ([s, ts]) => (s as number) * (ts as number));
   
   const opacity = useTransform(distance, (d: number) => {
     if (d <= -1.5 || d >= 1.5) return 0;
@@ -882,118 +971,47 @@ const ReaderSheet = React.memo(function ReaderSheet({
     return 1;
   });
   
-  const visibility = useTransform(distance, (d: number) => {
-    return Math.abs(d) <= 1.5 ? 'visible' : 'hidden';
-  });
-
-  const panX = useMotionValue(0);
-  const panY = useMotionValue(0);
-
-  // Reset panning when zooming out
-  useEffect(() => {
-    if (scale.get() <= 1.1) {
-      panX.set(0);
-      panY.set(0);
-    }
-  }, [scale, panX, panY]);
-
-  // UNIFIED TRANSFORM PIPELINE
-  // We combine virtualization, panning, gesture scale, and transition scale into ONE string
-  const totalScale = useTransform([scale, transitionScale], ([s, ts]) => (s as number) * (ts as number));
-  
-  // NOTE: x is percentage base, panX is pixels. We'll use calc or motion template
-    const transform = React.useMemo(() => {
-      return (latest: { x: number, panX: number, panY: number, rotateY: number, scale: number }) => {
-        // We use translate3d for hardware acceleration
-        const s = latest.scale;
-        return `translate3d(calc(${latest.x}% + ${latest.panX}px), ${latest.panY}px, 0) scale(${s}) rotateY(${latest.rotateY}deg)`;
-      };
-    }, []);
+  const visibility = useTransform(distance, (d: number) => Math.abs(d) <= 1.5 ? 'visible' : 'hidden');
 
   const transformValue = useTransform(
     [x, panX, panY, rotateY, totalScale],
-    ([xv, px, py, ry, s]) => transform({ x: xv as number, panX: px as number, panY: py as number, rotateY: ry as number, scale: s as number })
+    ([xv, px, py, ry, s]) => `translate3d(calc(${xv}% + ${px}px), ${py}px, 0) scale(${s}) rotateY(${ry}deg)`
   );
-
-  // Calculate dynamic PAN constraints based on scale
-  const dragConstraints = React.useMemo(() => {
-    // Current total visible size
-    const zoomedWidth = displayWidth * currentScale;
-    const zoomedHeight = (displayWidth * aspect) * currentScale;
-    
-    const viewportWidth = containerDimensions.width;
-    const viewportHeight = containerDimensions.height;
-    
-    // Bounds: if content > viewport, we can pan the difference
-    // Note: Framer Motion drag coordinates are relative to initial position
-    const horizontalMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
-    const verticalMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
-    
-    return {
-      left: -horizontalMargin,
-      right: horizontalMargin,
-      top: -verticalMargin,
-      bottom: verticalMargin
-    };
-  }, [displayWidth, currentScale, aspect, containerDimensions]);
-
-  const [isPointerDownOnText, setIsPointerDownOnText] = useState(false);
 
   return (
     <motion.div
-      style={{ opacity, visibility, zIndex }}
+      style={{ 
+        opacity, visibility, zIndex,
+        transform: transformValue,
+        transformStyle: 'preserve-3d',
+        backfaceVisibility: 'hidden',
+        willChange: 'transform'
+      } as any}
       className={cn(
         "absolute inset-0 flex p-4 md:p-8",
-        "overflow-hidden",
         viewMode === 'double' ? "flex-row" : "flex-col",
         "items-center justify-center",
         "transform-gpu perspective-[1500px]"
       )}
     >
-      <motion.div 
-        id={`sheet-${index}-transform-container`}
-        onPointerDown={(e: any) => {
-          const target = e.target as HTMLElement;
-          const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
-          setIsPointerDownOnText(!!isText);
-          if (isText) {
-            // If we are on text, we want to allow selection and block the pan gesture
-            // We set the ref for the parent as well
-            isSelectingGesture.current = true;
-          } else {
-            isSelectingGesture.current = false;
-          }
-        }}
-        style={{ 
-          transform: transformValue,
-          transformStyle: 'preserve-3d',
-          backfaceVisibility: 'hidden',
-          width: 'fit-content',
-          height: 'fit-content',
-          touchAction: 'none',
-          willChange: 'transform'
-        } as any}
-        drag={currentScale > 1.05 && !isPointerDownOnText}
-        dragConstraints={dragConstraints}
-        dragElastic={0.1}
-        dragMomentum={true}
-        className={cn(
-          "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center transform-gpu",
-          viewMode === 'double' ? "flex-row" : "flex-col",
-          "mx-auto"
-        )}
-      >
+        <div 
+          className={cn(
+            "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center transform-gpu",
+            viewMode === 'double' ? "flex-row" : "flex-col",
+            "mx-auto"
+          )}
+        >
         {viewMode === 'double' ? (
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="left" isLandscape={isLandscape} visualScale={scale} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="right" isLandscape={isLandscape} visualScale={scale} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="left" isLandscape={isLandscape} visualScale={scale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="right" isLandscape={isLandscape} visualScale={scale} direction={direction} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="left" isLandscape={isLandscape} visualScale={scale} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="right" isLandscape={isLandscape} visualScale={scale} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="left" isLandscape={isLandscape} visualScale={scale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} currentScale={currentScale} side="right" isLandscape={isLandscape} visualScale={scale} direction={direction} />
               </>
             )}
           </>
@@ -1005,10 +1023,10 @@ const ReaderSheet = React.memo(function ReaderSheet({
               maxHeight: '90vh'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} currentScale={currentScale} visualScale={scale} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} currentScale={currentScale} visualScale={scale} direction={direction} />
           </div>
         )}
-      </motion.div>
+      </div>
     </motion.div>
   );
 });
@@ -1170,31 +1188,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             if (textLayerDivRef.current) {
               const textContent = await page.getTextContent();
               
-              // Organize text items for RTL correctly
-              // Group by lines then sort horizontally
-              const items = [...textContent.items];
-              const lines: {[key: number]: any[]} = {};
-              
-              items.forEach((item: any) => {
-                const y = Math.round(item.transform[5] / 2) * 2; // Snap to 2px grid
-                if (!lines[y]) lines[y] = [];
-                lines[y].push(item);
-              });
-
-              const sortedItems: any[] = [];
-              const yCoords = Object.keys(lines).map(Number).sort((a, b) => b - a); // Top to bottom
-              
-              yCoords.forEach(y => {
-                const lineItems = lines[y];
-                // For RTL, items on the right (higher X) come first in the segment
-                lineItems.sort((a, b) => {
-                  return direction === 'rtl' ? b.transform[4] - a.transform[4] : a.transform[4] - b.transform[4];
-                });
-                sortedItems.push(...lineItems);
-              });
-
               await pdfjs.renderTextLayer({
-                textContentSource: { ...textContent, items: sortedItems },
+                textContentSource: textContent,
                 container: textLayerDivRef.current,
                 viewport: viewport
               }).promise;

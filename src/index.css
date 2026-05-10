@@ -80,6 +80,7 @@ body {
   pointer-events: auto !important;
   z-index: 5;
   line-height: 1;
+  direction: rtl;
   unicode-bidi: plaintext;
 }
 
