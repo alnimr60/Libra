@@ -30,7 +30,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const gestureMode = useRef<GestureMode>(GestureMode.Idle);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartInfo = useRef({ x: 0, y: 0, time: 0 });
-  const isPinching = useRef(false); // Keep for compatibility with debug overlay for now
+  const isPinching = useRef(false);
+  const isPanning = useRef(false);
+  const isAnimatingZoom = useRef(false);
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
@@ -166,6 +168,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
     if (!readerContainerRef.current) return;
+    
+    // Safety lock: Don't interrupt existing zoom animations or pinch gestures
+    if (isAnimatingZoom.current || isPinching.current) {
+      console.log("[DoubleTapZoom] Locked: animation or pinch in progress");
+      return;
+    }
+
     const rect = readerContainerRef.current.getBoundingClientRect();
     
     // Tap position relative to container center
@@ -175,21 +184,50 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const oy = clientY - cy;
 
     const currentScaleValue = liveScale.get();
+    
+    // Diagnostic logging
+    console.log("[DoubleTapZoom] Start", {
+      currentScale: currentScaleValue.toFixed(3),
+      tapX: clientX,
+      tapY: clientY,
+      offsetX: ox,
+      offsetY: oy
+    });
+
+    // Stop all active animations to prevent conflicts
+    liveScale.stop();
+    panX.stop();
+    panY.stop();
+
+    isAnimatingZoom.current = true;
 
     if (currentScaleValue > 1.05) {
       // Zoom out to 1.0
       const target = 1.0;
+      
+      console.log("[DoubleTapZoom] Animating to Scale 1.0");
+
       animate(liveScale, target, { 
         type: 'spring', 
         stiffness: 300, 
         damping: 30,
-        onComplete: () => setCommittedScale(target)
+        onComplete: () => {
+          setCommittedScale(target);
+          isAnimatingZoom.current = false;
+          console.log("[DoubleTapZoom] Zoom Out Complete");
+        }
       });
       animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
       animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
     } else {
       // Zoom in to 2.5
       const target = 2.5;
+      
+      if (!Number.isFinite(target)) {
+        isAnimatingZoom.current = false;
+        return;
+      }
+
       setShowControls(false);
 
       // Target pan to bring tap location to center
@@ -210,11 +248,23 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const clampedX = Math.max(-hMargin, Math.min(hMargin, targetPanX));
       const clampedY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
 
+      if (!Number.isFinite(clampedX) || !Number.isFinite(clampedY)) {
+        console.error("[DoubleTapZoom] Invalid target coordinates computed", { clampedX, clampedY });
+        isAnimatingZoom.current = false;
+        return;
+      }
+
+      console.log("[DoubleTapZoom] Animating to Scale 2.5", { clampedX, clampedY });
+
       animate(liveScale, target, { 
         type: 'spring', 
         stiffness: 300, 
         damping: 30,
-        onComplete: () => setCommittedScale(target)
+        onComplete: () => {
+          setCommittedScale(target);
+          isAnimatingZoom.current = false;
+          console.log("[DoubleTapZoom] Zoom In Complete");
+        }
       });
       animate(panX, clampedX, { type: 'spring', stiffness: 300, damping: 30 });
       animate(panY, clampedY, { type: 'spring', stiffness: 300, damping: 30 });
@@ -288,19 +338,20 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePanStart = (e: any, info: any) => {
     // If we are already in a specific mode, don't re-evaluate
-    if (gestureMode.current !== GestureMode.Idle) return;
+    if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
     
     // Stop any running animations
     panX.stop();
     panY.stop();
     liveScale.stop();
     
+    isPanning.current = true;
     // We stay Idle until movement threshold is met or long-press triggers
   };
 
   const handlePanMove = (_: any, info: any) => {
     // If in SelectingText, browsers handle everything
-    if (gestureMode.current === GestureMode.SelectingText) return;
+    if (gestureMode.current === GestureMode.SelectingText || isAnimatingZoom.current) return;
 
     // Movement threshold check to cancel long press
     const moveDist = Math.sqrt(Math.pow(info.offset.x, 2) + Math.pow(info.offset.y, 2));
@@ -356,6 +407,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanEnd = (_: any, info: any) => {
+    isPanning.current = false;
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
@@ -535,7 +587,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
+    if (e.touches.length === 2 && !isAnimatingZoom.current) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
@@ -572,7 +624,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (gestureMode.current === GestureMode.PinchZooming && e.touches.length === 2) {
+    if (gestureMode.current === GestureMode.PinchZooming && e.touches.length === 2 && !isAnimatingZoom.current) {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dist = Math.hypot(t1.pageX - t2.pageX, t1.pageY - t2.pageY);
