@@ -79,9 +79,10 @@ body {
   -webkit-user-select: text !important;
   pointer-events: auto !important;
   z-index: 5;
-  line-height: 1;
+  line-height: normal;
   direction: rtl;
   unicode-bidi: plaintext;
+  padding-top: 2px;
 }
 
 .textLayer span {
@@ -94,6 +95,9 @@ body {
   -webkit-user-select: text !important;
   direction: rtl;
   unicode-bidi: plaintext;
+  display: inline-block;
+  line-height: normal;
+  min-height: 1em;
 }
 
 .textLayer ::selection {

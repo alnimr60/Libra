@@ -1157,7 +1157,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
         willChange: 'transform'
       } as any}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8",
+        "absolute inset-0 flex p-4 md:p-8 select-none",
         viewMode === 'double' ? "flex-row" : "flex-col",
         "items-center justify-center",
         "perspective-[1500px]"
@@ -1425,7 +1425,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
       {pageSize.width > 0 && (
         <div 
           id={`page-${pageNumber}-container`}
-          className="relative shadow-2xl bg-white transition-opacity duration-300"
+          className="relative shadow-2xl bg-white transition-opacity duration-300 select-none"
           style={{ 
             width: displayWidth,
             height: displayHeight,
@@ -1435,7 +1435,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             left: 0,
             flexShrink: 0,
             opacity: isRendering ? 0 : 1,
-            contain: 'content'
+            contain: 'content',
+            userSelect: 'none',
+            WebkitUserSelect: 'none'
           }}
         >
           <canvas 
@@ -1457,7 +1459,10 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
               height: displayHeight,
               pointerEvents: 'auto',
               transform: 'none',
-              zIndex: 5
+              zIndex: 5,
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+              paddingTop: '2px'
             }} 
           />
         </div>
