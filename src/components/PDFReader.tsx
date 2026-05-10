@@ -175,24 +175,22 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       return;
     }
 
-    const rect = readerContainerRef.current.getBoundingClientRect();
-    
-    // Tap position relative to container center
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const ox = clientX - cx;
-    const oy = clientY - cy;
-
     const currentScaleValue = liveScale.get();
     
     // Diagnostic logging
     console.log("[DoubleTapZoom] Start", {
-      currentScale: currentScaleValue.toFixed(3),
-      tapX: clientX,
-      tapY: clientY,
-      offsetX: ox,
-      offsetY: oy
+      currentScale: currentScaleValue,
+      currentScaleType: typeof currentScaleValue,
+      currentScaleFinite: Number.isFinite(currentScaleValue)
     });
+
+    if (!Number.isFinite(currentScaleValue)) {
+      console.error("[DoubleTapZoom] Abort: non-finite current scale");
+      // Reset to safe state if corrupted
+      liveScale.set(1.0);
+      setCommittedScale(1.0);
+      return;
+    }
 
     // Stop all active animations to prevent conflicts
     liveScale.stop();
@@ -205,7 +203,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       // Zoom out to 1.0
       const target = 1.0;
       
-      console.log("[DoubleTapZoom] Animating to Scale 1.0");
+      console.log("[DoubleTapZoom] Animating Zoom Out", { target, finite: Number.isFinite(target) });
+
+      if (!Number.isFinite(target)) {
+        isAnimatingZoom.current = false;
+        return;
+      }
 
       animate(liveScale, target, { 
         type: 'spring', 
@@ -217,44 +220,19 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           console.log("[DoubleTapZoom] Zoom Out Complete");
         }
       });
-      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      // Note: panX/panY reset is handled by the useEffect watching committedScale
     } else {
       // Zoom in to 2.5
       const target = 2.5;
       
+      console.log("[DoubleTapZoom] Animating Zoom In", { target, finite: Number.isFinite(target) });
+
       if (!Number.isFinite(target)) {
         isAnimatingZoom.current = false;
         return;
       }
 
       setShowControls(false);
-
-      // Target pan to bring tap location to center
-      const targetPanX = -ox * target;
-      const targetPanY = -oy * target;
-
-      // Clamp to margins
-      const aspect = 1.414;
-      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-      const zoomedWidth = spreadWidth * target;
-      const zoomedHeight = (baseWidth * aspect) * target;
-      const viewportWidth = rect.width;
-      const viewportHeight = rect.height;
-      
-      const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
-      const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
-
-      const clampedX = Math.max(-hMargin, Math.min(hMargin, targetPanX));
-      const clampedY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
-
-      if (!Number.isFinite(clampedX) || !Number.isFinite(clampedY)) {
-        console.error("[DoubleTapZoom] Invalid target coordinates computed", { clampedX, clampedY });
-        isAnimatingZoom.current = false;
-        return;
-      }
-
-      console.log("[DoubleTapZoom] Animating to Scale 2.5", { clampedX, clampedY });
 
       animate(liveScale, target, { 
         type: 'spring', 
@@ -266,8 +244,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           console.log("[DoubleTapZoom] Zoom In Complete");
         }
       });
-      animate(panX, clampedX, { type: 'spring', stiffness: 300, damping: 30 });
-      animate(panY, clampedY, { type: 'spring', stiffness: 300, damping: 30 });
     }
   };
 
