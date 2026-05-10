@@ -66,7 +66,8 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
         totalPages: metadata.pageCount,
         coverUrl: metadata.coverUrl,
         fileDataId: fileId,
-        readingDirection: direction
+        readingDirection: direction,
+        directionDetected: !!sampleText
       }));
       setStep(2);
     } catch (error) {
@@ -116,6 +117,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
       status: formData.status || 'To-Be-Read',
       tags: formData.tags || [],
       readingDirection: formData.readingDirection || 'ltr',
+      directionDetected: formData.directionDetected,
       coverUrl: formData.coverUrl,
       fileDataId: formData.fileDataId,
       deadline: formData.deadline,

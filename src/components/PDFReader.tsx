@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { pdfjs } from '../lib/pdf';
+import { pdfjs, samplePDFText, detectDirectionFromText } from '../lib/pdf';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
 import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2, AlertCircle } from 'lucide-react';
@@ -335,8 +335,50 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   // Toggle direction manually
   const toggleDirection = () => {
-    setDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr');
+    setDirection(prev => {
+      const next = prev === 'ltr' ? 'rtl' : 'ltr';
+      updateBook({ 
+        ...book, 
+        readingDirection: next,
+        directionDetected: true // Manual override marks as completed
+      });
+      return next;
+    });
   };
+
+  // Automatic reading direction detection
+  useEffect(() => {
+    if (!pdf || book.directionDetected) {
+      if (book.directionDetected) {
+        console.log(`[DirectionDetection] already detected for "${book.title}", skipping.`);
+      }
+      return;
+    }
+
+    const runDetection = async () => {
+      console.log(`[DirectionDetection] Starting detection for "${book.title}"`);
+      try {
+        const text = await samplePDFText(pdf);
+        const detected = detectDirectionFromText(text);
+        
+        console.log(`[DirectionDetection] Final decision for "${book.title}": ${detected.toUpperCase()}`);
+        
+        // Update local state
+        setDirection(detected);
+        
+        // Persist result
+        updateBook({
+          ...book,
+          readingDirection: detected,
+          directionDetected: true
+        });
+      } catch (err) {
+        console.error(`[DirectionDetection] Failed to run detection:`, err);
+      }
+    };
+
+    runDetection();
+  }, [pdf, book.id, book.directionDetected]);
 
   // Keep virtualPage in sync with state
   useEffect(() => {
@@ -1465,6 +1507,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             textLayerDivRef.current.innerHTML = '';
             textLayerDivRef.current.style.width = `${viewport.width}px`;
             textLayerDivRef.current.style.height = `${viewport.height}px`;
+            // Set scale factor BEFORE rendering text layer to satisfy PDF.js checks
+            textLayerDivRef.current.style.setProperty('--scale-factor', viewport.scale.toString());
           }
 
           if (renderTaskRef.current) {
@@ -1490,8 +1534,6 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
                 container: textLayerDivRef.current,
                 viewport: viewport
               }).promise;
-              
-              textLayerDivRef.current.style.setProperty('--scale-factor', textLayerViewportScale.toString());
             }
           } catch (textLayerErr) {
             console.warn("Text layer processing failed", textLayerErr);

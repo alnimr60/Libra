@@ -22,6 +22,7 @@ export interface Book {
   status: ReadingStatus;
   tags: string[];
   readingDirection: 'ltr' | 'rtl';
+  directionDetected?: boolean;
   coverUrl?: string; // Data URL or external link
   fileDataId?: string; // ID for IndexedDB storage
   bookmarks?: Bookmark[];
