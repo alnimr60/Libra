@@ -29,9 +29,32 @@ export default function App() {
     addGoal, updateGoal, deleteGoal, logReading 
   } = usePersistence();
   const insets = useSafeArea();
-
   const isRTL = settings.language === 'ar';
   const t = translations[settings.language];
+
+  // Prevent browser viewport pinch zoom and gestures
+  React.useEffect(() => {
+    // 1. Prevent iOS Safari gesture zoom
+    const preventZoom = (e: any) => {
+      if (e.scale && e.scale !== 1) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('gesturestart', preventZoom, { passive: false });
+    document.addEventListener('gesturechange', preventZoom, { passive: false });
+    document.addEventListener('gestureend', preventZoom, { passive: false });
+
+    // 2. Set touch-action on documentElement
+    document.documentElement.style.touchAction = 'manipulation';
+
+    return () => {
+      document.removeEventListener('gesturestart', preventZoom);
+      document.removeEventListener('gesturechange', preventZoom);
+      document.removeEventListener('gestureend', preventZoom);
+      document.documentElement.style.touchAction = '';
+    };
+  }, []);
 
   const activeBook = books.find(b => b.id === activeBookId);
   const currentBooks = books.filter(b => b.status === 'Currently Reading');
