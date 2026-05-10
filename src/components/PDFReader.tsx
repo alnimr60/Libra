@@ -231,6 +231,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const handlePanStart = (e: any, info: any) => {
     if (isPinching.current) return;
     
+    // Stop any running animations
+    panX.stop();
+    panY.stop();
+    visualScale.stop();
+    
     const currentScale = visualScale.get();
     const target = e.target as HTMLElement;
     const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
@@ -258,7 +263,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     
     const currentScale = visualScale.get();
     
-    if (currentScale > 1.05) {
+    if (currentScale > 1.1) {
       // PANNING MODE (clamped)
       const aspect = 1.414;
       const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
@@ -273,8 +278,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const nextX = panX.get() + info.delta.x;
       const nextY = panY.get() + info.delta.y;
 
-      panX.set(Math.max(-hMargin, Math.min(hMargin, nextX)));
-      panY.set(Math.max(-vMargin, Math.min(vMargin, nextY)));
+      const clampedX = Math.max(-hMargin, Math.min(hMargin, nextX));
+      const clampedY = Math.max(-vMargin, Math.min(vMargin, nextY));
+
+      panX.set(clampedX);
+      panY.set(clampedY);
+
+      if (Math.random() < 0.05) {
+        console.log(`[PDFReader] Panning: scale=${currentScale.toFixed(2)}, panX=${clampedX.toFixed(1)}, panY=${clampedY.toFixed(1)}`);
+      }
       return;
     }
 
@@ -295,7 +307,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     
     const currentScale = visualScale.get();
     
-    if (currentScale > 1.05) {
+    if (currentScale > 1.1) {
       // INERTIAL PANNING
       const velocityX = info.velocity.x;
       const velocityY = info.velocity.y;
@@ -531,8 +543,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
       const zoomedWidth = spreadWidth * nextScale;
       const zoomedHeight = (baseWidth * aspect) * nextScale;
-      const containerW = readerDimensions.width || window.innerWidth;
-      const containerH = readerDimensions.height || window.innerHeight;
+      const containerW = readerDimensionsRef.current.width || window.innerWidth;
+      const containerH = readerDimensionsRef.current.height || window.innerHeight;
       
       const hMargin = Math.max(0, (zoomedWidth - containerW) / 2);
       const vMargin = Math.max(0, (zoomedHeight - containerH) / 2);
@@ -894,6 +906,28 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         )}
       </div>
 
+      {/* Debug Overlay */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed top-4 right-4 z-[999] bg-black/80 text-white p-4 rounded-xl font-mono text-[10px] pointer-events-none border border-white/10 flex flex-col gap-1">
+          <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Scale</span>
+            <motion.span>{useTransform(visualScale, v => typeof v === 'number' ? v.toFixed(3) : v)}</motion.span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Pan X</span>
+            <motion.span>{useTransform(panX, v => typeof v === 'number' ? v.toFixed(1) : v)}</motion.span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Pan Y</span>
+            <motion.span>{useTransform(panY, v => typeof v === 'number' ? v.toFixed(1) : v)}</motion.span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Mode</span>
+            <span>{scale > 1.1 ? (isPinching.current ? 'Pinch' : 'Pan') : 'Swipe'}</span>
+          </div>
+        </div>
+      )}
+
       <AnimatePresence>
         {false && (
           <motion.div
@@ -1068,10 +1102,10 @@ const ReaderSheet = React.memo(function ReaderSheet({
     >
         <motion.div 
           id={`sheet-${index}-transform-container`}
+          x={panX}
+          y={panY}
+          scale={totalScale}
           style={{ 
-            scale: totalScale,
-            x: panX,
-            y: panY,
             transformStyle: 'preserve-3d',
             backfaceVisibility: 'hidden',
             width: 'fit-content',
@@ -1079,9 +1113,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
             willChange: 'transform'
           } as any}
           className={cn(
-            "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center transform-gpu",
-            viewMode === 'double' ? "flex-row" : "flex-col",
-            "mx-auto"
+            "flex flex-shrink-0 gap-0 lg:gap-4 my-auto origin-center",
+            viewMode === 'double' ? "flex-row" : "flex-col"
           )}
         >
         {viewMode === 'double' ? (
@@ -1329,7 +1362,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
       {pageSize.width > 0 && (
         <div 
           id={`page-${pageNumber}-container`}
-          className="relative shadow-2xl bg-white transition-opacity duration-300 transform-gpu"
+          className="relative shadow-2xl bg-white transition-opacity duration-300"
           style={{ 
             width: displayWidth,
             height: displayHeight,
