@@ -26,6 +26,7 @@ enum GestureMode {
 }
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
+  console.log("[HOOK TRACE] PDFReader render");
   console.log("[PDFReader] Render");
 
   useEffect(() => {
@@ -179,6 +180,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   // Double tap to zoom handler
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   
+  // Motion transforms for UI display - defined at top level to avoid conditional hook calls
+  const liveScalePercent = useTransform(liveScale, v => `${Math.round(v * 100)}%`);
+  const debugScale = useTransform(liveScale, v => typeof v === 'number' ? v.toFixed(3) : v);
+  const debugPanX = useTransform(panX, v => typeof v === 'number' ? v.toFixed(1) : v);
+  const debugPanY = useTransform(panY, v => typeof v === 'number' ? v.toFixed(1) : v);
+
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
     console.log("[DoubleTap] STEP 1: Entry", { clientX, clientY });
     try {
@@ -918,7 +925,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                 </button>
                 <div className="flex flex-col items-center min-w-[36px]">
                   <motion.span className="text-[10px] font-mono font-bold leading-none text-center select-none text-white">
-                    {useTransform(liveScale, v => `${Math.round(v * 100)}%`)}
+                    {liveScalePercent}
                   </motion.span>
                 </div>
                 <button 
@@ -1052,15 +1059,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         <div className="fixed top-4 right-4 z-[999] bg-black/80 text-white p-4 rounded-xl font-mono text-[10px] pointer-events-none border border-white/10 flex flex-col gap-1">
           <div className="flex justify-between gap-4">
             <span className="opacity-40 uppercase tracking-widest">Scale</span>
-            <motion.span>{useTransform(liveScale, v => typeof v === 'number' ? v.toFixed(3) : v)}</motion.span>
+            <motion.span>{debugScale}</motion.span>
           </div>
           <div className="flex justify-between gap-4">
             <span className="opacity-40 uppercase tracking-widest">Pan X</span>
-            <motion.span>{useTransform(panX, v => typeof v === 'number' ? v.toFixed(1) : v)}</motion.span>
+            <motion.span>{debugPanX}</motion.span>
           </div>
           <div className="flex justify-between gap-4">
             <span className="opacity-40 uppercase tracking-widest">Pan Y</span>
-            <motion.span>{useTransform(panY, v => typeof v === 'number' ? v.toFixed(1) : v)}</motion.span>
+            <motion.span>{debugPanY}</motion.span>
           </div>
           <div className="flex justify-between gap-4">
             <span className="opacity-40 uppercase tracking-widest">Mode</span>
@@ -1166,6 +1173,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   panY: any,
   isCurrent: boolean
 }) {
+  console.log(`[HOOK TRACE] ReaderSheet render index: ${index}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
   // Calculate display width in pixels (BASE SIZE at scale 1.0)
@@ -1305,9 +1313,12 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   liveScale: any,
   direction: 'ltr' | 'rtl'
 }) {
-  if (pageNumber > numPages) return <div className="flex-shrink-0 bg-white" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />;
+  console.log(`[HOOK TRACE] SpreadPage render page: ${pageNumber}`);
+  const isOutOfBounds = pageNumber > numPages;
   
-  return (
+  const content = isOutOfBounds ? (
+    <div className="flex-shrink-0 bg-white" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />
+  ) : (
     <div 
       className={cn(
         "flex-shrink-0 h-auto relative flex items-center justify-center",
@@ -1325,6 +1336,8 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
       <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} committedScale={committedScale} liveScale={liveScale} direction={direction} />
     </div>
   );
+
+  return <>{content}</>;
 });
 
 interface PDFPageProps {
@@ -1338,6 +1351,7 @@ interface PDFPageProps {
 }
 
 const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, liveScale, direction }) => {
+  console.log(`[HOOK TRACE] PDFPage render page: ${pageNumber}`);
   console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
