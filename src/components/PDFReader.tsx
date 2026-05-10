@@ -1202,14 +1202,38 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
       if (isSelectingText) (isSelectingText as any).current = false;
     };
 
+    const handleTouchStart = (e: TouchEvent) => {
+      if (!selectionMode) return;
+      
+      const target = (e.target as HTMLElement);
+      const isSpan = target.tagName.toLowerCase() === 'span' || target.closest('span');
+      
+      if (!isSpan) {
+        console.log("[SelectionDebug] Touch on background - selection initiation will be restricted by selectstart/CSS");
+      }
+    };
+
+    const handleSelectStart = (e: Event) => {
+      if (!selectionMode) return;
+      const target = (e.target as HTMLElement);
+      if (!target.closest('span')) {
+        console.log("[SelectionDebug] Blocking selection start on non-text area");
+        e.preventDefault();
+      }
+    };
+
     textLayer.addEventListener('pointerdown', handlePointerDown, { capture: false });
+    textLayer.addEventListener('touchstart', handleTouchStart as any, { passive: true });
+    textLayer.addEventListener('selectstart', handleSelectStart);
     window.addEventListener('pointerup', handlePointerUp);
     
     return () => {
       textLayer.removeEventListener('pointerdown', handlePointerDown);
+      textLayer.removeEventListener('touchstart', handleTouchStart as any);
+      textLayer.removeEventListener('selectstart', handleSelectStart);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [isSelectingText]);
+  }, [isSelectingText, selectionMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1331,13 +1355,14 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
     <div 
       ref={containerRef} 
       className={cn(
-        "relative flex items-center justify-center bg-white/5",
-        selectionMode ? "overflow-visible" : "overflow-hidden",
-        !selectionMode && "select-none"
+        "relative flex items-center justify-center bg-white/5 select-none",
+        selectionMode ? "overflow-visible" : "overflow-hidden"
       )}
       style={{ 
         width: displayWidth,
-        height: displayHeight
+        height: displayHeight,
+        userSelect: 'none',
+        WebkitUserSelect: 'none'
       }}
     >
       {isRendering && (
@@ -1356,8 +1381,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
         <div 
           id={`page-${pageNumber}-container`}
           className={cn(
-            "relative shadow-2xl bg-white transition-opacity duration-300",
-            !selectionMode && "transform-gpu select-none"
+            "relative shadow-2xl bg-white transition-opacity duration-300 select-none",
+            !selectionMode && "transform-gpu"
           )}
           style={{ 
             width: displayWidth,
@@ -1368,7 +1393,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, isSelecti
             left: 0,
             flexShrink: 0,
             opacity: isRendering ? 0 : 1,
-            contain: selectionMode ? 'none' : 'content'
+            contain: selectionMode ? 'none' : 'content',
+            userSelect: 'none',
+            WebkitUserSelect: 'none'
           }}
         >
           <canvas 
