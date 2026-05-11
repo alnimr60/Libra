@@ -1490,9 +1490,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         
         const baseScale = width / pageSize.width;
         // The scale for the UI layout (CSS pixels)
-        const cssScale = baseScale * renderScale;
+        const cssScale = baseScale;
         // The scale for the internal canvas bitmap (Device pixels)
-        const renderResolutionScale = cssScale * dpr * qualityMultiplier;
+        const renderResolutionScale = baseScale * renderScale * dpr * qualityMultiplier;
 
         const viewport = page.getViewport({ scale: cssScale });
         const renderViewport = page.getViewport({ scale: renderResolutionScale });
@@ -1670,8 +1670,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             className="textLayer"
             dir="ltr"
             style={{ 
-              width: width * renderScale,
-              height: containerHeight * renderScale,
+              width: width,
+              height: containerHeight,
               pointerEvents: 'auto',
               zIndex: 5,
               userSelect: 'text',
@@ -1680,7 +1680,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
               position: 'absolute',
               top: 0,
               left: 0,
-              transform: renderScale !== 1 ? `scale(${1 / renderScale})` : 'none',
+              transform: 'none',
               transformOrigin: 'top left',
               whiteSpace: 'pre'
             }} 
