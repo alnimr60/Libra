@@ -276,9 +276,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         damping: 30
       };
       
-      animate(liveScale as any, targetScale, animConfig);
-      animate(panX as any, targetPanX, animConfig);
-      animate(panY as any, targetPanY, {
+      (animate as any)(liveScale, targetScale, animConfig);
+      (animate as any)(panX, targetPanX, animConfig);
+      (animate as any)(panY, targetPanY, {
         ...(animConfig as any),
         onComplete: () => {
           console.log("[DoubleTap] STEP 6: Animation complete callback start");
@@ -1020,8 +1020,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       {/* Main Viewport */}
       <div 
         ref={readerContainerRef}
-        className="flex-1 relative flex items-center justify-center bg-zinc-950/40 overflow-hidden"
-        style={{ touchAction: 'none' }}
+        className="flex-1 relative bg-zinc-900 border-4 border-yellow-500"
+        style={{ touchAction: 'none', overflow: 'visible' }}
         onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -1315,20 +1315,18 @@ const ReaderSheet = React.memo(function ReaderSheet({
   return (
     <motion.div
       style={{ 
-        opacity, 
-        visibility, 
-        zIndex,
-        x,
-        rotateY,
+        opacity: 1, 
+        visibility: 'visible', 
+        zIndex: 10,
+        x: 0,
+        rotateY: 0,
         transformStyle: 'preserve-3d',
         backfaceVisibility: 'hidden',
         willChange: 'transform'
       } as any}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8 select-none",
-        viewMode === 'double' ? "flex-row" : "flex-col",
-        "items-center justify-center",
-        "perspective-[1500px]"
+        "absolute inset-0 select-none bg-blue-900/10",
+        "border-2 border-dashed border-white/10"
       )}
     >
         <motion.div 
@@ -1337,6 +1335,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
             x: panX,
             y: panY,
             scale: liveScale,
+            transformOrigin: "0 0",
             transformStyle: 'preserve-3d',
             backfaceVisibility: 'hidden',
             width: 'fit-content',
@@ -1344,7 +1343,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
             willChange: 'transform'
           } as any}
           className={cn(
-            "flex flex-shrink-0 gap-0 my-auto origin-center",
+            "absolute flex flex-shrink-0 gap-0",
             viewMode === 'double' ? "flex-row" : "flex-col"
           )}
         >
@@ -1353,12 +1352,16 @@ const ReaderSheet = React.memo(function ReaderSheet({
             {direction === 'rtl' ? (
               <>
                 <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+                <div style={{ position: 'absolute', left: displayWidth }}>
+                   <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+                </div>
               </>
             ) : (
               <>
                 <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+                <div style={{ position: 'absolute', left: displayWidth }}>
+                  <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+                </div>
               </>
             )}
           </>
@@ -1391,7 +1394,6 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   panY: any,
   containerDimensions: { width: number, height: number }
 }) {
-  console.log(`[HOOK TRACE] SpreadPage render page: ${pageNumber}`);
   const isOutOfBounds = pageNumber > numPages;
   
   const content = isOutOfBounds ? (
@@ -1399,7 +1401,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   ) : (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto relative flex items-center justify-center bg-white border border-red-500", // DEBUG: page-layer border
+        "flex-shrink-0 h-auto relative bg-white",
         side === 'left' ? "rounded-l-md" : "rounded-r-md"
       )}
       style={{ 
@@ -1425,122 +1427,52 @@ interface PDFPageProps {
   isSpreadChild?: boolean;
 }
 
-const TILE_SIZE = 512;
-const MAX_MEMORY_BYTES = 350 * 1024 * 1024;
-const MAX_CONCURRENT_RENDERS = 2;
-
-interface TileData {
-  bitmap: ImageBitmap;
-  key: string;
-  size: number;
-  lastUsed: number;
-}
-
-export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, panY, containerDimensions, direction, isSpreadChild }: PDFPageProps) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const textLayerRef = useRef<HTMLDivElement>(null);
+export const PDFPage = React.memo(({ 
+  pageNumber, 
+  width, 
+  isSpreadChild,
+  panX,
+  panY,
+  renderScale
+}: PDFPageProps) => {
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let isActive = true;
-    const renderPage = async () => {
-      try {
-        console.log("[BASELINE] RENDER START page=" + pageNumber);
-        const canvas = canvasRef.current;
-        if (!canvas) {
-          console.error("[BASELINE] Canvas ref is NULL");
-          return;
-        }
-
-        const page = await pdf.getPage(pageNumber);
-        console.log("[BASELINE] Page object acquired:", page.pageNumber);
-        if (!isActive) return;
-
-        const dpr = window.devicePixelRatio || 1;
-        const baseViewport = page.getViewport({ scale: 1 });
-        
-        // Phase 1: FORCE canvas size and logs
-        console.log("[BASELINE] Viewport dims:", baseViewport.width, "x", baseViewport.height);
-        
-        canvas.width = baseViewport.width * dpr;
-        canvas.height = baseViewport.height * dpr;
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-        canvas.style.display = "block";
-        canvas.style.backgroundColor = "white";
-
-        const ctx = canvas.getContext('2d', { alpha: false });
-        if (!ctx) {
-          console.error("[BASELINE] Could not get 2D context");
-          return;
-        }
-
-        // Phase 2: CANVAS TEST DRAW
-        console.log("[BASELINE] Performing test draw");
-        ctx.fillStyle = "red";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.fillStyle = "white";
-        ctx.font = `${Math.floor(40 * dpr)}px sans-serif`;
-        ctx.fillText(`CANVAS OK - PAGE ${pageNumber}`, 50 * dpr, 100 * dpr);
-
-        // Phase 3: PDF TEST RENDER
-        console.log("[BASELINE] Starting PDF render into canvas");
-        await page.render({
-          canvasContext: ctx,
-          viewport: page.getViewport({ scale: dpr }),
-          intent: 'display'
-        }).promise;
-        
-        console.log("[BASELINE] RENDER END page=" + pageNumber);
-
-        // Render text layer
-        const textContent = await page.getTextContent();
-        if (textLayerRef.current && isActive) {
-          textLayerRef.current.innerHTML = '';
-          textLayerRef.current.style.setProperty('--scale-factor', "1");
-          await pdfjs.renderTextLayer({
-            textContentSource: textContent,
-            container: textLayerRef.current,
-            viewport: baseViewport,
-            enhanceTextSelection: true
-          }).promise;
-        }
-      } catch (e) {
-        console.error("[BASELINE] CRITICAL FAILURE page=" + pageNumber, e);
-      }
-    };
-
-    renderPage();
-    return () => { isActive = false; };
-  }, [pdf, pageNumber]);
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      console.log(`[VISIBILITY_TRACE] Page ${pageNumber}:`, {
+        camera: { x: panX.get(), y: panY.get(), scale: renderScale },
+        rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+        visibility: rect.width > 0 && rect.height > 0 ? "VISIBLE" : "HIDDEN"
+      });
+    }
+  }, [pageNumber, renderScale, panX, panY]);
 
   return (
     <div 
+      ref={containerRef}
       className={cn(
-        "bg-white transition-opacity duration-300 select-none ltr",
-        isSpreadChild ? "shadow-none" : "shadow-2xl"
+        "select-none ltr shadow-sm",
+        isSpreadChild ? "shadow-none" : "shadow-md"
       )}
       style={{ 
-        width: width,
-        height: '100%',
+        width: 400,
+        height: 600,
+        backgroundColor: 'red',
         position: 'relative',
         flexShrink: 0,
-        contain: 'content',
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        direction: 'ltr'
+        direction: 'ltr',
+        color: 'white',
+        fontSize: '24px',
+        fontWeight: 'bold',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
       }}
     >
-      <canvas 
-        ref={canvasRef} 
-        className="absolute inset-0 block" 
-        style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
-      />
-      <div 
-        ref={textLayerRef}
-        className="textLayer absolute inset-0 opacity-20 hover:opacity-100 transition-opacity"
-        style={{ width: '100%', height: '100%', pointerEvents: 'auto' }}
-      />
+      VISIBILITY TEST - PAGE {pageNumber}
     </div>
   );
 });
