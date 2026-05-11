@@ -276,10 +276,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         damping: 30
       };
       
-      animate(liveScale, targetScale, animConfig);
-      animate(panX, targetPanX, animConfig);
-      animate(panY, targetPanY, {
-        ...animConfig,
+      animate(liveScale as any, targetScale, animConfig);
+      animate(panX as any, targetPanX, animConfig);
+      animate(panY as any, targetPanY, {
+        ...(animConfig as any),
         onComplete: () => {
           console.log("[DoubleTap] STEP 6: Animation complete callback start");
           try {
@@ -1143,6 +1143,18 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             <span className="opacity-40 uppercase tracking-widest">Pan Y</span>
             <motion.span>{debugPanY}</motion.span>
           </div>
+           <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Mem</span>
+            <span id="debug-mem">0MB</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Tiles</span>
+            <span id="debug-tiles">0</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="opacity-40 uppercase tracking-widest">Tier</span>
+            <span id="debug-tier">1x</span>
+          </div>
           <div className="flex justify-between gap-4">
             <span className="opacity-40 uppercase tracking-widest">Mode</span>
             <span>{gestureMode.current}</span>
@@ -1451,228 +1463,398 @@ interface PDFPageProps {
 }
 
 const TILE_SIZE = 512;
+const MAX_MEMORY_BYTES = 350 * 1024 * 1024;
+const MAX_CONCURRENT_RENDERS = 2;
 
-// Memory Management for Tiles
-const MAX_CACHE_SIZE_BYTES = 350 * 1024 * 1024; // 350MB
-
-class TileCache {
-  private cache: Map<string, { bitmap: ImageBitmap, size: number, lastUsed: number }> = new Map();
-  private currentSize = 0;
-
-  get(key: string): ImageBitmap | undefined {
-    const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    entry.lastUsed = Date.now();
-    return entry.bitmap;
-  }
-
-  set(key: string, bitmap: ImageBitmap, size: number) {
-    if (this.cache.has(key)) this.delete(key);
-    
-    // Evict if over budget
-    while (this.currentSize + size > MAX_CACHE_SIZE_BYTES && this.cache.size > 0) {
-      this.evict();
-    }
-
-    this.cache.set(key, { bitmap, size, lastUsed: Date.now() });
-    this.currentSize += size;
-  }
-
-  private delete(key: string) {
-    const entry = this.cache.get(key);
-    if (!entry) return;
-    entry.bitmap.close();
-    this.currentSize -= entry.size;
-    this.cache.delete(key);
-  }
-
-  private evict() {
-    let oldestKey = '';
-    let oldestUsage = Infinity;
-    for (const [key, entry] of this.cache.entries()) {
-        if (entry.lastUsed < oldestUsage) {
-            oldestUsage = entry.lastUsed;
-            oldestKey = key;
-        }
-    }
-    if (oldestKey) this.delete(oldestKey);
-  }
+interface TileData {
+  bitmap: ImageBitmap;
+  key: string;
+  size: number;
+  lastUsed: number;
 }
 
-const tileCacheManager = new TileCache();
-
-// Tile component removed in favor of PDFViewportRenderer
-
-// Renderer engine live outside React lifecycle
 class PDFViewportRenderer {
   private container: HTMLElement;
-  private pdf: any;
+  private pdf: pdfjs.PDFDocumentProxy;
   private tiles: Map<string, HTMLCanvasElement> = new Map();
-  private bitmapCache: Map<string, { bitmap: ImageBitmap; lastUsed: number; size: number }> = new Map();
-  private renderQueue: Array<{pageNumber: number, row: number, col: number, tile: any, priority: number}> = [];
-  private activeRenders: number = 0;
-  private MAX_CONCURRENT = 2;
-  private MAX_MEMORY = 350 * 1024 * 1024;
+  private cache: Map<string, TileData> = new Map();
   private currentMemory = 0;
-
-
+  private renderQueue: Array<{ 
+    pageNumber: number; 
+    row: number; 
+    col: number; 
+    tier: number; 
+    priority: number 
+  }> = [];
+  private activeRenders = 0;
+  private baseViewport: pdfjs.PageViewport | null = null;
+  private isDestroyed = false;
   private cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } } | null = null;
-  private pageSize: { width: number, height: number } | null = null;
-  private renderTier: number = 2; // Fixed quality tier for now
+  private pageNumber: number = 1;
 
-  constructor(container: HTMLElement, pdf: any) {
+  constructor(container: HTMLElement, pdf: pdfjs.PDFDocumentProxy) {
     this.container = container;
     this.pdf = pdf;
     this.container.style.position = 'relative';
     console.log("[RendererInit]");
   }
 
-  render(cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
-    this.cameraState = cameraState;
-    if (!this.pageSize) {
-      this.pdf.getPage(pageNumber).then((page: any) => {
-        const viewport = page.getViewport({ scale: 1 });
-        this.pageSize = { width: viewport.width, height: viewport.height };
-        this.render(cameraState, pageNumber); // Re-run with page size
-      });
-      return;
+  public async render(state: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
+    if (this.isDestroyed) return;
+    this.cameraState = state;
+    this.pageNumber = pageNumber;
+
+    if (!this.baseViewport) {
+      const page = await this.pdf.getPage(pageNumber);
+      this.baseViewport = page.getViewport({ scale: 1 });
     }
 
-    const { visibleTiles } = this.calculateVisibleTiles();
+    const tier = this.getTier(state.scale);
+    const visibleTiles = this.calculateVisibleTiles(state, tier);
     
-    // Evict tiles not in visible list
+    // Manage existing tile canvases
+    const currentKeys = new Set(visibleTiles.map(t => `${t.row}_${t.col}`));
     for (const [key, canvas] of this.tiles.entries()) {
-        if (!visibleTiles.some(t => `${t.row}-${t.col}` === key)) {
-            canvas.remove();
-            this.tiles.delete(key);
-            console.log("[TileEvict]", key);
-        }
+      if (!currentKeys.has(key)) {
+        canvas.remove();
+        this.tiles.delete(key);
+      }
     }
 
-    // Enqueue visible tiles
-    for (const tile of visibleTiles) {
-        const key = `${tile.row}-${tile.col}`;
-        if (!this.tiles.has(key)) {
-            const canvas = document.createElement('canvas');
-            canvas.width = TILE_SIZE;
-            canvas.height = TILE_SIZE;
-            canvas.style.position = 'absolute';
-            canvas.style.left = `${tile.x}px`;
-            canvas.style.top = `${tile.y}px`;
-            canvas.style.width = `${TILE_SIZE}px`;
-            canvas.style.height = `${TILE_SIZE}px`;
-            this.container.appendChild(canvas);
-            this.tiles.set(key, canvas);
-            
-            this.renderQueue.push({ pageNumber, row: tile.row, col: tile.col, tile, priority: 0 }); // Simplified priority
-        }
+    // Create/Update needed tiles
+    for (const tileInfo of visibleTiles) {
+      const key = `${tileInfo.row}_${tileInfo.col}`;
+      let canvas = this.tiles.get(key);
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.width = TILE_SIZE;
+        canvas.height = TILE_SIZE;
+        canvas.style.position = 'absolute';
+        canvas.style.left = `${tileInfo.col * TILE_SIZE}px`;
+        canvas.style.top = `${tileInfo.row * TILE_SIZE}px`;
+        canvas.style.width = `${TILE_SIZE}px`;
+        canvas.style.height = `${TILE_SIZE}px`;
+        canvas.className = 'pdf-tile';
+        this.container.appendChild(canvas);
+        this.tiles.set(key, canvas);
+      }
+
+      // Check cache
+      const cacheKey = `${pageNumber}_${key}_${tier}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached) {
+        this.drawTileToCanvas(canvas, cached.bitmap);
+        cached.lastUsed = Date.now();
+      } else {
+        this.enqueueRender(pageNumber, tileInfo.row, tileInfo.col, tier);
+      }
     }
-    
-    this.renderQueue.sort((a, b) => a.priority - b.priority);
+
     this.processQueue();
   }
 
-  private calculateVisibleTiles() {
-    if (!this.pageSize || !this.cameraState) return { visibleTiles: [] };
-    
-    const scale = this.cameraState.scale;
-    const pageWidth = this.pageSize.width * scale;
-    const pageHeight = this.pageSize.height * scale;
-    const viewX = -this.cameraState.panX;
-    const viewY = -this.cameraState.panY;
+  private getTier(scale: number): number {
+    if (scale <= 1) return 1;
+    if (scale <= 2) return 2;
+    if (scale <= 4) return 4;
+    if (scale <= 8) return 8;
+    return 16;
+  }
 
-    const visibleTiles: any[] = [];
+  private calculateVisibleTiles(state: any, tier: number) {
+    if (!this.baseViewport) return [];
     
-    const numCols = Math.ceil(pageWidth / TILE_SIZE);
-    const numRows = Math.ceil(pageHeight / TILE_SIZE);
+    const { panX, panY, scale, dims } = state;
     
+    // World Space dimensions at scale 1.0 (logical page size)
+    const worldW = this.baseViewport.width;
+    const worldH = this.baseViewport.height;
+
+    // Viewport rect in Logical Page Space
+    const vX = -panX / scale;
+    const vY = -panY / scale;
+    const vW = dims.width / scale;
+    const vH = dims.height / scale;
+
+    const padding = TILE_SIZE; // Preload margin
+    const searchRect = {
+      left: vX - padding,
+      right: vX + vW + padding,
+      top: vY - padding,
+      bottom: vY + vH + padding
+    };
+
+    const visible: Array<{ row: number, col: number }> = [];
+    const numCols = Math.ceil(worldW / TILE_SIZE);
+    const numRows = Math.ceil(worldH / TILE_SIZE);
+
     for (let r = 0; r < numRows; r++) {
       for (let c = 0; c < numCols; c++) {
-        const x = c * TILE_SIZE;
-        const y = r * TILE_SIZE;
-
-        if (x < viewX + this.cameraState.dims.width + TILE_SIZE && x + TILE_SIZE > viewX - TILE_SIZE &&
-            y < viewY + this.cameraState.dims.height + TILE_SIZE && y + TILE_SIZE > viewY - TILE_SIZE) {
-          visibleTiles.push({ row: r, col: c, x, y });
+        const tX = c * TILE_SIZE;
+        const tY = r * TILE_SIZE;
+        
+        const intersects = !(tX > searchRect.right || 
+                             tX + TILE_SIZE < searchRect.left || 
+                             tY > searchRect.bottom || 
+                             tY + TILE_SIZE < searchRect.top);
+        
+        if (intersects) {
+          visible.push({ row: r, col: c });
         }
       }
     }
-    return { visibleTiles };
+
+    console.log(`[VisibleTiles] page=${this.pageNumber} count=${visible.length} tier=${tier}`);
+    this.updateHUD();
+    return visible;
+  }
+
+  private updateHUD() {
+    const memEl = document.getElementById('debug-mem');
+    const tilesEl = document.getElementById('debug-tiles');
+    const tierEl = document.getElementById('debug-tier');
+    if (memEl) memEl.textContent = `${(this.currentMemory / 1024 / 1024).toFixed(1)}MB`;
+    if (tilesEl) tilesEl.textContent = `${this.tiles.size}`;
+    if (tierEl) tierEl.textContent = `${this.getTier(this.cameraState?.scale || 1)}x`;
+  }
+
+  private enqueueRender(pageNumber: number, row: number, col: number, tier: number) {
+    const key = `${pageNumber}_${row}_${col}_${tier}`;
+    if (this.renderQueue.some(q => `${q.pageNumber}_${q.row}_${q.col}_${q.tier}` === key)) return;
+
+    // Calculate priority based on distance to center of viewport
+    let priority = 0;
+    if (this.cameraState && this.baseViewport) {
+       const vCenterX = (-this.cameraState.panX + this.cameraState.dims.width / 2) / this.cameraState.scale;
+       const vCenterY = (-this.cameraState.panY + this.cameraState.dims.height / 2) / this.cameraState.scale;
+       const tCenterX = (col + 0.5) * TILE_SIZE;
+       const tCenterY = (row + 0.5) * TILE_SIZE;
+       priority = Math.sqrt(Math.pow(vCenterX - tCenterX, 2) + Math.pow(vCenterY - tCenterY, 2));
+    }
+
+    this.renderQueue.push({ pageNumber, row, col, tier, priority });
+    this.renderQueue.sort((a, b) => a.priority - b.priority);
   }
 
   private async processQueue() {
-      while (this.activeRenders < this.MAX_CONCURRENT && this.renderQueue.length > 0) {
-          const task = this.renderQueue.shift();
-          if (!task) continue;
-          this.activeRenders++;
-          try {
-            await this.renderTile(task);
-          } catch(e) {
-            console.error("[TileRenderError]", e);
-          } finally {
-            this.activeRenders--;
-          }
-      }
+    if (this.activeRenders >= MAX_CONCURRENT_RENDERS || this.renderQueue.length === 0) return;
+
+    this.activeRenders++;
+    const task = this.renderQueue.shift()!;
+    
+    try {
+      await this.renderTile(task);
+    } catch (err) {
+      console.error("[TileRenderError]", err);
+    } finally {
+      this.activeRenders--;
+      this.processQueue();
+    }
   }
 
   private async renderTile(task: any) {
-      const { row, col, tile, pageNumber } = task;
-      const key = `${row}-${col}`;
-      const canvas = this.tiles.get(key);
-      if (!canvas) return;
+    const { pageNumber, row, col, tier } = task;
+    const cacheKey = `${pageNumber}_${row}_${col}_${tier}`;
+    
+    if (this.cache.has(cacheKey)) return;
 
-      const page = await this.pdf.getPage(pageNumber);
-      const dpr = window.devicePixelRatio || 1;
-      const tierScale = this.renderTier;
+    const page = await this.pdf.getPage(pageNumber);
+    const dpr = window.devicePixelRatio || 1;
+    const renderScale = tier * dpr;
 
-      // Internal resolution
-      canvas.width = TILE_SIZE * dpr * tierScale;
-      canvas.height = TILE_SIZE * dpr * tierScale;
+    // Internal resolution
+    const width = TILE_SIZE * renderScale;
+    const height = TILE_SIZE * renderScale;
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+    console.log(`[TileRender] start: page=${pageNumber} tile=${row},${col} tier=${tier}`);
+    const start = performance.now();
 
-      const viewport = page.getViewport({ 
-          scale: this.cameraState.scale * dpr * tierScale,
-          offsetX: -col * TILE_SIZE * dpr * tierScale,
-          offsetY: -row * TILE_SIZE * dpr * tierScale
-      });
-      
-      await page.render({
-          canvasContext: ctx,
-          viewport: viewport,
-          intent: 'display'
-      } as any).promise;
-      
-      console.log("[TileRender]", key);
+    // Use OffscreenCanvas if available
+    const canvas = (typeof OffscreenCanvas !== 'undefined') 
+      ? new OffscreenCanvas(width, height) 
+      : document.createElement('canvas');
+    
+    if (!(canvas instanceof OffscreenCanvas)) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
+    // pdf.js viewport transform
+    // We want the tile at (row, col) to be drawn into the canvas.
+    // The viewport scale should be tier * dpr.
+    // The offset should be such that (col*TILE_SIZE, row*TILE_SIZE) is at (0,0) in the viewport.
+    const viewport = page.getViewport({ 
+      scale: renderScale,
+      offsetX: -col * TILE_SIZE * renderScale,
+      offsetY: -row * TILE_SIZE * renderScale
+    });
+
+    await page.render({
+      canvasContext: ctx as any,
+      viewport: viewport,
+      intent: 'display'
+    }).promise;
+
+    let bitmap: ImageBitmap;
+    if (canvas instanceof OffscreenCanvas) {
+      bitmap = canvas.transferToImageBitmap();
+    } else {
+      bitmap = await createImageBitmap(canvas);
+    }
+
+    const size = width * height * 4;
+    this.addToCache(cacheKey, bitmap, size);
+    
+    const duration = performance.now() - start;
+    console.log(`[TileRender] complete: ${duration.toFixed(1)}ms mem=${(this.currentMemory / 1024 / 1024).toFixed(1)}MB`);
+    this.updateHUD();
+
+    // If still visible, draw to mounted canvas
+    const tileKey = `${row}_${col}`;
+    const mountedCanvas = this.tiles.get(tileKey);
+    if (mountedCanvas && this.cameraState && this.getTier(this.cameraState.scale) === tier) {
+      this.drawTileToCanvas(mountedCanvas, bitmap);
+    }
   }
 
-  destroy() {
-      while (this.container.firstChild) {
-          this.container.removeChild(this.container.firstChild);
+  private drawTileToCanvas(canvas: HTMLCanvasElement, bitmap: ImageBitmap) {
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    
+    // Match backing store to bitmap for perfect sharpness
+    if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+    }
+    
+    ctx.drawImage(bitmap, 0, 0);
+    console.log(`[TileDraw] ${canvas.style.left},${canvas.style.top}`);
+  }
+
+  private addToCache(key: string, bitmap: ImageBitmap, size: number) {
+    while (this.currentMemory + size > MAX_MEMORY_BYTES && this.cache.size > 0) {
+      this.evictLRU();
+    }
+    this.cache.set(key, { bitmap, key, size, lastUsed: Date.now() });
+    this.currentMemory += size;
+  }
+
+  private evictLRU() {
+    let oldestKey = '';
+    let oldestTime = Infinity;
+    for (const [key, data] of this.cache.entries()) {
+      if (data.lastUsed < oldestTime) {
+        oldestTime = data.lastUsed;
+        oldestKey = key;
       }
-      this.tiles.clear();
-      this.bitmapCache.clear();
+    }
+    if (oldestKey) {
+      const data = this.cache.get(oldestKey)!;
+      data.bitmap.close();
+      this.currentMemory -= data.size;
+      this.cache.delete(oldestKey);
+      console.log(`[TileEvict] ${oldestKey}`);
+    }
+  }
+
+  public destroy() {
+    this.isDestroyed = true;
+    this.tiles.forEach(c => c.remove());
+    this.tiles.clear();
+    this.cache.forEach(d => d.bitmap.close());
+    this.cache.clear();
   }
 }
 
-
-
-
-export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, panY, containerDimensions }: PDFPageProps) => {
+export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, panY, containerDimensions, direction, isSpreadChild }: PDFPageProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<PDFViewportRenderer | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
     rendererRef.current = new PDFViewportRenderer(containerRef.current, pdf);
+    
+    // Render text layer
+    const renderText = async () => {
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const textContent = await page.getTextContent();
+        if (textLayerRef.current) {
+          textLayerRef.current.innerHTML = '';
+          textLayerRef.current.style.setProperty('--scale-factor', viewport.scale.toString());
+          await pdfjs.renderTextLayer({
+            textContentSource: textContent,
+            container: textLayerRef.current,
+            viewport,
+            enhanceTextSelection: true
+          }).promise;
+        }
+      } catch (e) {
+        console.error("[TextLayerError]", e);
+      }
+    };
+    renderText();
+
     return () => rendererRef.current?.destroy();
   }, [pdf, pageNumber]);
 
   // Pass updates to engine imperatively
   useEffect(() => {
-    rendererRef.current?.render({ panX: panX.get(), panY: panY.get(), scale: renderScale, dims: containerDimensions }, pageNumber);
+    const update = () => {
+       rendererRef.current?.render({ 
+         panX: panX.get(), 
+         panY: panY.get(), 
+         scale: renderScale, 
+         dims: containerDimensions 
+       }, pageNumber);
+    };
+    
+    // Subscribe to motion values for high-frequency updates during pan/zoom
+    const substX = panX.on("change", update);
+    const substY = panY.on("change", update);
+    
+    // Initial and settle update
+    update();
+    
+    return () => {
+      substX();
+      substY();
+    };
   }, [panX, panY, renderScale, containerDimensions, pageNumber]);
 
-  return <div ref={containerRef} className="tile-surface absolute inset-0 pointer-events-none" />;
+  return (
+    <div 
+      className={cn(
+        "bg-white transition-opacity duration-300 select-none ltr",
+        isSpreadChild ? "shadow-none" : "shadow-2xl"
+      )}
+      style={{ 
+        width: width,
+        height: '100%',
+        position: 'relative',
+        flexShrink: 0,
+        contain: 'content',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        direction: 'ltr'
+      }}
+    >
+      <div 
+        ref={containerRef} 
+        className="tile-surface absolute inset-0 pointer-events-none" 
+        style={{ width: '100%', height: '100%' }}
+      />
+      <div 
+        ref={textLayerRef}
+        className="textLayer absolute inset-0 opacity-20 hover:opacity-100 transition-opacity"
+        style={{ width: '100%', height: '100%', pointerEvents: 'auto' }}
+      />
+    </div>
+  );
 });
+
