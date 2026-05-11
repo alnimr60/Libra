@@ -40,6 +40,7 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
   const liveScale = useMotionValue(1.0);
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
+  const virtualPage = useMotionValue(initialPage - 1);
 
   // Sync state scale to liveScale motion value
   useEffect(() => {
@@ -179,49 +180,45 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
     try {
       if (!readerContainerRef.current) return;
-      
       if (isAnimatingZoom.current || isPinching.current) return;
 
       const currentScaleValue = liveScale.get();
+      const target = currentScaleValue <= 1.05 ? 2.5 : 1.0;
       
-      if (!Number.isFinite(currentScaleValue)) {
-        throw new Error(`Non-finite currentScaleValue: ${currentScaleValue}`);
-      }
-
       isAnimatingZoom.current = true;
-
       liveScale.stop();
       panX.stop();
       panY.stop();
 
-      const isZoomedOut = currentScaleValue <= 1.05;
-      const target = isZoomedOut ? 2.5 : 1.0;
-      
-      if (!Number.isFinite(target)) {
-        isAnimatingZoom.current = false;
-        throw new Error(`Invalid target scale: ${target}`);
-      }
+      const rect = readerContainerRef.current.getBoundingClientRect();
+      const sX = clientX - rect.left;
+      const sY = clientY - rect.top;
 
-      if (isZoomedOut && showControls) {
+      // Focal point stability: T_new = S - (S - T_old) * (Scale_new / Scale_old)
+      const oldPanX = panX.get();
+      const oldPanY = panY.get();
+      const scaleRatio = target / currentScaleValue;
+      
+      const targetPanX = sX - (sX - oldPanX) * scaleRatio;
+      const targetPanY = sY - (sY - oldPanY) * scaleRatio;
+
+      if (target > 1.05 && showControls) {
         setShowControls(false);
       }
 
-      animate(liveScale, target, { 
+      console.log(`[ZoomDebug] DoubleTap. Origin: 0 0. Scale: ${currentScaleValue.toFixed(2)} -> ${target.toFixed(2)}. Pan: (${oldPanX.toFixed(1)}, ${oldPanY.toFixed(1)}) -> (${targetPanX.toFixed(1)}, ${targetPanY.toFixed(1)}). ScrollTop: ${readerContainerRef.current?.scrollTop || 0}`);
+
+      animate(liveScale, target, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panX, targetPanX, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panY, targetPanY, { 
         type: 'spring', 
         stiffness: 300, 
         damping: 30,
         onComplete: () => {
-          try {
-            setCommittedScale(target);
-            requestAnimationFrame(() => {
-              isAnimatingZoom.current = false;
-            });
-          } catch (syncErr) {
-            isAnimatingZoom.current = false;
-          }
+          setCommittedScale(target);
+          isAnimatingZoom.current = false;
         }
       });
-
     } catch (err) {
       isAnimatingZoom.current = false;
     }
@@ -277,18 +274,20 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
       const midY = (pointers[0].y + pointers[1].y) / 2;
 
       const rect = readerContainerRef.current!.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
+      const sX = midX - rect.left;
+      const sY = midY - rect.top;
 
       pinchRef.current = {
         initialDist: dist,
         initialScale: liveScale.get(),
         initialPanX: panX.get(),
         initialPanY: panY.get(),
-        midpoint: { x: midX - centerX, y: midY - centerY }
+        midpoint: { x: sX, y: sY } // Screen relative to viewport top-left
       };
 
       liveScale.stop();
+      panX.stop();
+      panY.stop();
     }
   };
 
@@ -341,16 +340,22 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
       const pointers = Array.from(activePointers.current.values());
       const dist = Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
       
+      const currentScale = liveScale.get();
       const scaleDelta = dist / pinchRef.current.initialDist;
-      let nextScale = Math.max(0.5, Math.min(5, pinchRef.current.initialScale * scaleDelta));
+      let nextScale = Math.max(0.5, Math.min(6, pinchRef.current.initialScale * scaleDelta));
+      
+      // Focal point stability: T_new = S - (S - T_old) * (Scale_new / Scale_old)
+      const scaleRatio = nextScale / pinchRef.current.initialScale;
+      const s = pinchRef.current.midpoint;
+      
+      const nextPanX = s.x - (s.x - pinchRef.current.initialPanX) * scaleRatio;
+      const nextPanY = s.y - (s.y - pinchRef.current.initialPanY) * scaleRatio;
+
+      if (Math.abs(nextScale - currentScale) > 0.01) {
+        console.log(`[ZoomDebug] Pinch. Scale: ${currentScale.toFixed(2)} -> ${nextScale.toFixed(2)}. Pan Delta: (${(nextPanX - panX.get()).toFixed(1)}, ${(nextPanY - panY.get()).toFixed(1)}). Origin: 0 0.`);
+      }
+
       liveScale.set(nextScale);
-
-      // Simple offset adjustment for zoom origin
-      const actualScaleDelta = nextScale / pinchRef.current.initialScale;
-      const p_v = pinchRef.current.midpoint;
-      const nextPanX = p_v.x - (p_v.x - pinchRef.current.initialPanX) * actualScaleDelta;
-      const nextPanY = p_v.y - (p_v.y - pinchRef.current.initialPanY) * actualScaleDelta;
-
       panX.set(nextPanX);
       panY.set(nextPanY);
     }
@@ -365,23 +370,41 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
         longPressTimer.current = null;
       }
 
+      const currentScale = liveScale.get();
       if (gestureMode.current === GestureMode.PanningZoomedPage) {
-        const currentScale = liveScale.get();
         const aspect = 1.414;
-        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-        const zoomedWidth = spreadWidth * currentScale;
+        const zoomedWidth = sheetWidth * currentScale;
         const zoomedHeight = (baseWidth * aspect) * currentScale;
         const viewportWidth = readerDimensions.width;
         const viewportHeight = readerDimensions.height;
         
-        const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
-        const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+        // Panning boundaries for transform-origin: 0 0
+        const minX = viewportWidth - zoomedWidth;
+        const minY = viewportHeight - zoomedHeight;
 
-        animate(panX, Math.max(-hMargin, Math.min(hMargin, panX.get())), { type: 'spring', stiffness: 300, damping: 30 });
-        animate(panY, Math.max(-vMargin, Math.min(vMargin, panY.get())), { type: 'spring', stiffness: 300, damping: 30 });
+        const curX = panX.get();
+        const curY = panY.get();
+
+        let targetX = curX;
+        let targetY = curY;
+
+        if (zoomedWidth <= viewportWidth) {
+          targetX = (viewportWidth - zoomedWidth) / 2;
+        } else {
+          targetX = Math.max(minX, Math.min(0, curX));
+        }
+
+        if (zoomedHeight <= viewportHeight) {
+          targetY = (viewportHeight - zoomedHeight) / 2;
+        } else {
+          targetY = Math.max(minY, Math.min(0, curY));
+        }
+
+        animate(panX, targetX, { type: 'spring', stiffness: 300, damping: 30 });
+        animate(panY, targetY, { type: 'spring', stiffness: 300, damping: 30 });
       } else if (gestureMode.current === GestureMode.SwipingPages) {
         const totalOffsetX = e.clientX - touchStartInfo.current.x;
-        const width = window.innerWidth;
+        const width = readerDimensions.width || window.innerWidth;
         const threshold = width * 0.2;
         
         let nextIndex = pageIndex;
@@ -400,13 +423,8 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
       }
 
       gestureMode.current = GestureMode.Idle;
-    } else if (activePointers.current.size === 1) {
-      // Back to panning mode if one finger lifted during pinch? 
-      // For simplicity, just stay in Idle until next interaction
     }
   };
-
-  const virtualPage = useMotionValue(pageIndex);
 
   // Toggle direction manually
   const toggleDirection = () => {
@@ -549,10 +567,20 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
   }, []);
 
   const totalSheets = viewMode === 'double' ? Math.ceil(numPages / 2) : numPages;
+  const sheetWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+  const gap = 120; // Visible gap for peeking adjacent pages
+
+  // Layout layer strip position (Horizontal only)
+  const stripX = useTransform(virtualPage, (v: number) => {
+    if (readerDimensions.width === 0) return 0;
+    const centerOffset = (readerDimensions.width - sheetWidth) / 2;
+    const directionMultiplier = direction === 'rtl' ? 1 : -1;
+    return centerOffset + (v * (sheetWidth + gap) * directionMultiplier);
+  });
   
   const handlePageChange = (newIndex: number, isJump: boolean = false) => {
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
-    if (safeIndex === pageIndex) return;
+    if (safeIndex === pageIndex && !isJump) return;
     
     setPageIndex(safeIndex);
     
@@ -562,6 +590,8 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
     
     if (isJump) {
       setIsTemporal(true);
+      // Ensure virtualPage matches jump instantly
+      virtualPage.set(safeIndex);
     } else if (!isTemporal) {
       // Auto update progress if not in temporal mode
       const displayPage = viewMode === 'double' ? (safeIndex * 2) + 1 : safeIndex + 1;
@@ -895,43 +925,53 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
             </div>
           </div>
         ) : (
-          <div className="relative w-full h-full">
+          <div className="relative w-full h-full overflow-hidden">
             <motion.div 
-              className="w-full h-full flex items-center justify-center"
+              className="absolute inset-0"
               style={{
                 scale: liveScale,
                 x: panX,
                 y: panY,
+                transformOrigin: '0 0',
                 transformStyle: 'flat',
                 willChange: 'transform'
               } as any}
             >
-              {/* Windowed view of pages */}
-              {(() => {
-                // Preload adjacent pages
-                const items = [];
-                for (let i = -1; i <= 1; i++) {
-                  const sheetIndex = pageIndex + i;
-                  if (sheetIndex >= 0 && sheetIndex < totalSheets) {
-                    items.push(
-                      <ReaderSheet 
-                        key={sheetIndex}
-                        index={sheetIndex}
-                        pdf={pdf!}
-                        numPages={numPages}
-                        viewMode={viewMode}
-                        direction={direction}
-                        virtualPage={virtualPage}
-                        renderScale={renderScale}
-                        isLandscape={isLandscape}
-                        containerDimensions={readerDimensions}
-                        isCurrent={sheetIndex === pageIndex}
-                      />
-                    );
+              <motion.div 
+                id="page-strip"
+                className="absolute inset-0 flex items-center"
+                style={{ x: stripX }}
+              >
+                {/* Fixed-offset page layout */}
+                {(() => {
+                  const items = [];
+                  // Render a sliding window of pages for performance
+                  const range = viewMode === 'double' ? 2 : 3;
+                  for (let i = -range; i <= range; i++) {
+                    const sheetIndex = pageIndex + i;
+                    if (sheetIndex >= 0 && sheetIndex < totalSheets) {
+                      items.push(
+                        <ReaderSheet 
+                          key={sheetIndex}
+                          index={sheetIndex}
+                          pdf={pdf!}
+                          numPages={numPages}
+                          viewMode={viewMode}
+                          direction={direction}
+                          virtualPage={virtualPage}
+                          renderScale={renderScale}
+                          isLandscape={isLandscape}
+                          containerDimensions={readerDimensions}
+                          isCurrent={sheetIndex === pageIndex}
+                          sheetWidth={sheetWidth}
+                          gap={gap}
+                        />
+                      );
+                    }
                   }
-                }
-                return items;
-              })()}
+                  return items;
+                })()}
+              </motion.div>
             </motion.div>
           </div>
         )}
@@ -1016,7 +1056,9 @@ const ReaderSheet = React.memo(function ReaderSheet({
   renderScale, 
   isLandscape,
   containerDimensions,
-  isCurrent
+  isCurrent,
+  sheetWidth,
+  gap
 }: { 
   index: number, 
   pdf: pdfjs.PDFDocumentProxy, 
@@ -1027,68 +1069,31 @@ const ReaderSheet = React.memo(function ReaderSheet({
   renderScale: number,
   isLandscape: boolean,
   containerDimensions: { width: number, height: number },
-  isCurrent: boolean
+  isCurrent: boolean,
+  sheetWidth: number,
+  gap: number
 }) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
-  // Calculate display width in pixels (BASE SIZE at scale 1.0)
-  const baseWidth = React.useMemo(() => {
-    if (containerDimensions.width === 0) return 0;
-    if (viewMode === 'double') {
-      const maxWidth = containerDimensions.width * 0.95;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      return Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = containerDimensions.width * 0.9;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      return Math.min(idealWidth, maxWidth);
-    }
-  }, [viewMode, containerDimensions]);
+  // Calculate fixed theoretical position in strip
+  const offsetMultiplier = direction === 'rtl' ? -1 : 1;
+  const layoutX = index * (sheetWidth + gap) * offsetMultiplier;
 
-  const [displayWidth, setDisplayWidth] = useState(0);
-  useEffect(() => {
-    if (containerDimensions.width === 0) return;
-    let w = 0;
-    if (viewMode === 'double') {
-      const maxWidth = containerDimensions.width * 0.95;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      w = Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = containerDimensions.width * 0.9;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      w = Math.min(idealWidth, maxWidth);
-    }
-    setDisplayWidth(w);
-  }, [viewMode, containerDimensions]);
-  
-  const x = useTransform(distance, (d: number) => {
-    const multiplier = direction === 'rtl' ? -100 : 100;
-    return `${d * multiplier}%`;
-  });
-  
-  const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
-  
-  const opacity = useTransform(distance, (d: number) => {
-    return Math.abs(d) < 1.1 ? 1 : 0;
-  });
-  
-  const visibility = useTransform(distance, (d: number) => Math.abs(d) < 1.1 ? 'visible' : 'hidden');
+  const visibility = useTransform(distance, (d: number) => Math.abs(d) < 3 ? 'visible' : 'hidden');
 
   return (
     <motion.div
       style={{ 
-        opacity, 
         visibility, 
-        zIndex,
-        x,
-        willChange: 'transform'
+        x: layoutX,
+        width: sheetWidth,
+        height: '100%',
+        willChange: 'transform',
+        position: 'absolute',
+        left: 0
       } as any}
       className={cn(
-        "absolute inset-0 flex p-4 md:p-8 select-none",
+        "flex p-4 md:p-8 select-none",
         viewMode === 'double' ? "flex-row" : "flex-col",
         "items-center justify-center"
       )}
@@ -1103,13 +1108,13 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={sheetWidth / 2} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={sheetWidth / 2} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={sheetWidth / 2} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={sheetWidth / 2} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} />
               </>
             )}
           </>
@@ -1117,11 +1122,11 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <div 
             className="flex-shrink-0 h-auto relative"
             style={{ 
-              width: displayWidth || 'auto',
+              width: sheetWidth || 'auto',
               maxHeight: '90vh'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} direction={direction} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} width={sheetWidth} renderScale={renderScale} direction={direction} />
           </div>
         )}
       </div>
