@@ -1332,6 +1332,18 @@ const ReaderSheet = React.memo(function ReaderSheet({
   });
   
   const visibility = useTransform(distance, (d: number) => Math.abs(d) <= 1.5 ? 'visible' : 'hidden');
+  const cameraLayerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (cameraLayerRef.current) {
+      console.log(`[CAMERA_LAYER_DEBUG] Sheet ${index} mounted, children count:`, cameraLayerRef.current.children.length);
+      const observer = new MutationObserver(() => {
+        console.log(`[CAMERA_LAYER_DEBUG] Sheet ${index} hierarchy changed, children count:`, cameraLayerRef.current?.children.length);
+      });
+      observer.observe(cameraLayerRef.current, { childList: true });
+      return () => observer.disconnect();
+    }
+  }, [index]);
 
   return (
     <motion.div
@@ -1352,6 +1364,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
     >
         <motion.div 
           id={`sheet-${index}-camera-layer`}
+          ref={cameraLayerRef}
           style={{ 
             x: panX,
             y: panY,
@@ -1359,15 +1372,12 @@ const ReaderSheet = React.memo(function ReaderSheet({
             transformOrigin: "0 0",
             transformStyle: 'preserve-3d',
             backfaceVisibility: 'hidden',
-            width: 'fit-content',
-            height: 'fit-content',
+            width: '100%',
+            height: '100%',
             willChange: 'transform',
-            pointerEvents: 'none' // Allow hits to pass through if needed, but the layer should be visible
+            pointerEvents: 'none'
           } as any}
-          className={cn(
-            "absolute top-0 left-0", // Removed flex, using absolute children
-            viewMode === 'double' ? "w-full" : "w-auto"
-          )}
+          className="absolute top-0 left-0"
         >
           {viewMode === 'double' ? (
             <>
@@ -1375,16 +1385,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
               <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
             </>
           ) : (
-          <div 
-            className="flex-shrink-0 h-auto relative"
-            style={{ 
-              width: displayWidth || 'auto',
-              maxHeight: '90vh'
-            }}
-          >
-            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} panX={panX} panY={panY} containerDimensions={containerDimensions} direction={direction} />
-          </div>
-        )}
+            <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+          )}
       </motion.div>
     </motion.div>
   );
@@ -1406,7 +1408,15 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   const isOutOfBounds = pageNumber > numPages;
   
   const content = isOutOfBounds ? (
-    <div className="flex-shrink-0 bg-zinc-800" style={{ width: width || 'auto', height: '100%', opacity: 0.1 }} />
+    <div 
+      className="bg-zinc-800 absolute top-0" 
+      style={{ 
+        width: width || 'auto', 
+        height: 800, 
+        opacity: 0.1,
+        left: side === 'right' ? width : 0
+      }} 
+    />
   ) : (
     <div 
       className={cn(
@@ -1417,8 +1427,8 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         width: width || 'auto',
         height: 800, // Explicit height for debug
         position: 'absolute',
-        left: side === 'right' ? width : 0,
-        top: 0
+        top: 0,
+        left: side === 'right' ? width : 0
       }}
     >
       <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} panX={panX} panY={panY} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
