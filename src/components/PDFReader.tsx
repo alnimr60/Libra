@@ -1463,6 +1463,7 @@ interface PDFPageProps {
 
 export const PDFPage = React.memo(({ 
   pageNumber, 
+  pdf,
   width, 
   isSpreadChild,
   panX,
@@ -1471,6 +1472,8 @@ export const PDFPage = React.memo(({
   renderScale
 }: PDFPageProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderTaskRef = useRef<any>(null);
 
   useEffect(() => {
     const update = () => {
@@ -1497,32 +1500,92 @@ export const PDFPage = React.memo(({
     };
   }, [pageNumber, renderScale, panX, panY, liveScale]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function renderPage() {
+      if (!pdf || !canvasRef.current) return;
+
+      try {
+        const page = await pdf.getPage(pageNumber);
+        if (isCancelled) return;
+
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        if (!context) return;
+
+        // Cancel previous render task
+        if (renderTaskRef.current) {
+          renderTaskRef.current.cancel();
+          renderTaskRef.current = null;
+        }
+
+        const viewport = page.getViewport({ scale: 1 });
+        
+        // Fit to fixed 400x600 container
+        const scaleX = 400 / viewport.width;
+        const scaleY = 600 / viewport.height;
+        const scale = Math.min(scaleX, scaleY);
+        
+        const finalViewport = page.getViewport({ scale });
+        
+        // High DPI support
+        const pixelRatio = window.devicePixelRatio || 1;
+        canvas.width = finalViewport.width * pixelRatio;
+        canvas.height = finalViewport.height * pixelRatio;
+        canvas.style.width = `${finalViewport.width}px`;
+        canvas.style.height = `${finalViewport.height}px`;
+
+        context.scale(pixelRatio, pixelRatio);
+
+        const renderContext = {
+          canvasContext: context,
+          viewport: finalViewport,
+        };
+
+        const renderTask = page.render(renderContext);
+        renderTaskRef.current = renderTask;
+
+        await renderTask.promise;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'RenderingCancelledException') {
+          return;
+        }
+        console.error('Error rendering PDF page:', err);
+      }
+    }
+
+    renderPage();
+
+    return () => {
+      isCancelled = true;
+      if (renderTaskRef.current) {
+        renderTaskRef.current.cancel();
+      }
+    };
+  }, [pdf, pageNumber]);
+
   return (
     <div 
       ref={containerRef}
       className={cn(
-        "select-none ltr shadow-sm",
+        "select-none ltr overflow-hidden bg-white",
         isSpreadChild ? "shadow-none" : "shadow-md"
       )}
       style={{ 
         width: 400,
         height: 600,
-        backgroundColor: 'red',
         position: 'absolute',
         top: 0,
         left: 0,
         transformOrigin: '0 0',
-        color: 'white',
-        fontSize: '24px',
-        fontWeight: 'bold',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '4px solid white',
         boxSizing: 'border-box'
       }}
     >
-      VISIBILITY TEST - PAGE {pageNumber}
+      <canvas ref={canvasRef} className="block" />
     </div>
   );
 });
