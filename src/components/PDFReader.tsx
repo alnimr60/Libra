@@ -1421,16 +1421,17 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   ) : (
     <div 
       className={cn(
-        "bg-white border-4 border-green-500", // DEBUG BORDER
+        "bg-white outline-4 outline-green-500", // Using outline instead of border to avoid internal offset
         side === 'left' ? "rounded-l-md" : "rounded-r-md"
       )}
       style={{ 
-        width: 400, // Normalized
-        height: 600, // Normalized
+        width: 400,
+        height: 600,
         position: 'absolute',
         top: 0,
         left: side === 'right' ? 400 : 0,
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        zIndex: side === 'right' ? 1 : 2
       }}
     >
       <PDFPage pageNumber={pageNumber} pdf={pdf} width={400} renderScale={renderScale} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
@@ -1467,14 +1468,11 @@ export const PDFPage = React.memo(({
   useEffect(() => {
     const update = () => {
       if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const cameraLayerRect = containerRef.current.closest('[id$="-camera-layer"]')?.getBoundingClientRect();
-        
+        // Use offsetWidth/Height for pure layout size, ignore screen space
         console.log(`[VISIBILITY_TRACE_TICK] Page ${pageNumber}:`, {
           camera: { x: panX.get(), y: panY.get(), scale: liveScale.get() },
-          pageRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-          cameraLayerRect: cameraLayerRect ? { top: cameraLayerRect.top, left: cameraLayerRect.left, width: cameraLayerRect.width, height: cameraLayerRect.height } : 'MISSING',
-          visibility: rect.width > 0 && rect.height > 0 ? "VISIBLE" : "HIDDEN"
+          layoutSize: { width: containerRef.current.offsetWidth, height: containerRef.current.offsetHeight },
+          parentCoordinate: { top: containerRef.current.offsetTop, left: containerRef.current.offsetLeft }
         });
       }
     };
