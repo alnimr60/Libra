@@ -1436,194 +1436,61 @@ interface TileData {
   lastUsed: number;
 }
 
-class PDFViewportRenderer {
-  private container: HTMLElement;
-  private pdf: pdfjs.PDFDocumentProxy;
-  private tiles: Map<string, HTMLCanvasElement> = new Map();
-  private baseViewport: pdfjs.PageViewport | null = null;
-  private isDestroyed = false;
-  private cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } } | null = null;
-
-  constructor(container: HTMLElement, pdf: pdfjs.PDFDocumentProxy) {
-    this.container = container;
-    this.pdf = pdf;
-    this.container.style.position = 'relative';
-    this.container.style.overflow = 'visible';
-    console.log("[RendererBaselineInit]");
-  }
-
-  public async render(state: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
-    if (this.isDestroyed) return;
-    this.cameraState = state;
-
-    if (!this.baseViewport) {
-      const page = await this.pdf.getPage(pageNumber);
-      this.baseViewport = page.getViewport({ scale: 1 });
-    }
-
-    const { visibleTiles } = this.calculateVisibleTiles(state);
-    
-    const currentKeys = new Set(visibleTiles.map(t => `${t.row}_${t.col}`));
-    for (const [key, canvas] of this.tiles.entries()) {
-      if (!currentKeys.has(key)) {
-        canvas.remove();
-        this.tiles.delete(key);
-      }
-    }
-
-    for (const tileInfo of visibleTiles) {
-      const key = `${tileInfo.row}_${tileInfo.col}`;
-      let canvas = this.tiles.get(key);
-      if (!canvas) {
-        canvas = document.createElement('canvas');
-        canvas.width = TILE_SIZE;
-        canvas.height = TILE_SIZE;
-        canvas.style.position = 'absolute';
-        canvas.style.left = `${tileInfo.col * TILE_SIZE}px`;
-        canvas.style.top = `${tileInfo.row * TILE_SIZE}px`;
-        canvas.style.width = `${TILE_SIZE}px`;
-        canvas.style.height = `${TILE_SIZE}px`;
-        canvas.className = 'pdf-tile';
-        this.container.appendChild(canvas);
-        this.tiles.set(key, canvas);
-        
-        this.renderTile(pageNumber, tileInfo.row, tileInfo.col);
-      }
-    }
-  }
-
-  private calculateVisibleTiles(state: any) {
-    if (!this.baseViewport) return { visibleTiles: [] };
-    
-    const { panX, panY, scale, dims } = state;
-    const worldW = this.baseViewport.width;
-    const worldH = this.baseViewport.height;
-
-    // Logical Viewport (World Space scale 1.0)
-    const vX = -panX / scale;
-    const vY = -panY / scale;
-    const vW = dims.width / scale;
-    const vH = dims.height / scale;
-
-    const visible: Array<{ row: number, col: number }> = [];
-    const numCols = Math.ceil(worldW / TILE_SIZE);
-    const numRows = Math.ceil(worldH / TILE_SIZE);
-
-    for (let r = 0; r < numRows; r++) {
-      for (let c = 0; c < numCols; c++) {
-        const tX = c * TILE_SIZE;
-        const tY = r * TILE_SIZE;
-        
-        const intersects = !(tX > vX + vW || 
-                             tX + TILE_SIZE < vX || 
-                             tY > vY + vH || 
-                             tY + TILE_SIZE < vY);
-        
-        if (intersects) {
-          visible.push({ row: r, col: c });
-        }
-      }
-    }
-    return { visibleTiles: visible };
-  }
-
-  private async renderTile(pageNumber: number, row: number, col: number) {
-    const tileKey = `${row}_${col}`;
-    const canvas = this.tiles.get(tileKey);
-    if (!canvas || !this.cameraState) return;
-
-    const page = await this.pdf.getPage(pageNumber);
-    const dpr = window.devicePixelRatio || 1;
-    const renderScale = 2 * dpr; // baseline fixed quality
-
-    canvas.width = TILE_SIZE * renderScale;
-    canvas.height = TILE_SIZE * renderScale;
-
-    const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) return;
-
-    // SAFE VIEWPORT TILING (Phase 6)
-    // No transform array. Use offsetX/offsetY in viewport.
-    const viewport = page.getViewport({ 
-      scale: renderScale,
-      rotation: this.baseViewport?.rotation || 0,
-      offsetX: -col * TILE_SIZE * renderScale,
-      offsetY: -row * TILE_SIZE * renderScale
-    });
-
-    await page.render({
-      canvasContext: ctx as any,
-      viewport: viewport,
-      intent: 'display'
-    }).promise;
-    
-    console.log(`[TileRenderFinished] ${row},${col}`);
-  }
-
-  public destroy() {
-    this.isDestroyed = true;
-    this.tiles.forEach(c => c.remove());
-    this.tiles.clear();
-  }
-}
-
 export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, panY, containerDimensions, direction, isSpreadChild }: PDFPageProps) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<PDFViewportRenderer | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    rendererRef.current = new PDFViewportRenderer(containerRef.current, pdf);
-    
-    // Render text layer
-    const renderText = async () => {
+    let isActive = true;
+    const renderPage = async () => {
       try {
+        console.log("[RENDER START] page=" + pageNumber);
         const page = await pdf.getPage(pageNumber);
-        const viewport = page.getViewport({ scale: 1 });
+        if (!isActive) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        // Using scale 1 for baseline visibility
+        const baseViewport = page.getViewport({ scale: 1 });
+        
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        canvas.width = baseViewport.width * dpr;
+        canvas.height = baseViewport.height * dpr;
+        canvas.style.width = `100%`;
+        canvas.style.height = `100%`;
+
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) return;
+
+        await page.render({
+          canvasContext: ctx,
+          viewport: page.getViewport({ scale: dpr }),
+          intent: 'display'
+        }).promise;
+        
+        console.log("[RENDER END] page=" + pageNumber);
+
+        // Render text layer
         const textContent = await page.getTextContent();
-        if (textLayerRef.current) {
+        if (textLayerRef.current && isActive) {
           textLayerRef.current.innerHTML = '';
-          textLayerRef.current.style.setProperty('--scale-factor', viewport.scale.toString());
+          textLayerRef.current.style.setProperty('--scale-factor', "1");
           await pdfjs.renderTextLayer({
             textContentSource: textContent,
             container: textLayerRef.current,
-            viewport,
+            viewport: baseViewport,
             enhanceTextSelection: true
           }).promise;
         }
       } catch (e) {
-        console.error("[TextLayerError]", e);
+        console.error("[RenderFailure] page=" + pageNumber, e);
       }
     };
-    renderText();
 
-    return () => rendererRef.current?.destroy();
+    renderPage();
+    return () => { isActive = false; };
   }, [pdf, pageNumber]);
-
-  // Pass updates to engine imperatively
-  useEffect(() => {
-    const update = () => {
-       rendererRef.current?.render({ 
-         panX: panX.get(), 
-         panY: panY.get(), 
-         scale: renderScale, 
-         dims: containerDimensions 
-       }, pageNumber);
-    };
-    
-    // Subscribe to motion values for high-frequency updates during pan/zoom
-    const substX = panX.on("change", update);
-    const substY = panY.on("change", update);
-    
-    // Initial and settle update
-    update();
-    
-    return () => {
-      substX();
-      substY();
-    };
-  }, [panX, panY, renderScale, containerDimensions, pageNumber]);
 
   return (
     <div 
@@ -1642,10 +1509,10 @@ export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, 
         direction: 'ltr'
       }}
     >
-      <div 
-        ref={containerRef} 
-        className="tile-surface absolute inset-0 pointer-events-none" 
-        style={{ width: '100%', height: '100%' }}
+      <canvas 
+        ref={canvasRef} 
+        className="absolute inset-0 block" 
+        style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
       />
       <div 
         ref={textLayerRef}
