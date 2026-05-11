@@ -237,12 +237,28 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       if (isZoomedOut) {
         // Calculate tap position relative to reader container
         const containerRect = readerContainerRef.current.getBoundingClientRect();
-        const tapX = clientX - containerRect.left;
-        const tapY = clientY - containerRect.top;
         
-        // Target pan to center on the tap point
-        targetPanX = (readerContainerRef.current.clientWidth / 2 - tapX) * (targetScale / currentScaleValue);
-        targetPanY = (readerContainerRef.current.clientHeight / 2 - tapY) * (targetScale / currentScaleValue);
+        // Clamp tap position to prevent edge-origin explosions
+        const safeTapX = Math.max(containerRect.width * 0.2, Math.min(containerRect.width * 0.8, clientX - containerRect.left));
+        const safeTapY = Math.max(containerRect.height * 0.2, Math.min(containerRect.height * 0.8, clientY - containerRect.top));
+        
+        // Target pan to center on the safe tap point
+        targetPanX = (readerContainerRef.current.clientWidth / 2 - safeTapX) * (targetScale / currentScaleValue);
+        targetPanY = (readerContainerRef.current.clientHeight / 2 - safeTapY) * (targetScale / currentScaleValue);
+        
+        // Clamp target pan before animation
+        const aspect = 1.414;
+        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+        const zoomedWidth = spreadWidth * targetScale;
+        const zoomedHeight = (baseWidth * aspect) * targetScale;
+        const viewportWidth = readerDimensions.width;
+        const viewportHeight = readerDimensions.height;
+        
+        const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
+        const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+        
+        targetPanX = Math.max(-hMargin, Math.min(hMargin, targetPanX));
+        targetPanY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
       }
       
       console.log("[DoubleTap] STEP 4: Animation setup complete", { targetScale, isZoomedOut, targetPanX, targetPanY });
@@ -1500,44 +1516,43 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         const dpr = window.devicePixelRatio || 1;
         const visualScale = liveScale.get();
         
-        let qualityScale;
-        if (visualScale <= 2) {
-          qualityScale = visualScale;
-        } else if (visualScale <= 5) {
-          qualityScale = 2 + ((visualScale - 2) * 0.5);
-        } else {
-          qualityScale = 3.5 + ((visualScale - 5) * 0.2);
-        }
-        qualityScale *= dpr;
+        const oversampleMultiplier = visualScale < 2 ? 2.5 :
+                                     visualScale < 5 ? 2.0 :
+                                     visualScale < 10 ? 1.5 :
+                                     1.25;
+
+        const backingStoreScale = visualScale * oversampleMultiplier * dpr;
 
         // Memory safety check
-        const baseScale = width / pageSize.width;
-        const potentialResolutionScale = baseScale * qualityScale;
-        const pixels = (pageSize.width * potentialResolutionScale) * (pageSize.height * potentialResolutionScale);
-        const SAFE_MEMORY_LIMIT = 100 * 1024 * 1024; // 100MB
-        let finalResolutionScale = potentialResolutionScale;
+        const baseResolutionScale = (width / pageSize.width) * backingStoreScale;
+        const pixels = (pageSize.width * baseResolutionScale) * (pageSize.height * baseResolutionScale);
+        
+        const SAFE_MEMORY_LIMIT = 220 * 1024 * 1024; // 220MB
+        let finalResolutionScale = baseResolutionScale;
+
+        // If estimatedBytes exceeds memory, reduce quality progressively
         if (pixels * 4 > SAFE_MEMORY_LIMIT) {
           const ratio = Math.sqrt(SAFE_MEMORY_LIMIT / (pixels * 4));
           finalResolutionScale *= ratio;
-          console.warn(`[PDFPage] Capped quality due to memory limit`, { pixels, ratio });
+          console.warn(`[PDFPage] Progressive quality degradation due to memory limit`, { pixels, ratio });
         }
         
-        // Tiled rendering safety: ensure canvas dimensions do not exceed 8192
+        // Tiled rendering safety: ensure canvas dimensions do not exceed 12288
         let tentativeViewport = page.getViewport({ scale: finalResolutionScale });
-        if (tentativeViewport.width > 8192 || tentativeViewport.height > 8192) {
-          const scaleByDim = Math.min(8192 / tentativeViewport.width, 8192 / tentativeViewport.height);
+        if (tentativeViewport.width > 12288 || tentativeViewport.height > 12288) {
+          const scaleByDim = Math.min(12288 / tentativeViewport.width, 12288 / tentativeViewport.height);
           finalResolutionScale *= scaleByDim;
           tentativeViewport = page.getViewport({ scale: finalResolutionScale });
           console.warn(`[PDFPage] Capped quality due to canvas dimension limit`);
         }
         
         const renderViewport = tentativeViewport;
-        const cssScale = baseScale;
+        const cssScale = width / pageSize.width;
         const viewport = page.getViewport({ scale: cssScale });
 
         console.log(`[PDFPage] Rendering page ${pageNumber}`, {
-            renderScale: renderScale,
-            effectiveRenderScale: (finalResolutionScale / (baseScale * dpr)),
+            visualScale,
+            backingStoreScale,
             canvasBitmapSize: { w: renderViewport.width, h: renderViewport.height },
             totalPixels: (renderViewport.width * renderViewport.height)
         });
