@@ -574,9 +574,12 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
   const stripX = useTransform(virtualPage, (v: number) => {
     if (readerDimensions.width === 0) return 0;
     const centerOffset = (readerDimensions.width - sheetWidth) / 2;
-    const directionMultiplier = direction === 'rtl' ? 1 : -1;
-    // We reverse the sign of the progress relative to layout positions
-    return centerOffset - (v * (sheetWidth + gap) * directionMultiplier);
+    if (direction === 'rtl') {
+      const page0Pos = readerDimensions.width - sheetWidth; 
+      return (centerOffset - page0Pos) + (v * (sheetWidth + gap));
+    } else {
+      return centerOffset - (v * (sheetWidth + gap));
+    }
   });
 
   const totalX = useTransform([panX, stripX], ([px, sx]) => (px as number) + (sx as number));
@@ -928,10 +931,10 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
             </div>
           </div>
         ) : (
-          <div className="relative w-full h-full overflow-hidden border-2 border-red-500" id="viewport-clip">
+          <div className="relative w-full h-full overflow-hidden" id="viewport-clip">
             <motion.div 
               id="camera-layer"
-              className="absolute inset-0 border-2 border-green-500"
+              className="absolute inset-0"
               style={{
                 scale: liveScale,
                 x: totalX,
@@ -943,8 +946,15 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
             >
               <div 
                 id="page-strip"
-                className="absolute inset-0 flex items-center border-2 border-blue-500"
-                style={{ width: totalSheets * (sheetWidth + gap) }}
+                className="absolute"
+                style={{ 
+                  width: totalSheets * (sheetWidth + gap),
+                  height: '100%',
+                  left: direction === 'rtl' ? 'auto' : 0,
+                  right: direction === 'rtl' ? 0 : 'auto',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
               >
                 {/* Fixed-offset page layout */}
                 {(() => {
@@ -1072,13 +1082,13 @@ const ReaderSheet = React.memo(function ReaderSheet({
   gap: number
 }) {
   // Calculate fixed theoretical position in strip
-  const offsetMultiplier = direction === 'rtl' ? -1 : 1;
-  const layoutX = index * (sheetWidth + gap) * offsetMultiplier;
+  const layoutX = index * (sheetWidth + gap);
 
   return (
     <div
       style={{ 
-        left: layoutX,
+        left: direction === 'rtl' ? 'auto' : layoutX,
+        right: direction === 'rtl' ? layoutX : 'auto',
         width: sheetWidth,
         height: '100%',
         position: 'absolute',
@@ -1226,7 +1236,14 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
     setRenderError(false);
 
     const render = async () => {
-      if (!canvasRef.current || !textLayerDivRef.current || !containerRef.current) return;
+      if (!canvasRef.current || !textLayerDivRef.current || !containerRef.current) {
+        console.log("[PDFRenderGuard] Missing refs, skipping render.");
+        return;
+      }
+      if (width <= 0 || pageSize.width <= 0) {
+        console.log("[PDFRenderGuard] Zero dimension, skipping render.", { width, pageSizeWidth: pageSize.width });
+        return;
+      }
 
       try {
         const page = await pdf.getPage(pageNumber);
