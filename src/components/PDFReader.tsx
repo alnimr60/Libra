@@ -40,31 +40,46 @@ function ReaderSheet({
   
   useEffect(() => {
     async function render() {
-        if (!canvasRef.current) return;
+        console.log(`[ReaderSheet] Rendering page ${pageNumber}...`);
+        if (!canvasRef.current) {
+            console.error("[ReaderSheet] canvasRef not mounted");
+            return;
+        }
         
         if (renderTaskRef.current) {
             renderTaskRef.current.cancel();
             renderTaskRef.current = null;
         }
 
-        const page = await pdf.getPage(pageNumber);
-        const viewport = page.getViewport({ scale: 1 });
-        const renderScale = width / viewport.width;
-        const scaledViewport = page.getViewport({ scale: renderScale });
-        
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d');
-        if (!context) return;
-        canvas.width = scaledViewport.width;
-        canvas.height = scaledViewport.height;
-        
-        const renderTask = page.render({ canvasContext: context, viewport: scaledViewport });
-        renderTaskRef.current = renderTask;
-        
         try {
+            const page = await pdf.getPage(pageNumber);
+            console.log(`[ReaderSheet] Page ${pageNumber} loaded.`);
+            const viewport = page.getViewport({ scale: 1 });
+            const renderScale = width / viewport.width;
+            const scaledViewport = page.getViewport({ scale: renderScale });
+            console.log(`[ReaderSheet] Page ${pageNumber} viewport:`, scaledViewport);
+            
+            const canvas = canvasRef.current;
+            const context = canvas.getContext('2d');
+            if (!context) {
+                console.error("[ReaderSheet] No 2D context");
+                return;
+            }
+            canvas.width = scaledViewport.width;
+            canvas.height = scaledViewport.height;
+            console.log(`[ReaderSheet] Canvas resized to ${canvas.width}x${canvas.height}`);
+            
+            const renderTask = page.render({ canvasContext: context, viewport: scaledViewport });
+            renderTaskRef.current = renderTask;
+            
             await renderTask.promise;
+            console.log(`[ReaderSheet] Page ${pageNumber} render completed.`);
         } catch (e: any) {
-            // Ignore rendering cancelled error
+            if (e.name !== 'RenderingCancelledException') {
+                console.error(`[ReaderSheet] Page ${pageNumber} render failed:`, e);
+            } else {
+                console.log(`[ReaderSheet] Page ${pageNumber} render cancelled.`);
+            }
         }
     }
     render();
@@ -77,7 +92,8 @@ function ReaderSheet({
   }, [pdf, pageNumber, width]);
   
   const content = (
-    <div className="relative" style={{ width, height: '100%' }}>
+    <div className="relative border-4 border-red-500" style={{ width, height: 'auto', minHeight: '100%' }}>
+      <p className="text-sm font-bold bg-white text-black p-1">Page {pageNumber} ({width}px)</p>
       <canvas ref={canvasRef} />
     </div>
   );
@@ -117,11 +133,20 @@ export default function PDFReader({
   
   useEffect(() => {
     async function loadPdf() {
-        if (!book.fileDataId) return;
+        console.log("[PDFReader] Starting PDF load...");
+        if (!book.fileDataId) {
+            console.error("[PDFReader] No fileDataId provided");
+            return;
+        }
         const data = await get<Uint8Array>(book.fileDataId);
-        if (!data) return;
+        if (!data) {
+            console.error("[PDFReader] Failed to get PDF data from IDB");
+            return;
+        }
+        console.log("[PDFReader] PDF data retrieved. Length:", data.length);
         const loadingTask = pdfjs.getDocument({ data });
         const loadedPdf = await loadingTask.promise;
+        console.log("[PDFReader] PDF loaded successfully. Pages:", loadedPdf.numPages);
         setPdf(loadedPdf);
     }
     loadPdf();
@@ -132,44 +157,31 @@ export default function PDFReader({
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
       <div className="flex items-center justify-between p-4 border-b">
-        <h1 className="font-bold">{book.title}</h1>
+        <h1 className="font-bold">{book.title} (Page {pageIndex + 1})</h1>
         <button onClick={onClose} className="p-2 bg-gray-100 rounded-full">
           <X className="w-5 h-5" />
         </button>
       </div>
       
-      {/* Simple viewport-clip */}
+      {/* Viewport with diagnostic background */}
       <div 
         ref={containerRef}
-        className="flex-1 overflow-hidden relative touch-none" 
+        className="flex-1 overflow-hidden relative touch-none bg-gray-800" 
         id="viewport-clip"
       >
-        {/* Simple page-strip (using motion for swipe/pan gestures) */}
-        <motion.div 
-            className="flex h-full"
-            drag="x"
-            dragConstraints={{ left: -1000, right: 1000 }} // Simplified constraints
-            onDragEnd={(_, info) => {
-                if (Math.abs(info.offset.x) > 50) {
-                    const newPage = pageIndex + (info.offset.x > 0 ? -1 : 1);
-                    setPageIndex(Math.max(0, Math.min(newPage, pdf.numPages - 1)));
-                    onPageChange(Math.max(0, Math.min(newPage, pdf.numPages - 1)));
-                }
-            }}
-        >
-             {/* Only render current and maybe neighbors in a real implementation.
-                 For now, simplify to just current page to be stable. */}
+        <div className="flex h-full bg-gray-300 w-full" id="page-strip">
              <ReaderSheet 
+                key={pageIndex}
                 pdf={pdf} 
                 pageNumber={pageIndex + 1} 
-                width={800} 
-                height={1000} 
+                width={containerRef.current?.clientWidth || 800} 
+                height={containerRef.current?.clientHeight || 1000} 
                 isActive={true}
                 panX={panX}
                 panY={panY}
                 scale={scale}
              />
-        </motion.div>
+        </div>
       </div>
     </div>
   );
