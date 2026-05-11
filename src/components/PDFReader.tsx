@@ -1514,24 +1514,31 @@ class PDFViewportRenderer {
   private MAX_CONCURRENT = 2;
   private MAX_MEMORY = 350 * 1024 * 1024;
   private currentMemory = 0;
-  private cameraState: any = null;
+
+
+  private cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } } | null = null;
   private pageSize: { width: number, height: number } | null = null;
+  private renderTier: number = 2; // Fixed quality tier for now
 
   constructor(container: HTMLElement, pdf: any) {
     this.container = container;
     this.pdf = pdf;
+    this.container.style.position = 'relative';
     console.log("[RendererInit]");
   }
 
-  async render(cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
+  render(cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
     this.cameraState = cameraState;
     if (!this.pageSize) {
-      const page = await this.pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      this.pageSize = { width: viewport.width, height: viewport.height };
+      this.pdf.getPage(pageNumber).then((page: any) => {
+        const viewport = page.getViewport({ scale: 1 });
+        this.pageSize = { width: viewport.width, height: viewport.height };
+        this.render(cameraState, pageNumber); // Re-run with page size
+      });
+      return;
     }
 
-    const { visibleTiles, tilesToEvict } = this.calculateVisibleTiles(pageNumber);
+    const { visibleTiles } = this.calculateVisibleTiles();
     
     // Evict tiles not in visible list
     for (const [key, canvas] of this.tiles.entries()) {
@@ -1547,20 +1554,17 @@ class PDFViewportRenderer {
         const key = `${tile.row}-${tile.col}`;
         if (!this.tiles.has(key)) {
             const canvas = document.createElement('canvas');
-            canvas.width = tile.width;
-            canvas.height = tile.height;
+            canvas.width = TILE_SIZE;
+            canvas.height = TILE_SIZE;
             canvas.style.position = 'absolute';
             canvas.style.left = `${tile.x}px`;
             canvas.style.top = `${tile.y}px`;
+            canvas.style.width = `${TILE_SIZE}px`;
+            canvas.style.height = `${TILE_SIZE}px`;
             this.container.appendChild(canvas);
             this.tiles.set(key, canvas);
             
-            // Calculate priority (distance from center)
-            const centerX = this.cameraState.panX + this.cameraState.dims.width / 2;
-            const centerY = this.cameraState.panY + this.cameraState.dims.height / 2;
-            const dist = Math.sqrt(Math.pow(tile.x + tile.width/2 - centerX, 2) + Math.pow(tile.y + tile.height/2 - centerY, 2));
-            
-            this.renderQueue.push({ pageNumber, row: tile.row, col: tile.col, tile, priority: dist });
+            this.renderQueue.push({ pageNumber, row: tile.row, col: tile.col, tile, priority: 0 }); // Simplified priority
         }
     }
     
@@ -1568,15 +1572,14 @@ class PDFViewportRenderer {
     this.processQueue();
   }
 
-  private calculateVisibleTiles(pageNumber: number) {
-    if (!this.pageSize) return { visibleTiles: [], tilesToEvict: [] };
+  private calculateVisibleTiles() {
+    if (!this.pageSize || !this.cameraState) return { visibleTiles: [] };
     
     const scale = this.cameraState.scale;
     const pageWidth = this.pageSize.width * scale;
     const pageHeight = this.pageSize.height * scale;
     const viewX = -this.cameraState.panX;
     const viewY = -this.cameraState.panY;
-    const margin = 512;
 
     const visibleTiles: any[] = [];
     
@@ -1587,16 +1590,14 @@ class PDFViewportRenderer {
       for (let c = 0; c < numCols; c++) {
         const x = c * TILE_SIZE;
         const y = r * TILE_SIZE;
-        const w = Math.min(TILE_SIZE, pageWidth - x);
-        const h = Math.min(TILE_SIZE, pageHeight - y);
 
-        if (x < viewX + this.cameraState.dims.width + margin && x + w > viewX - margin &&
-            y < viewY + this.cameraState.dims.height + margin && y + h > viewY - margin) {
-          visibleTiles.push({ row: r, col: c, x, y, width: w, height: h });
+        if (x < viewX + this.cameraState.dims.width + TILE_SIZE && x + TILE_SIZE > viewX - TILE_SIZE &&
+            y < viewY + this.cameraState.dims.height + TILE_SIZE && y + TILE_SIZE > viewY - TILE_SIZE) {
+          visibleTiles.push({ row: r, col: c, x, y });
         }
       }
     }
-    return { visibleTiles, tilesToEvict: [] };
+    return { visibleTiles };
   }
 
   private async processQueue() {
@@ -1604,10 +1605,13 @@ class PDFViewportRenderer {
           const task = this.renderQueue.shift();
           if (!task) continue;
           this.activeRenders++;
-          this.renderTile(task).finally(() => {
-              this.activeRenders--;
-              this.processQueue();
-          });
+          try {
+            await this.renderTile(task);
+          } catch(e) {
+            console.error("[TileRenderError]", e);
+          } finally {
+            this.activeRenders--;
+          }
       }
   }
 
@@ -1618,29 +1622,29 @@ class PDFViewportRenderer {
       if (!canvas) return;
 
       const page = await this.pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: this.cameraState.scale });
-      
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = tile.width;
-      tempCanvas.height = tile.height;
-      const ctx = tempCanvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const tierScale = this.renderTier;
+
+      // Internal resolution
+      canvas.width = TILE_SIZE * dpr * tierScale;
+      canvas.height = TILE_SIZE * dpr * tierScale;
+
+      const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Translate context to draw correct tile region
-      ctx.translate(-tile.x / this.cameraState.scale * viewport.width / (this.pageSize!.width * this.cameraState.scale), -tile.y / this.cameraState.scale * viewport.height / (this.pageSize!.height * this.cameraState.scale));
+      const viewport = page.getViewport({ 
+          scale: this.cameraState.scale * dpr * tierScale,
+          offsetX: -col * TILE_SIZE * dpr * tierScale,
+          offsetY: -row * TILE_SIZE * dpr * tierScale
+      });
       
       await page.render({
           canvasContext: ctx,
           viewport: viewport,
           intent: 'display'
       } as any).promise;
-
-      const bitmap = await createImageBitmap(tempCanvas);
-      const drawCtx = canvas.getContext('2d');
-      drawCtx?.drawImage(bitmap, 0, 0);
       
       console.log("[TileRender]", key);
-      bitmap.close();
   }
 
   destroy() {
