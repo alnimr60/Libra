@@ -50,27 +50,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
 
-  // FORCED DEBUG TEST - CONFIRMING CAMERA LAYER FUNCTIONALITY
-  useEffect(() => {
-    console.log("[DEBUG_CAMERA] FORCING TEST STATE: pan(200,200) scale(1.5)");
-    panX.set(200);
-    panY.set(200);
-    liveScale.set(1.5);
-    
-    // Add interval to log state continuously
-    const interval = setInterval(() => {
-      console.log("[DEBUG_CAMERA_TICK]", {
-        panX: panX.get(),
-        panY: panY.get(),
-        liveScale: liveScale.get()
-      });
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [panX, panY, liveScale]);
-
   // Sync state scale to liveScale motion value
-  /*
   useEffect(() => {
     try {
       console.log("[PDFReader] Effect: Syncing liveScale to committedScale", { committedScale });
@@ -90,7 +70,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       throw err;
     }
   }, [committedScale, liveScale, panX, panY]);
-  */
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1358,7 +1337,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
         willChange: 'transform'
       } as any}
       className={cn(
-        "absolute inset-0 select-none bg-blue-900/10",
+        "absolute inset-0 flex items-center justify-center select-none bg-blue-900/10",
         "border-2 border-dashed border-white/10"
       )}
     >
@@ -1372,20 +1351,20 @@ const ReaderSheet = React.memo(function ReaderSheet({
             transformOrigin: "0 0",
             transformStyle: 'preserve-3d',
             backfaceVisibility: 'hidden',
-            width: '100%',
-            height: '100%',
+            width: viewMode === 'double' ? 800 : 400,
+            height: 600,
             willChange: 'transform',
             pointerEvents: 'none'
           } as any}
-          className="absolute top-0 left-0"
+          className="relative"
         >
           {viewMode === 'double' ? (
             <>
-              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
-              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={400} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={400} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
             </>
           ) : (
-            <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+            <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} width={400} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
           )}
       </motion.div>
     </motion.div>
@@ -1476,31 +1455,6 @@ export const PDFPage = React.memo(({
   const renderTaskRef = useRef<any>(null);
 
   useEffect(() => {
-    const update = () => {
-      if (containerRef.current) {
-        // Use offsetWidth/Height for pure layout size, ignore screen space
-        console.log(`[VISIBILITY_TRACE_TICK] Page ${pageNumber}:`, {
-          camera: { x: panX.get(), y: panY.get(), scale: liveScale.get() },
-          layoutSize: { width: containerRef.current.offsetWidth, height: containerRef.current.offsetHeight },
-          parentCoordinate: { top: containerRef.current.offsetTop, left: containerRef.current.offsetLeft }
-        });
-      }
-    };
-    
-    // Subscribe to motion values for logging
-    const substX = panX.on("change", update);
-    const substY = panY.on("change", update);
-    const substS = liveScale.on("change", update); // Log on scale changes too
-    
-    update();
-    return () => {
-      substX();
-      substY();
-      substS();
-    };
-  }, [pageNumber, renderScale, panX, panY, liveScale]);
-
-  useEffect(() => {
     let isCancelled = false;
 
     async function renderPage() {
@@ -1520,27 +1474,26 @@ export const PDFPage = React.memo(({
           renderTaskRef.current = null;
         }
 
+        const pixelRatio = window.devicePixelRatio || 1;
         const viewport = page.getViewport({ scale: 1 });
         
         // Fit to fixed 400x600 container
         const scaleX = 400 / viewport.width;
         const scaleY = 600 / viewport.height;
-        const scale = Math.min(scaleX, scaleY);
+        const fitScale = Math.min(scaleX, scaleY);
         
-        const finalViewport = page.getViewport({ scale });
+        // Render at high resolution matching current display but fixed to fit 400x600 box
+        const renderViewport = page.getViewport({ scale: fitScale * pixelRatio });
+        const cssViewport = page.getViewport({ scale: fitScale });
         
-        // High DPI support
-        const pixelRatio = window.devicePixelRatio || 1;
-        canvas.width = finalViewport.width * pixelRatio;
-        canvas.height = finalViewport.height * pixelRatio;
-        canvas.style.width = `${finalViewport.width}px`;
-        canvas.style.height = `${finalViewport.height}px`;
-
-        context.scale(pixelRatio, pixelRatio);
+        canvas.width = Math.floor(renderViewport.width);
+        canvas.height = Math.floor(renderViewport.height);
+        canvas.style.width = `${cssViewport.width}px`;
+        canvas.style.height = `${cssViewport.height}px`;
 
         const renderContext = {
           canvasContext: context,
-          viewport: finalViewport,
+          viewport: renderViewport,
         };
 
         const renderTask = page.render(renderContext);
