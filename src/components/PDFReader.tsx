@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
-import { motion } from 'motion/react';
+import { motion, useMotionValue, useTransform, animate } from 'motion/react';
 import { X } from 'lucide-react';
 import { get } from 'idb-keyval';
 import { cn } from '../lib/utils';
@@ -15,36 +15,48 @@ export interface PDFReaderProps {
   onClose: () => void;
 }
 
-function PDFPage({ pdf, pageNumber, width }: { pdf: pdfjs.PDFDocumentProxy, pageNumber: number, width: number }) {
+// Minimal sheet component
+function ReaderSheet({ 
+  pdf, 
+  pageNumber, 
+  width, 
+  height, 
+  isActive,
+  panX,
+  panY,
+  scale
+}: { 
+  pdf: pdfjs.PDFDocumentProxy, 
+  pageNumber: number, 
+  width: number,
+  height: number,
+  isActive: boolean,
+  panX: any,
+  panY: any,
+  scale: any
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<pdfjs.RenderTask | null>(null);
   
   useEffect(() => {
-    let isCancelled = false;
-
-    async function renderPage() {
+    async function render() {
         if (!canvasRef.current) return;
         
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d');
-        if (!context) return;
-        
-        // Cancel previous rendering
         if (renderTaskRef.current) {
             renderTaskRef.current.cancel();
             renderTaskRef.current = null;
         }
 
         const page = await pdf.getPage(pageNumber);
-        
-        if (isCancelled) return;
-
         const viewport = page.getViewport({ scale: 1 });
-        const scale = width / viewport.width;
-        const scaledViewport = page.getViewport({ scale });
+        const renderScale = width / viewport.width;
+        const scaledViewport = page.getViewport({ scale: renderScale });
         
-        canvas.height = scaledViewport.height;
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        if (!context) return;
         canvas.width = scaledViewport.width;
+        canvas.height = scaledViewport.height;
         
         const renderTask = page.render({ canvasContext: context, viewport: scaledViewport });
         renderTaskRef.current = renderTask;
@@ -52,12 +64,11 @@ function PDFPage({ pdf, pageNumber, width }: { pdf: pdfjs.PDFDocumentProxy, page
         try {
             await renderTask.promise;
         } catch (e: any) {
-            // RenderingCancelledException is expected
+            // Ignore rendering cancelled error
         }
     }
-    renderPage();
+    render();
     return () => {
-        isCancelled = true;
         if (renderTaskRef.current) {
             renderTaskRef.current.cancel();
             renderTaskRef.current = null;
@@ -65,18 +76,44 @@ function PDFPage({ pdf, pageNumber, width }: { pdf: pdfjs.PDFDocumentProxy, page
     };
   }, [pdf, pageNumber, width]);
   
-  return <canvas ref={canvasRef} />;
+  const content = (
+    <div className="relative" style={{ width, height: '100%' }}>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+
+  return isActive ? (
+    <motion.div
+      className="absolute top-0 left-0"
+      style={{
+        x: panX,
+        y: panY,
+        scale: scale,
+        transformOrigin: '0 0',
+        willChange: 'transform',
+        contain: 'strict'
+      } as any}
+    >
+      {content}
+    </motion.div>
+  ) : (
+    <div className="absolute top-0 left-0">{content}</div>
+  );
 }
 
 export default function PDFReader({ 
   book, 
   initialPage, 
-  updateBook, 
   onPageChange, 
-  onUpdateBookmarks, 
   onClose 
 }: PDFReaderProps) {
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const [pageIndex, setPageIndex] = useState(initialPage);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  const panX = useMotionValue(0);
+  const panY = useMotionValue(0);
+  const scale = useMotionValue(1);
   
   useEffect(() => {
     async function loadPdf() {
@@ -100,8 +137,39 @@ export default function PDFReader({
           <X className="w-5 h-5" />
         </button>
       </div>
-      <div className="flex-1 overflow-auto">
-         <PDFPage pdf={pdf} pageNumber={initialPage + 1} width={800} />
+      
+      {/* Simple viewport-clip */}
+      <div 
+        ref={containerRef}
+        className="flex-1 overflow-hidden relative touch-none" 
+        id="viewport-clip"
+      >
+        {/* Simple page-strip (using motion for swipe/pan gestures) */}
+        <motion.div 
+            className="flex h-full"
+            drag="x"
+            dragConstraints={{ left: -1000, right: 1000 }} // Simplified constraints
+            onDragEnd={(_, info) => {
+                if (Math.abs(info.offset.x) > 50) {
+                    const newPage = pageIndex + (info.offset.x > 0 ? -1 : 1);
+                    setPageIndex(Math.max(0, Math.min(newPage, pdf.numPages - 1)));
+                    onPageChange(Math.max(0, Math.min(newPage, pdf.numPages - 1)));
+                }
+            }}
+        >
+             {/* Only render current and maybe neighbors in a real implementation.
+                 For now, simplify to just current page to be stable. */}
+             <ReaderSheet 
+                pdf={pdf} 
+                pageNumber={pageIndex + 1} 
+                width={800} 
+                height={1000} 
+                isActive={true}
+                panX={panX}
+                panY={panY}
+                scale={scale}
+             />
+        </motion.div>
       </div>
     </div>
   );
