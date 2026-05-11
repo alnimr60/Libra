@@ -1448,8 +1448,7 @@ class PDFViewportRenderer {
     this.container = container;
     this.pdf = pdf;
     this.container.style.position = 'relative';
-    this.container.style.overflow = 'visible'; // Important: tiles might peek out
-    this.container.style.border = '1px solid green'; // DEBUG: tile-surface border
+    this.container.style.overflow = 'visible';
     console.log("[RendererBaselineInit]");
   }
 
@@ -1462,9 +1461,8 @@ class PDFViewportRenderer {
       this.baseViewport = page.getViewport({ scale: 1 });
     }
 
-    const { worldW, worldH, visibleTiles } = this.calculateVisibleTiles(state);
+    const { visibleTiles } = this.calculateVisibleTiles(state);
     
-    // Manage existing tile canvases
     const currentKeys = new Set(visibleTiles.map(t => `${t.row}_${t.col}`));
     for (const [key, canvas] of this.tiles.entries()) {
       if (!currentKeys.has(key)) {
@@ -1473,7 +1471,6 @@ class PDFViewportRenderer {
       }
     }
 
-    // Create/Update needed tiles
     for (const tileInfo of visibleTiles) {
       const key = `${tileInfo.row}_${tileInfo.col}`;
       let canvas = this.tiles.get(key);
@@ -1486,25 +1483,23 @@ class PDFViewportRenderer {
         canvas.style.top = `${tileInfo.row * TILE_SIZE}px`;
         canvas.style.width = `${TILE_SIZE}px`;
         canvas.style.height = `${TILE_SIZE}px`;
-        canvas.style.border = '1px solid blue'; // DEBUG: tile border
         canvas.className = 'pdf-tile';
         this.container.appendChild(canvas);
         this.tiles.set(key, canvas);
         
-        // Immediate render
         this.renderTile(pageNumber, tileInfo.row, tileInfo.col);
       }
     }
   }
 
   private calculateVisibleTiles(state: any) {
-    if (!this.baseViewport) return { worldW: 0, worldH: 0, visibleTiles: [] };
+    if (!this.baseViewport) return { visibleTiles: [] };
     
     const { panX, panY, scale, dims } = state;
     const worldW = this.baseViewport.width;
     const worldH = this.baseViewport.height;
 
-    // Viewport rect in Logical Page Space (World Space at scale 1.0)
+    // Logical Viewport (World Space scale 1.0)
     const vX = -panX / scale;
     const vY = -panY / scale;
     const vW = dims.width / scale;
@@ -1519,7 +1514,6 @@ class PDFViewportRenderer {
         const tX = c * TILE_SIZE;
         const tY = r * TILE_SIZE;
         
-        // Simple intersection check in World Space
         const intersects = !(tX > vX + vW || 
                              tX + TILE_SIZE < vX || 
                              tY > vY + vH || 
@@ -1530,7 +1524,7 @@ class PDFViewportRenderer {
         }
       }
     }
-    return { worldW, worldH, visibleTiles: visible };
+    return { visibleTiles: visible };
   }
 
   private async renderTile(pageNumber: number, row: number, col: number) {
@@ -1540,11 +1534,7 @@ class PDFViewportRenderer {
 
     const page = await this.pdf.getPage(pageNumber);
     const dpr = window.devicePixelRatio || 1;
-    
-    // For baseline, we use current scaling but aim for sharpness
-    // renderScale = camera scale * dpr (to be pixel perfect at current zoom)
-    // We'll use a fixed high-quality scale for baseline testing: 2 * dpr
-    const renderScale = 2 * dpr;
+    const renderScale = 2 * dpr; // baseline fixed quality
 
     canvas.width = TILE_SIZE * renderScale;
     canvas.height = TILE_SIZE * renderScale;
@@ -1552,32 +1542,22 @@ class PDFViewportRenderer {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    // Baseline Debug Pre-draw
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "red";
-    ctx.font = `${40 * renderScale}px sans-serif`;
-    ctx.fillText(`${row},${col}`, 20 * renderScale, 50 * renderScale);
-
-    // Coordinate mapping:
-    // We use the baseViewport (scale 1) and apply an explicit transform
-    const viewport = page.getViewport({ scale: 1 });
-    
-    // PDF space -> World Space (scale 1) -> Device Space (renderScale)
-    // The translate offset must be in Device Space.
-    const transform = [
-      renderScale, 0,
-      0, renderScale,
-      -col * TILE_SIZE * renderScale,
-      -row * TILE_SIZE * renderScale
-    ];
+    // SAFE VIEWPORT TILING (Phase 6)
+    // No transform array. Use offsetX/offsetY in viewport.
+    const viewport = page.getViewport({ 
+      scale: renderScale,
+      rotation: this.baseViewport?.rotation || 0,
+      offsetX: -col * TILE_SIZE * renderScale,
+      offsetY: -row * TILE_SIZE * renderScale
+    });
 
     await page.render({
       canvasContext: ctx as any,
       viewport: viewport,
-      transform: transform,
       intent: 'display'
     }).promise;
+    
+    console.log(`[TileRenderFinished] ${row},${col}`);
   }
 
   public destroy() {
