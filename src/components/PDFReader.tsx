@@ -1460,17 +1460,23 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
-  const [tier, setTier] = useState(1.0);
+  const [renderTier, setRenderTier] = useState(1.0);
 
-  // Track tier changes to trigger re-render
+  // Debounced tier updates to prevent rendering during active gestures
   useEffect(() => {
-    return liveScale.on('change', (v) => {
+    let timeout: NodeJS.Timeout;
+    const unsub = liveScale.on('change', (v) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
         const nextTier = v <= 1.2 ? 1.0 : v <= 2.5 ? 2.0 : v <= 5 ? 4.0 : 6.0;
-        if (nextTier !== tier) {
-            setTier(nextTier);
-        }
+        setRenderTier(nextTier);
+      }, 150);
     });
-  }, [tier, liveScale]);
+    return () => {
+      clearTimeout(timeout);
+      unsub();
+    };
+  }, [liveScale]);
 
   const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
   const containerHeight = width * aspectRatio;
@@ -1531,7 +1537,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         if (!isMounted) return;
 
         // Cache management
-        const cacheKey = `${pageNumber}-${tier}`;
+        const cacheKey = `${pageNumber}-${renderTier}`;
         const container = containerRef.current!;
         const contextCanvas = canvasRef.current!;
         const ctx = contextCanvas.getContext('2d');
@@ -1560,7 +1566,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         if (!tempCtx) return;
         
         // Render at Tier Resolution
-        const renderViewport = page.getViewport({ scale: tier * cssScale });
+        const renderViewport = page.getViewport({ scale: renderTier * cssScale });
         tempCanvas.width = Math.min(renderViewport.width * dpr, 12288);
         tempCanvas.height = Math.min(renderViewport.height * dpr, 12288);
         tempCtx.scale(dpr, dpr);
@@ -1616,7 +1622,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber, width, pageSize.width, tier]);
+  }, [pdf, pageNumber, width, pageSize.width, renderTier]);
 
   return (
     <div 
