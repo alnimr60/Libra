@@ -1450,39 +1450,199 @@ interface PDFPageProps {
   pageCache: any;
 }
 
+const TILE_SIZE = 512;
+
+interface PDFPageProps {
+  pageNumber: number;
+  pdf: pdfjs.PDFDocumentProxy;
+  width: number;
+  renderScale: number;
+  committedScale: number;
+  liveScale: any;
+  direction: 'ltr' | 'rtl';
+  isSpreadChild?: boolean;
+  pageCache: any;
+}
+
+const Tile = ({ pdf, pageNumber, tile, pageCache, renderScale }: any) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const renderTaskRef = useRef<any>(null);
+
+    useEffect(() => {
+        const renderTile = async () => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const cacheKey = `${pageNumber}-${tile.row}-${tile.col}-${renderScale}`;
+            
+            // Check cache
+            if (pageCache.current.has(cacheKey)) {
+                const bitmap = pageCache.current.get(cacheKey)!;
+                ctx.drawImage(bitmap, 0, 0);
+                return;
+            }
+
+            // Render tile
+            const page = await pdf.getPage(pageNumber);
+            
+            // Calculate tile offset in points
+            const cssScale = renderScale; 
+            const tileViewport = page.getViewport({ 
+                scale: renderScale,
+                offsetX: -tile.x / cssScale,
+                offsetY: -tile.y / cssScale
+            });
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = tile.width;
+            tempCanvas.height = tile.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (!tempCtx) return;
+
+            if (renderTaskRef.current) renderTaskRef.current.cancel();
+
+            renderTaskRef.current = page.render({
+                canvasContext: tempCtx,
+                viewport: tileViewport,
+                intent: 'display'
+            } as any);
+
+            await renderTaskRef.current.promise;
+            const bitmap = await createImageBitmap(tempCanvas);
+            
+            // Cache management
+            if (pageCache.current.size > 20) {
+                const firstKey = pageCache.current.keys().next().value;
+                pageCache.current.get(firstKey)?.close();
+                pageCache.current.delete(firstKey);
+            }
+            
+            pageCache.current.set(cacheKey, bitmap);
+            ctx.drawImage(bitmap, 0, 0);
+        };
+        renderTile();
+    }, [pdf, pageNumber, tile, renderScale]);
+    
+    return (
+        <canvas
+            ref={canvasRef}
+            width={tile.width}
+            height={tile.height}
+            style={{ position: 'absolute', left: tile.x, top: tile.y, width: tile.width, height: tile.height }}
+        />
+    );
+};
+
 const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild }) => {
-  console.log(`[HOOK TRACE] PDFPage render page: ${pageNumber}`);
-  console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const textLayerDivRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const renderTaskRef = useRef<any>(null);
-  const [isRendering, setIsRendering] = useState(true);
-  const [renderError, setRenderError] = useState(false);
+  const textLayerDivRef = useRef<HTMLDivElement>(null);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
-  const [renderTier, setRenderTier] = useState(1.0);
+  const [tiles, setTiles] = useState<any[]>([]);
 
-  // Debounced tier updates to prevent rendering during active gestures
+  // Calculate tiles based on intrinsic page size
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    const unsub = liveScale.on('change', (v) => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        const nextTier = v <= 1.2 ? 1.0 : v <= 2.5 ? 2.0 : v <= 5 ? 4.0 : 6.0;
-        setRenderTier(nextTier);
-      }, 150);
-    });
-    return () => {
-      clearTimeout(timeout);
-      unsub();
+    if (pageSize.width === 0 || width === 0) return;
+    
+    const tileGrid: any[] = [];
+    
+    const numCols = Math.ceil((pageSize.width * renderScale) / TILE_SIZE);
+    const numRows = Math.ceil((pageSize.height * renderScale) / TILE_SIZE);
+    
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        tileGrid.push({
+          row: r,
+          col: c,
+          x: c * TILE_SIZE,
+          y: r * TILE_SIZE,
+          width: Math.min(TILE_SIZE, (pageSize.width * renderScale) - c * TILE_SIZE),
+          height: Math.min(TILE_SIZE, (pageSize.height * renderScale) - r * TILE_SIZE)
+        });
+      }
+    }
+    setTiles(tileGrid);
+  }, [pageSize, width, renderScale]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchSize = async () => {
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        if (isMounted) setPageSize({ width: viewport.width, height: viewport.height });
+      } catch (err) {}
     };
-  }, [liveScale]);
+    fetchSize();
+    return () => { isMounted = false; };
+  }, [pdf, pageNumber]);
 
-  const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
-  const containerHeight = width * aspectRatio;
+  return (
+    <div 
+        ref={containerRef} 
+        style={{ 
+            position: 'relative', 
+            width: width, 
+            height: pageSize.width > 0 ? (pageSize.height * (width / pageSize.width)) : 0 
+        }}
+    >
+        {tiles.map((tile, i) => (
+            <Tile 
+                key={`${pageNumber}-${tile.row}-${tile.col}-${renderScale}`} 
+                pdf={pdf} 
+                pageNumber={pageNumber} 
+                tile={tile} 
+                pageCache={pageCache} 
+                renderScale={renderScale} 
+            />
+        ))}
+        {/* Text Layer Div */}
+        <div 
+            ref={textLayerDivRef} 
+            style={{ 
+                position: 'absolute', 
+                top: 0, 
+                left: 0, 
+                width: width, 
+                height: pageSize.width > 0 ? (pageSize.height * (width / pageSize.width)) : 0 
+            }} 
+        />
+    </div>
+  );
+});
 
-  const displayWidth = width;
-  const displayHeight = containerHeight;
+const LegacyPDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild }) => {
+  console.log(`[HOOK TRACE] PDFPage render page: ${pageNumber}`);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const textLayerDivRef = useRef<HTMLDivElement>(null);
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [tiles, setTiles] = useState<any[]>([]);
+
+  // Calculate tiles based on intrinsic page size
+  useEffect(() => {
+    if (pageSize.width === 0 || width === 0) return;
+    
+    // Use renderScale for tile density
+    const tileGrid: any[] = [];
+    
+    const numCols = Math.ceil((pageSize.width * renderScale) / TILE_SIZE);
+    const numRows = Math.ceil((pageSize.height * renderScale) / TILE_SIZE);
+    
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        tileGrid.push({
+          row: r,
+          col: c,
+          x: c * TILE_SIZE,
+          y: r * TILE_SIZE,
+          width: Math.min(TILE_SIZE, (pageSize.width * renderScale) - c * TILE_SIZE),
+          height: Math.min(TILE_SIZE, (pageSize.height * renderScale) - r * TILE_SIZE)
+        });
+      }
+    }
+    setTiles(tileGrid);
+  }, [pageSize, width, renderScale]);
 
   useEffect(() => {
     const textLayer = textLayerDivRef.current;
