@@ -575,8 +575,11 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
     if (readerDimensions.width === 0) return 0;
     const centerOffset = (readerDimensions.width - sheetWidth) / 2;
     const directionMultiplier = direction === 'rtl' ? 1 : -1;
-    return centerOffset + (v * (sheetWidth + gap) * directionMultiplier);
+    // We reverse the sign of the progress relative to layout positions
+    return centerOffset - (v * (sheetWidth + gap) * directionMultiplier);
   });
+
+  const totalX = useTransform([panX, stripX], ([px, sx]) => (px as number) + (sx as number));
   
   const handlePageChange = (newIndex: number, isJump: boolean = false) => {
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
@@ -925,53 +928,52 @@ export default React.memo(function PDFReader({ book, initialPage, onPageChange, 
             </div>
           </div>
         ) : (
-          <div className="relative w-full h-full overflow-hidden">
+          <div className="relative w-full h-full overflow-hidden border-2 border-red-500" id="viewport-clip">
             <motion.div 
-              className="absolute inset-0"
+              id="camera-layer"
+              className="absolute inset-0 border-2 border-green-500"
               style={{
                 scale: liveScale,
-                x: panX,
+                x: totalX,
                 y: panY,
                 transformOrigin: '0 0',
                 transformStyle: 'flat',
                 willChange: 'transform'
               } as any}
             >
-              <motion.div 
+              <div 
                 id="page-strip"
-                className="absolute inset-0 flex items-center"
-                style={{ x: stripX }}
+                className="absolute inset-0 flex items-center border-2 border-blue-500"
+                style={{ width: totalSheets * (sheetWidth + gap) }}
               >
                 {/* Fixed-offset page layout */}
                 {(() => {
                   const items = [];
                   // Render a sliding window of pages for performance
-                  const range = viewMode === 'double' ? 2 : 3;
-                  for (let i = -range; i <= range; i++) {
-                    const sheetIndex = pageIndex + i;
-                    if (sheetIndex >= 0 && sheetIndex < totalSheets) {
-                      items.push(
-                        <ReaderSheet 
-                          key={sheetIndex}
-                          index={sheetIndex}
-                          pdf={pdf!}
-                          numPages={numPages}
-                          viewMode={viewMode}
-                          direction={direction}
-                          virtualPage={virtualPage}
-                          renderScale={renderScale}
-                          isLandscape={isLandscape}
-                          containerDimensions={readerDimensions}
-                          isCurrent={sheetIndex === pageIndex}
-                          sheetWidth={sheetWidth}
-                          gap={gap}
-                        />
-                      );
-                    }
+                  const range = 2; 
+                  const start = Math.max(0, pageIndex - range);
+                  const end = Math.min(totalSheets - 1, pageIndex + range);
+                  
+                  for (let sheetIndex = start; sheetIndex <= end; sheetIndex++) {
+                    items.push(
+                      <ReaderSheet 
+                        key={sheetIndex}
+                        index={sheetIndex}
+                        pdf={pdf!}
+                        numPages={numPages}
+                        viewMode={viewMode}
+                        direction={direction}
+                        renderScale={renderScale}
+                        isLandscape={isLandscape}
+                        containerDimensions={readerDimensions}
+                        sheetWidth={sheetWidth}
+                        gap={gap}
+                      />
+                    );
                   }
                   return items;
                 })()}
-              </motion.div>
+              </div>
             </motion.div>
           </div>
         )}
@@ -1052,11 +1054,9 @@ const ReaderSheet = React.memo(function ReaderSheet({
   numPages, 
   viewMode, 
   direction, 
-  virtualPage, 
   renderScale, 
   isLandscape,
   containerDimensions,
-  isCurrent,
   sheetWidth,
   gap
 }: { 
@@ -1065,32 +1065,24 @@ const ReaderSheet = React.memo(function ReaderSheet({
   numPages: number, 
   viewMode: 'single' | 'double',
   direction: 'ltr' | 'rtl',
-  virtualPage: any,
   renderScale: number,
   isLandscape: boolean,
   containerDimensions: { width: number, height: number },
-  isCurrent: boolean,
   sheetWidth: number,
   gap: number
 }) {
-  const distance = useTransform(virtualPage, (v: number) => index - v);
-  
   // Calculate fixed theoretical position in strip
   const offsetMultiplier = direction === 'rtl' ? -1 : 1;
   const layoutX = index * (sheetWidth + gap) * offsetMultiplier;
 
-  const visibility = useTransform(distance, (d: number) => Math.abs(d) < 3 ? 'visible' : 'hidden');
-
   return (
-    <motion.div
+    <div
       style={{ 
-        visibility, 
-        x: layoutX,
+        left: layoutX,
         width: sheetWidth,
         height: '100%',
-        willChange: 'transform',
         position: 'absolute',
-        left: 0
+        top: 0
       } as any}
       className={cn(
         "flex p-4 md:p-8 select-none",
@@ -1130,7 +1122,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 });
 
@@ -1245,10 +1237,10 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         const qualityMultiplier = 1.2; // Extra quality boost for all displays
         
         const baseScale = width / pageSize.width;
-        // The scale for the UI layout (CSS pixels)
-        const cssScale = baseScale * renderScale;
-        // The scale for the internal canvas bitmap (Device pixels)
-        const renderResolutionScale = cssScale * dpr * qualityMultiplier;
+        // The scale for the UI layout (CSS pixels) - MUST STAY CONSTANT (1.0 relative to camera)
+        const cssScale = baseScale; 
+        // The scale for the internal canvas bitmap (Device pixels) - Handles quality
+        const renderResolutionScale = cssScale * dpr * qualityMultiplier * renderScale;
 
         const viewport = page.getViewport({ scale: cssScale });
         const renderViewport = page.getViewport({ scale: renderResolutionScale });
@@ -1272,9 +1264,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
           canvas.width = renderViewport.width;
           canvas.height = renderViewport.height;
           
-          // Set CSS display size to match layout viewport
-          canvas.style.width = `${viewport.width}px`;
-          canvas.style.height = `${viewport.height}px`;
+          // Set CSS display size to match layout viewport (Constant)
+          canvas.style.width = `${width}px`;
+          canvas.style.height = `${containerHeight}px`;
           
           context.fillStyle = 'white';
           context.fillRect(0, 0, canvas.width, canvas.height);
@@ -1282,9 +1274,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
           const textLayerDiv = textLayerDivRef.current;
           if (textLayerDiv) {
             textLayerDiv.innerHTML = '';
-            // Text layer matches visual viewport exactly
-            textLayerDiv.style.width = `${viewport.width}px`;
-            textLayerDiv.style.height = `${viewport.height}px`;
+            // Text layer matches visual viewport exactly (Constant)
+            textLayerDiv.style.width = `${width}px`;
+            textLayerDiv.style.height = `${containerHeight}px`;
             textLayerDiv.dir = 'ltr';
             textLayerDiv.style.direction = 'ltr';
             textLayerDiv.style.setProperty('--scale-factor', viewport.scale.toString());
@@ -1399,8 +1391,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             className="textLayer"
             dir="ltr"
             style={{ 
-              width: width * renderScale,
-              height: containerHeight * renderScale,
+              width,
+              height: containerHeight,
               pointerEvents: 'auto',
               zIndex: 5,
               userSelect: 'text',
@@ -1409,8 +1401,6 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
               position: 'absolute',
               top: 0,
               left: 0,
-              transform: renderScale !== 1 ? `scale(${1 / renderScale})` : 'none',
-              transformOrigin: 'top left',
               whiteSpace: 'pre'
             }} 
           />
