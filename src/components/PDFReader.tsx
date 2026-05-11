@@ -1444,32 +1444,54 @@ export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, 
     let isActive = true;
     const renderPage = async () => {
       try {
-        console.log("[RENDER START] page=" + pageNumber);
+        console.log("[BASELINE] RENDER START page=" + pageNumber);
+        const canvas = canvasRef.current;
+        if (!canvas) {
+          console.error("[BASELINE] Canvas ref is NULL");
+          return;
+        }
+
         const page = await pdf.getPage(pageNumber);
+        console.log("[BASELINE] Page object acquired:", page.pageNumber);
         if (!isActive) return;
 
         const dpr = window.devicePixelRatio || 1;
-        // Using scale 1 for baseline visibility
         const baseViewport = page.getViewport({ scale: 1 });
         
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
+        // Phase 1: FORCE canvas size and logs
+        console.log("[BASELINE] Viewport dims:", baseViewport.width, "x", baseViewport.height);
+        
         canvas.width = baseViewport.width * dpr;
         canvas.height = baseViewport.height * dpr;
-        canvas.style.width = `100%`;
-        canvas.style.height = `100%`;
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.style.display = "block";
+        canvas.style.backgroundColor = "white";
 
         const ctx = canvas.getContext('2d', { alpha: false });
-        if (!ctx) return;
+        if (!ctx) {
+          console.error("[BASELINE] Could not get 2D context");
+          return;
+        }
 
+        // Phase 2: CANVAS TEST DRAW
+        console.log("[BASELINE] Performing test draw");
+        ctx.fillStyle = "red";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "white";
+        ctx.font = `${Math.floor(40 * dpr)}px sans-serif`;
+        ctx.fillText(`CANVAS OK - PAGE ${pageNumber}`, 50 * dpr, 100 * dpr);
+
+        // Phase 3: PDF TEST RENDER
+        console.log("[BASELINE] Starting PDF render into canvas");
         await page.render({
           canvasContext: ctx,
           viewport: page.getViewport({ scale: dpr }),
           intent: 'display'
         }).promise;
         
-        console.log("[RENDER END] page=" + pageNumber);
+        console.log("[BASELINE] RENDER END page=" + pageNumber);
 
         // Render text layer
         const textContent = await page.getTextContent();
@@ -1484,7 +1506,7 @@ export const PDFPage = React.memo(({ pageNumber, pdf, width, renderScale, panX, 
           }).promise;
         }
       } catch (e) {
-        console.error("[RenderFailure] page=" + pageNumber, e);
+        console.error("[BASELINE] CRITICAL FAILURE page=" + pageNumber, e);
       }
     };
 
