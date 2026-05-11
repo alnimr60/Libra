@@ -59,17 +59,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         stiffness: 300,
         damping: 30
       });
-      
-      // Reset panning smoothly when zooming out significantly or switching modes
-      if (committedScale <= 1.05) {
-        animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-        animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
-      }
     } catch (err) {
       console.error("[PDFReader] Error in scale sync effect:", err);
       throw err;
     }
-  }, [committedScale, liveScale, panX, panY]);
+  }, [committedScale, liveScale]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -113,6 +107,51 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     initialPanY: 0, 
     midpoint: { x: 0, y: 0 } 
   });
+
+  // Consolidated margins calculation for boundary clamping
+  const getMargins = (scale: number) => {
+    // Content dimensions are fixed at 400x600 per page
+    const contentWidth = viewMode === 'double' ? 800 : 400;
+    const contentHeight = 600;
+    
+    const zoomedWidth = contentWidth * scale;
+    const zoomedHeight = contentHeight * scale;
+    const viewportWidth = readerDimensionsRef.current.width || window.innerWidth;
+    const viewportHeight = readerDimensionsRef.current.height || window.innerHeight;
+    
+    return {
+      h: Math.max(0, (zoomedWidth - viewportWidth) / 2),
+      v: Math.max(0, (zoomedHeight - viewportHeight) / 2)
+    };
+  };
+
+  // Watch scale changes and clamp pan to visible bounds immediately
+  useEffect(() => {
+    const unsubscribe = liveScale.on("change", (latestScale) => {
+      // Don't interfere if user is explicitly pining or pinching
+      if (isPinching.current || isPanning.current) return;
+      
+      const { h, v } = getMargins(latestScale);
+
+      const currentX = panX.get();
+      const currentY = panY.get();
+      
+      let needsFix = false;
+      let newX = currentX;
+      let newY = currentY;
+
+      if (currentX < -h) { newX = -h; needsFix = true; }
+      if (currentX > h) { newX = h; needsFix = true; }
+      if (currentY < -v) { newY = -v; needsFix = true; }
+      if (currentY > v) { newY = v; needsFix = true; }
+      
+      if (needsFix) {
+        panX.set(newX);
+        panY.set(newY);
+      }
+    });
+    return () => unsubscribe();
+  }, [viewMode, liveScale, panX, panY]);
 
   useEffect(() => {
     if (!readerContainerRef.current) return;
@@ -582,7 +621,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const timer = setTimeout(() => {
       console.log("[PDFReader] Settle: Updating renderScale to", committedScale);
       setRenderScale(committedScale);
-    }, 400); // Increased settle time for better stability
+    }, 250); // Faster re-render for responsiveness
     return () => clearTimeout(timer);
   }, [committedScale]);
 
@@ -1327,11 +1366,11 @@ const ReaderSheet = React.memo(function ReaderSheet({
   return (
     <motion.div
       style={{ 
-        opacity: 1, 
-        visibility: 'visible', 
-        zIndex: 10,
-        x: 0,
-        rotateY: 0,
+        opacity, 
+        visibility, 
+        zIndex,
+        x,
+        rotateY,
         transformStyle: 'preserve-3d',
         backfaceVisibility: 'hidden',
         willChange: 'transform'
@@ -1414,7 +1453,19 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         zIndex: side === 'right' ? 1 : 2
       }}
     >
-      <PDFPage pageNumber={pageNumber} pdf={pdf} width={400} renderScale={renderScale} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
+      <PDFPage 
+        key={`page-${pageNumber}-scale-${renderScale}`}
+        pageNumber={pageNumber} 
+        pdf={pdf} 
+        width={400} 
+        renderScale={renderScale} 
+        panX={panX} 
+        panY={panY} 
+        liveScale={liveScale} 
+        containerDimensions={containerDimensions} 
+        direction={direction} 
+        isSpreadChild={true} 
+      />
       
       {/* Normalized Debug Overlay - Shared Parent Coordinate Space */}
       <div 
