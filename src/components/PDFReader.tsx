@@ -1486,26 +1486,54 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
 
         // 1. Separate Visual scale from Render resolution
         const dpr = window.devicePixelRatio || 1;
-        const qualityMultiplier = 1.2; // Extra quality boost for all displays
-        
         const baseScale = width / pageSize.width;
-        // The scale for the UI layout (CSS pixels)
         const cssScale = baseScale;
-        // The scale for the internal canvas bitmap (Device pixels)
-        const renderResolutionScale = baseScale * renderScale * dpr * qualityMultiplier;
+        
+        // Dynamic quality tiers for performance
+        let targetRenderScale = 1;
+        if (renderScale <= 2) targetRenderScale = renderScale;
+        else if (renderScale <= 4) targetRenderScale = 3;
+        else if (renderScale <= 8) targetRenderScale = 2.5;
+        else targetRenderScale = 2;
 
+        const baseResolutionScale = baseScale * targetRenderScale * dpr * 1.2;
+
+        // Calculate dimensions and apply safety limits
+        const MAX_DIMENSION = 8192;
+        const MAX_PIXELS = 16777216;
+        
+        let tentativeViewport = page.getViewport({ scale: baseResolutionScale });
+        let finalResolutionScale = baseResolutionScale;
+
+        // Safety check
+        if (tentativeViewport.width > MAX_DIMENSION || 
+            tentativeViewport.height > MAX_DIMENSION ||
+            (tentativeViewport.width * tentativeViewport.height) > MAX_PIXELS) {
+            
+            const scaleByDim = Math.min(MAX_DIMENSION / tentativeViewport.width, MAX_DIMENSION / tentativeViewport.height);
+            const scaleByPixels = Math.sqrt(MAX_PIXELS / (tentativeViewport.width * tentativeViewport.height));
+            const adjustment = Math.min(scaleByDim, scaleByPixels);
+            
+            finalResolutionScale = baseResolutionScale * adjustment;
+            tentativeViewport = page.getViewport({ scale: finalResolutionScale });
+            
+            console.log(`[PDFPage] Capped render scale due to GPU limits`, {
+                requested: renderScale,
+                targetTier: targetRenderScale,
+                before: baseResolutionScale,
+                after: finalResolutionScale,
+                dimensions: { w: tentativeViewport.width, h: tentativeViewport.height }
+            });
+        }
+
+        const renderViewport = tentativeViewport;
         const viewport = page.getViewport({ scale: cssScale });
-        const renderViewport = page.getViewport({ scale: renderResolutionScale });
 
         console.log(`[PDFPage] Rendering page ${pageNumber}`, {
-          dpr,
-          qualityMultiplier,
-          cssScale,
-          renderResolutionScale,
-          viewportWidth: viewport.width,
-          viewportHeight: viewport.height,
-          canvasBitmapSize: { w: renderViewport.width, h: renderViewport.height },
-          effectiveDPI: 72 * renderResolutionScale
+            renderScale: renderScale,
+            effectiveRenderScale: (finalResolutionScale / (baseScale * dpr)),
+            canvasBitmapSize: { w: renderViewport.width, h: renderViewport.height },
+            totalPixels: (renderViewport.width * renderViewport.height)
         });
 
         const canvas = canvasRef.current;
