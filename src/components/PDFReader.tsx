@@ -361,7 +361,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     mass: 0.8
   });
 
-  const pageCache = useRef<Map<number, Map<number, HTMLCanvasElement>>>(new Map());
+  const pageCache = useRef<Map<string, ImageBitmap>>(new Map());
 
   // Toggle direction manually
   const toggleDirection = () => {
@@ -1533,38 +1533,50 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         const viewport = page.getViewport({ scale: cssScale });
         
         // Tiered rendering
-        if (cacheForPage.has(tier)) {
-            const cachedCanvas = cacheForPage.get(tier)!;
-            const container = containerRef.current!;
-            container.innerHTML = '';
-            container.appendChild(cachedCanvas);
+        const cacheKey = `${pageNumber}-${tier}`;
+        const container = containerRef.current!;
+        const contextCanvas = canvasRef.current!;
+        const ctx = contextCanvas.getContext('2d');
+        if (!ctx) return;
+
+        contextCanvas.width = viewport.width;
+        contextCanvas.height = viewport.height;
+
+        if (pageCache.current.has(cacheKey)) {
+            const bitmap = pageCache.current.get(cacheKey)!;
+            ctx.clearRect(0, 0, contextCanvas.width, contextCanvas.height);
+            ctx.drawImage(bitmap, 0, 0);
             setIsRendering(false);
             return;
         }
 
-        // Render if not cached
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) return;
+        // Render new tier to temporary canvas
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return;
         
         const renderViewport = page.getViewport({ scale: tier * (width / pageSize.width) });
-        canvas.width = renderViewport.width;
-        canvas.height = renderViewport.height;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
+        tempCanvas.width = renderViewport.width;
+        tempCanvas.height = renderViewport.height;
 
         const renderTask = page.render({
-            canvasContext: context,
+            canvasContext: tempCtx,
             viewport: renderViewport,
             intent: 'display'
         } as any);
         await renderTask.promise;
         
-        cacheForPage.set(tier, canvas);
+        const bitmap = await createImageBitmap(tempCanvas);
+        // Cache management (simple LRU by clearing if > 20)
+        if (pageCache.current.size > 20) {
+            const firstKey = pageCache.current.keys().next().value;
+            pageCache.current.get(firstKey)?.close();
+            pageCache.current.delete(firstKey);
+        }
+        pageCache.current.set(cacheKey, bitmap);
         
-        const container = containerRef.current!;
-        container.innerHTML = '';
-        container.appendChild(canvas);
+        ctx.clearRect(0, 0, contextCanvas.width, contextCanvas.height);
+        ctx.drawImage(bitmap, 0, 0);
         
         // Text layer rendering
         const textLayerDiv = textLayerDivRef.current;
