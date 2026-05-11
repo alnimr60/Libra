@@ -229,15 +229,23 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       panY.stop();
 
       const isZoomedOut = currentScaleValue <= 1.05;
-      const target = isZoomedOut ? 2.5 : 1.0;
+      const targetScale = isZoomedOut ? 2.5 : 1.0;
       
-      console.log("[DoubleTap] STEP 4: Animation setup complete", { target, isZoomedOut });
+      let targetPanX = 0;
+      let targetPanY = 0;
 
-      if (!Number.isFinite(target)) {
-        console.error("[DoubleTapZoom] Invalid target scale");
-        isAnimatingZoom.current = false;
-        throw new Error(`Invalid target scale: ${target}`);
+      if (isZoomedOut) {
+        // Calculate tap position relative to reader container
+        const containerRect = readerContainerRef.current.getBoundingClientRect();
+        const tapX = clientX - containerRect.left;
+        const tapY = clientY - containerRect.top;
+        
+        // Target pan to center on the tap point
+        targetPanX = (readerContainerRef.current.clientWidth / 2 - tapX) * (targetScale / currentScaleValue);
+        targetPanY = (readerContainerRef.current.clientHeight / 2 - tapY) * (targetScale / currentScaleValue);
       }
+      
+      console.log("[DoubleTap] STEP 4: Animation setup complete", { targetScale, isZoomedOut, targetPanX, targetPanY });
 
       // Handle UI controls state change cautiously
       if (isZoomedOut && showControls) {
@@ -245,20 +253,24 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       }
 
       console.log("[DoubleTap] STEP 5: Starting animate()");
-      // Start the core imperative animation
-      animate(liveScale, target, { 
+      // Start the core imperative animation simultaneously
+      const animConfig = { 
         type: 'spring', 
         stiffness: 300, 
-        damping: 30,
+        damping: 30
+      };
+      
+      animate(liveScale, targetScale, animConfig);
+      animate(panX, targetPanX, animConfig);
+      animate(panY, targetPanY, {
+        ...animConfig,
         onComplete: () => {
           console.log("[DoubleTap] STEP 6: Animation complete callback start");
           try {
-            console.log("[DoubleTapZoom] Animation Complete, Syncing committedScale", { target });
-            // Defer React state update to ensure it doesn't interfere with the final frame of animation
-            setCommittedScale(target);
+            console.log("[DoubleTapZoom] Animation Complete, Syncing committedScale", { targetScale });
+            setCommittedScale(targetScale);
             
             console.log("[DoubleTap] STEP 7: committedScale updated");
-            // Wait one more frame before releasing the lock to allow React to settle
             requestAnimationFrame(() => {
               isAnimatingZoom.current = false;
               console.log("[DoubleTapZoom] Lock Released Successfully");
@@ -266,7 +278,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           } catch (syncErr) {
             console.error("[DoubleTapCrash] Error in onComplete sync:", syncErr);
             isAnimatingZoom.current = false;
-            throw syncErr; // Re-throw to hit ErrorBoundary/Global
+            throw syncErr;
           }
         }
       });
@@ -1486,47 +1498,41 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
 
         // 1. Separate Visual scale from Render resolution
         const dpr = window.devicePixelRatio || 1;
-        const baseScale = width / pageSize.width;
-        const cssScale = baseScale;
+        const visualScale = liveScale.get();
         
-        // Dynamic quality tiers for performance
-        let targetRenderScale = 1;
-        if (renderScale <= 2) targetRenderScale = renderScale;
-        else if (renderScale <= 4) targetRenderScale = 3;
-        else if (renderScale <= 8) targetRenderScale = 2.5;
-        else targetRenderScale = 2;
-
-        const baseResolutionScale = baseScale * targetRenderScale * dpr * 1.2;
-
-        // Calculate dimensions and apply safety limits
-        const MAX_DIMENSION = 8192;
-        const MAX_PIXELS = 16777216;
-        
-        let tentativeViewport = page.getViewport({ scale: baseResolutionScale });
-        let finalResolutionScale = baseResolutionScale;
-
-        // Safety check
-        if (tentativeViewport.width > MAX_DIMENSION || 
-            tentativeViewport.height > MAX_DIMENSION ||
-            (tentativeViewport.width * tentativeViewport.height) > MAX_PIXELS) {
-            
-            const scaleByDim = Math.min(MAX_DIMENSION / tentativeViewport.width, MAX_DIMENSION / tentativeViewport.height);
-            const scaleByPixels = Math.sqrt(MAX_PIXELS / (tentativeViewport.width * tentativeViewport.height));
-            const adjustment = Math.min(scaleByDim, scaleByPixels);
-            
-            finalResolutionScale = baseResolutionScale * adjustment;
-            tentativeViewport = page.getViewport({ scale: finalResolutionScale });
-            
-            console.log(`[PDFPage] Capped render scale due to GPU limits`, {
-                requested: renderScale,
-                targetTier: targetRenderScale,
-                before: baseResolutionScale,
-                after: finalResolutionScale,
-                dimensions: { w: tentativeViewport.width, h: tentativeViewport.height }
-            });
+        let qualityScale;
+        if (visualScale <= 2) {
+          qualityScale = visualScale;
+        } else if (visualScale <= 5) {
+          qualityScale = 2 + ((visualScale - 2) * 0.5);
+        } else {
+          qualityScale = 3.5 + ((visualScale - 5) * 0.2);
         }
+        qualityScale *= dpr;
 
+        // Memory safety check
+        const baseScale = width / pageSize.width;
+        const potentialResolutionScale = baseScale * qualityScale;
+        const pixels = (pageSize.width * potentialResolutionScale) * (pageSize.height * potentialResolutionScale);
+        const SAFE_MEMORY_LIMIT = 100 * 1024 * 1024; // 100MB
+        let finalResolutionScale = potentialResolutionScale;
+        if (pixels * 4 > SAFE_MEMORY_LIMIT) {
+          const ratio = Math.sqrt(SAFE_MEMORY_LIMIT / (pixels * 4));
+          finalResolutionScale *= ratio;
+          console.warn(`[PDFPage] Capped quality due to memory limit`, { pixels, ratio });
+        }
+        
+        // Tiled rendering safety: ensure canvas dimensions do not exceed 8192
+        let tentativeViewport = page.getViewport({ scale: finalResolutionScale });
+        if (tentativeViewport.width > 8192 || tentativeViewport.height > 8192) {
+          const scaleByDim = Math.min(8192 / tentativeViewport.width, 8192 / tentativeViewport.height);
+          finalResolutionScale *= scaleByDim;
+          tentativeViewport = page.getViewport({ scale: finalResolutionScale });
+          console.warn(`[PDFPage] Capped quality due to canvas dimension limit`);
+        }
+        
         const renderViewport = tentativeViewport;
+        const cssScale = baseScale;
         const viewport = page.getViewport({ scale: cssScale });
 
         console.log(`[PDFPage] Rendering page ${pageNumber}`, {
