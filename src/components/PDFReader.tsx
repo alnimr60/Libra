@@ -1348,7 +1348,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
             x: panX,
             y: panY,
             scale: liveScale,
-            transformOrigin: "0 0",
+            transformOrigin: "center center",
             transformStyle: 'preserve-3d',
             backfaceVisibility: 'hidden',
             width: viewMode === 'double' ? 800 : 400,
@@ -1395,7 +1395,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         height: 600, 
         opacity: 0.1,
         left: side === 'right' ? 400 : 0,
-        transformOrigin: '0 0'
+        transformOrigin: 'center center'
       }} 
     />
   ) : (
@@ -1410,7 +1410,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         position: 'absolute',
         top: 0,
         left: side === 'right' ? 400 : 0,
-        transformOrigin: '0 0',
+        transformOrigin: 'center center',
         zIndex: side === 'right' ? 1 : 2
       }}
     >
@@ -1482,8 +1482,9 @@ export const PDFPage = React.memo(({
         const scaleY = 600 / viewport.height;
         const fitScale = Math.min(scaleX, scaleY);
         
-        // Render at high resolution matching current display but fixed to fit 400x600 box
-        const renderViewport = page.getViewport({ scale: fitScale * pixelRatio });
+        // Render at high resolution matching current display AND current zoom level
+        // renderScale is the committedScale from the reader
+        const renderViewport = page.getViewport({ scale: fitScale * pixelRatio * renderScale });
         const cssViewport = page.getViewport({ scale: fitScale });
         
         canvas.width = Math.floor(renderViewport.width);
@@ -1516,7 +1517,7 @@ export const PDFPage = React.memo(({
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber]);
+  }, [pdf, pageNumber, renderScale]);
 
   return (
     <div 
@@ -1531,7 +1532,7 @@ export const PDFPage = React.memo(({
         position: 'absolute',
         top: 0,
         left: 0,
-        transformOrigin: '0 0',
+        transformOrigin: 'center center',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
