@@ -361,6 +361,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     mass: 0.8
   });
 
+  const pageCache = useRef<Map<number, Map<number, HTMLCanvasElement>>>(new Map());
+
   // Toggle direction manually
   const toggleDirection = () => {
     setDirection(prev => {
@@ -1112,6 +1114,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                     liveScale={liveScale}
                     renderScale={renderScale}
                     committedScale={committedScale}
+                    pageCache={pageCache}
                     isLandscape={isLandscape}
                     containerDimensions={readerDimensions}
                     panX={panX}
@@ -1224,6 +1227,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale, 
   renderScale, 
   committedScale,
+  pageCache,
   isLandscape,
   containerDimensions,
   panX,
@@ -1239,6 +1243,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale: any,
   renderScale: number,
   committedScale: number,
+  pageCache: any,
   isLandscape: boolean,
   containerDimensions: { width: number, height: number },
   panX: any,
@@ -1347,13 +1352,13 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
               </>
             )}
           </>
@@ -1365,7 +1370,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
               maxHeight: '90vh'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} committedScale={committedScale} liveScale={liveScale} direction={direction} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} liveScale={liveScale} direction={direction} />
           </div>
         )}
       </motion.div>
@@ -1373,13 +1378,14 @@ const ReaderSheet = React.memo(function ReaderSheet({
   );
 });
 
-const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, committedScale, side, isLandscape, liveScale, direction }: { 
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, committedScale, pageCache, side, isLandscape, liveScale, direction }: { 
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
   width: number, 
   renderScale: number,
   committedScale: number,
+  pageCache: any,
   side: 'left' | 'right', 
   isLandscape?: boolean, 
   liveScale: any,
@@ -1425,7 +1431,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         side === 'left' ? "border-l border-y rounded-l-md shadow-[inset_1px_0_1px_rgba(255,255,255,1)]" : "border-r border-y rounded-r-md shadow-[inset_-1px_0_1px_rgba(255,255,255,1)]"
       )} />
 
-      <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} committedScale={committedScale} liveScale={liveScale} direction={direction} isSpreadChild={true} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} liveScale={liveScale} direction={direction} isSpreadChild={true} />
     </div>
   );
 
@@ -1441,9 +1447,10 @@ interface PDFPageProps {
   liveScale: any;
   direction: 'ltr' | 'rtl';
   isSpreadChild?: boolean;
+  pageCache: any;
 }
 
-const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, liveScale, direction, isSpreadChild }) => {
+const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild }) => {
   console.log(`[HOOK TRACE] PDFPage render page: ${pageNumber}`);
   console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1506,150 +1513,78 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
     setRenderError(false);
 
     const render = async () => {
-      if (!canvasRef.current || !textLayerDivRef.current || !containerRef.current) return;
-
+      if (!textLayerDivRef.current || !containerRef.current) return;
+      
       try {
         const page = await pdf.getPage(pageNumber);
         if (!isMounted) return;
 
-        // 1. Separate Visual scale from Render resolution
-        const dpr = window.devicePixelRatio || 1;
+        // Visual vs Render Separation
         const visualScale = liveScale.get();
+        const tier = visualScale <= 1.5 ? 1.5 : visualScale <= 3 ? 3 : visualScale <= 6 ? 6 : 8;
         
-        const oversampleMultiplier = visualScale < 2 ? 2.5 :
-                                     visualScale < 5 ? 2.0 :
-                                     visualScale < 10 ? 1.5 :
-                                     1.25;
-
-        const backingStoreScale = visualScale * oversampleMultiplier * dpr;
-
-        // Memory safety check
-        const baseResolutionScale = (width / pageSize.width) * backingStoreScale;
-        const pixels = (pageSize.width * baseResolutionScale) * (pageSize.height * baseResolutionScale);
-        
-        const SAFE_MEMORY_LIMIT = 220 * 1024 * 1024; // 220MB
-        let finalResolutionScale = baseResolutionScale;
-
-        // If estimatedBytes exceeds memory, reduce quality progressively
-        if (pixels * 4 > SAFE_MEMORY_LIMIT) {
-          const ratio = Math.sqrt(SAFE_MEMORY_LIMIT / (pixels * 4));
-          finalResolutionScale *= ratio;
-          console.warn(`[PDFPage] Progressive quality degradation due to memory limit`, { pixels, ratio });
+        // Cache management
+        if (!pageCache.current.has(pageNumber)) {
+            pageCache.current.set(pageNumber, new Map());
         }
+        const cacheForPage = pageCache.current.get(pageNumber)!;
         
-        // Tiled rendering safety: ensure canvas dimensions do not exceed 12288
-        let tentativeViewport = page.getViewport({ scale: finalResolutionScale });
-        if (tentativeViewport.width > 12288 || tentativeViewport.height > 12288) {
-          const scaleByDim = Math.min(12288 / tentativeViewport.width, 12288 / tentativeViewport.height);
-          finalResolutionScale *= scaleByDim;
-          tentativeViewport = page.getViewport({ scale: finalResolutionScale });
-          console.warn(`[PDFPage] Capped quality due to canvas dimension limit`);
-        }
-        
-        const renderViewport = tentativeViewport;
         const cssScale = width / pageSize.width;
         const viewport = page.getViewport({ scale: cssScale });
+        
+        // Tiered rendering
+        if (cacheForPage.has(tier)) {
+            const cachedCanvas = cacheForPage.get(tier)!;
+            const container = containerRef.current!;
+            container.innerHTML = '';
+            container.appendChild(cachedCanvas);
+            setIsRendering(false);
+            return;
+        }
 
-        console.log(`[PDFPage] Rendering page ${pageNumber}`, {
-            visualScale,
-            backingStoreScale,
-            canvasBitmapSize: { w: renderViewport.width, h: renderViewport.height },
-            totalPixels: (renderViewport.width * renderViewport.height)
-        });
-
-        const canvas = canvasRef.current;
+        // Render if not cached
+        const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
+        if (!context) return;
+        
+        const renderViewport = page.getViewport({ scale: tier * (width / pageSize.width) });
+        canvas.width = renderViewport.width;
+        canvas.height = renderViewport.height;
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
 
-        if (context) {
-          // Set internal bitmap size to match high-res resolution
-          canvas.width = renderViewport.width;
-          canvas.height = renderViewport.height;
-          
-          // Set CSS display size to match layout viewport
-          canvas.style.width = `${viewport.width}px`;
-          canvas.style.height = `${viewport.height}px`;
-          
-          context.fillStyle = 'white';
-          context.fillRect(0, 0, canvas.width, canvas.height);
-
-          const textLayerDiv = textLayerDivRef.current;
-          if (textLayerDiv) {
+        const renderTask = page.render({
+            canvasContext: context,
+            viewport: renderViewport,
+            intent: 'display'
+        } as any);
+        await renderTask.promise;
+        
+        cacheForPage.set(tier, canvas);
+        
+        const container = containerRef.current!;
+        container.innerHTML = '';
+        container.appendChild(canvas);
+        
+        // Text layer rendering
+        const textLayerDiv = textLayerDivRef.current;
+        if (textLayerDiv) {
             textLayerDiv.innerHTML = '';
-            // Text layer matches visual viewport exactly
             textLayerDiv.style.width = `${viewport.width}px`;
             textLayerDiv.style.height = `${viewport.height}px`;
-            textLayerDiv.dir = 'ltr';
-            textLayerDiv.style.direction = 'ltr';
-            textLayerDiv.style.setProperty('--scale-factor', viewport.scale.toString());
-            textLayerDiv.style.transform = 'none';
-          }
-
-          if (renderTaskRef.current) {
-            renderTaskRef.current.cancel();
-          }
-
-          renderTaskRef.current = page.render({
-            canvasContext: context,
-            viewport: renderViewport, // Render at high resolution
-            intent: 'display'
-          } as any);
-          
-          await renderTaskRef.current.promise;
-
-          if (!isMounted) return;
-
-          try {
-            if (textLayerDiv) {
-              const textContent = await page.getTextContent();
-              await pdfjs.renderTextLayer({
+            const textContent = await page.getTextContent();
+            await pdfjs.renderTextLayer({
                 textContentSource: textContent,
                 container: textLayerDiv,
-                viewport: viewport // Use visual viewport for text layout
-              }).promise;
-            }
-          } catch (textLayerErr) {
-            console.warn("Text layer processing failed", textLayerErr);
-          }
-
-          // Diagnostic: Check rects and ancestors
-          if (isMounted) {
-            const canvasRect = canvas.getBoundingClientRect();
-            const textRect = textLayerDiv?.getBoundingClientRect();
-            
-            // Log ancestor transforms
-            const ancestors: any[] = [];
-            let curr: HTMLElement | null = containerRef.current;
-            while (curr) {
-              const style = window.getComputedStyle(curr);
-              if (style.transform !== 'none' || style.direction !== 'ltr') {
-                ancestors.push({
-                  tag: curr.tagName,
-                  id: curr.id,
-                  transform: style.transform,
-                  dir: style.direction
-                });
-              }
-              curr = curr.parentElement;
-            }
-
-            console.log(`[PDFPage-Diag] Page ${pageNumber} Render complete`, {
-              canvas: { w: canvasRect.width, h: canvasRect.height },
-              text: { w: textRect?.width, h: textRect?.height },
-              renderScale,
-              viewport: { w: viewport.width, h: viewport.height },
-              ancestorCount: ancestors.length,
-              problematicAncestors: ancestors
-            });
-            setIsRendering(false);
-          }
+                viewport: viewport
+            }).promise;
         }
-      } catch (error: any) {
-        if (error.name === 'RenderingCancelledException') return;
-        console.error(`Error rendering page ${pageNumber}:`, error);
-        if (isMounted) {
+
+        setIsRendering(false);
+      } catch (err) {
+          console.error(err);
           setRenderError(true);
           setIsRendering(false);
-        }
       }
     };
 
