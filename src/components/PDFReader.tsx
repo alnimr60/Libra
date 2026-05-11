@@ -1381,18 +1381,18 @@ const ReaderSheet = React.memo(function ReaderSheet({
         >
           {viewMode === 'double' ? (
             <>
-              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
             </>
           ) : (
-            <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+            <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
           )}
       </motion.div>
     </motion.div>
   );
 });
 
-const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, side, isLandscape, direction, panX, panY, containerDimensions }: { 
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, side, isLandscape, direction, panX, panY, liveScale, containerDimensions }: { 
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
@@ -1403,6 +1403,7 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   direction: 'ltr' | 'rtl',
   panX: any, 
   panY: any,
+  liveScale: any,
   containerDimensions: { width: number, height: number }
 }) {
   const isOutOfBounds = pageNumber > numPages;
@@ -1411,27 +1412,28 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
     <div 
       className="bg-zinc-800 absolute top-0" 
       style={{ 
-        width: width || 'auto', 
-        height: 800, 
+        width: 400, // Normalized
+        height: 600, // Normalized
         opacity: 0.1,
-        left: side === 'right' ? width : 0
+        left: side === 'right' ? 400 : 0
       }} 
     />
   ) : (
     <div 
       className={cn(
-        "bg-white border-2 border-green-500", // DEBUG BORDER
+        "bg-white border-4 border-green-500", // DEBUG BORDER
         side === 'left' ? "rounded-l-md" : "rounded-r-md"
       )}
       style={{ 
-        width: width || 'auto',
-        height: 800, // Explicit height for debug
+        width: 400, // Normalized
+        height: 600, // Normalized
         position: 'absolute',
         top: 0,
-        left: side === 'right' ? width : 0
+        left: side === 'right' ? 400 : 0,
+        boxSizing: 'border-box'
       }}
     >
-      <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} panX={panX} panY={panY} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} width={400} renderScale={renderScale} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
     </div>
   );
 
@@ -1445,6 +1447,7 @@ interface PDFPageProps {
   renderScale: number;
   panX: any;
   panY: any;
+  liveScale: any;
   containerDimensions: { width: number, height: number };
   direction: 'ltr' | 'rtl';
   isSpreadChild?: boolean;
@@ -1456,6 +1459,7 @@ export const PDFPage = React.memo(({
   isSpreadChild,
   panX,
   panY,
+  liveScale,
   renderScale
 }: PDFPageProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1464,10 +1468,13 @@ export const PDFPage = React.memo(({
     const update = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
+        const cameraLayerRect = containerRef.current.closest('[id$="-camera-layer"]')?.getBoundingClientRect();
+        
         console.log(`[VISIBILITY_TRACE_TICK] Page ${pageNumber}:`, {
-          camera: { x: panX.get(), y: panY.get(), scale: renderScale },
-          rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-          computed: window.getComputedStyle(containerRef.current).transform
+          camera: { x: panX.get(), y: panY.get(), scale: liveScale.get() },
+          pageRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+          cameraLayerRect: cameraLayerRect ? { top: cameraLayerRect.top, left: cameraLayerRect.left, width: cameraLayerRect.width, height: cameraLayerRect.height } : 'MISSING',
+          visibility: rect.width > 0 && rect.height > 0 ? "VISIBLE" : "HIDDEN"
         });
       }
     };
@@ -1475,13 +1482,15 @@ export const PDFPage = React.memo(({
     // Subscribe to motion values for logging
     const substX = panX.on("change", update);
     const substY = panY.on("change", update);
+    const substS = liveScale.on("change", update); // Log on scale changes too
     
     update();
     return () => {
       substX();
       substY();
+      substS();
     };
-  }, [pageNumber, renderScale, panX, panY]);
+  }, [pageNumber, renderScale, panX, panY, liveScale]);
 
   return (
     <div 
@@ -1494,17 +1503,17 @@ export const PDFPage = React.memo(({
         width: 400,
         height: 600,
         backgroundColor: 'red',
-        position: 'absolute', // FORCE ABSOLUTE
+        position: 'absolute',
         top: 0,
         left: 0,
-        flexShrink: 0,
         color: 'white',
         fontSize: '24px',
         fontWeight: 'bold',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '4px solid white'
+        border: '4px solid white',
+        boxSizing: 'border-box'
       }}
     >
       VISIBILITY TEST - PAGE {pageNumber}
