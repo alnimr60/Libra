@@ -1682,8 +1682,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
               left: 0,
               transform: 'none',
               transformOrigin: 'top left',
-              whiteSpace: 'pre'
-            }} 
+              whiteSpace: 'pre',
+              '--scale-factor': (pageSize.width > 0 ? (width / pageSize.width) : 1).toString()
+            } as React.CSSProperties} 
           />
         </div>
       )}
