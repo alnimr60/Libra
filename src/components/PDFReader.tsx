@@ -1539,13 +1539,16 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         const ctx = contextCanvas.getContext('2d');
         if (!ctx) return;
 
-        contextCanvas.width = viewport.width;
-        contextCanvas.height = viewport.height;
+        const dpr = window.devicePixelRatio || 1;
+        contextCanvas.width = viewport.width * dpr;
+        contextCanvas.height = viewport.height * dpr;
+        contextCanvas.style.width = `${viewport.width}px`;
+        contextCanvas.style.height = `${viewport.height}px`;
 
         if (pageCache.current.has(cacheKey)) {
             const bitmap = pageCache.current.get(cacheKey)!;
             ctx.clearRect(0, 0, contextCanvas.width, contextCanvas.height);
-            ctx.drawImage(bitmap, 0, 0);
+            ctx.drawImage(bitmap, 0, 0, contextCanvas.width, contextCanvas.height);
             setIsRendering(false);
             return;
         }
@@ -1556,8 +1559,9 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         if (!tempCtx) return;
         
         const renderViewport = page.getViewport({ scale: tier * (width / pageSize.width) });
-        tempCanvas.width = renderViewport.width;
-        tempCanvas.height = renderViewport.height;
+        tempCanvas.width = renderViewport.width * dpr;
+        tempCanvas.height = renderViewport.height * dpr;
+        tempCtx.scale(dpr, dpr);
 
         const renderTask = page.render({
             canvasContext: tempCtx,
@@ -1576,7 +1580,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         pageCache.current.set(cacheKey, bitmap);
         
         ctx.clearRect(0, 0, contextCanvas.width, contextCanvas.height);
-        ctx.drawImage(bitmap, 0, 0);
+        ctx.drawImage(bitmap, 0, 0, contextCanvas.width, contextCanvas.height);
         
         // Text layer rendering
         const textLayerDiv = textLayerDivRef.current;
