@@ -1509,39 +1509,146 @@ class PDFViewportRenderer {
   private pdf: any;
   private tiles: Map<string, HTMLCanvasElement> = new Map();
   private bitmapCache: Map<string, { bitmap: ImageBitmap; lastUsed: number; size: number }> = new Map();
-  private renderQueue: Array<any> = [];
+  private renderQueue: Array<{pageNumber: number, row: number, col: number, tile: any, priority: number}> = [];
   private activeRenders: number = 0;
   private MAX_CONCURRENT = 2;
   private MAX_MEMORY = 350 * 1024 * 1024;
   private currentMemory = 0;
+  private cameraState: any = null;
+  private pageSize: { width: number, height: number } | null = null;
 
   constructor(container: HTMLElement, pdf: any) {
     this.container = container;
     this.pdf = pdf;
+    console.log("[RendererInit]");
   }
 
-  render(cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
-    // 1. Calculate visible tiles based on cameraState and pageNumber
-    // 2. Identify new tiles to render and tiles to evict
-    // 3. Add to renderQueue (or prioritize)
-    // 4. Trigger processQueue()
-    console.log("[VisibleTiles] Render request for page", pageNumber, cameraState);
+  async render(cameraState: { panX: number, panY: number, scale: number, dims: { width: number, height: number } }, pageNumber: number) {
+    this.cameraState = cameraState;
+    if (!this.pageSize) {
+      const page = await this.pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      this.pageSize = { width: viewport.width, height: viewport.height };
+    }
+
+    const { visibleTiles, tilesToEvict } = this.calculateVisibleTiles(pageNumber);
+    
+    // Evict tiles not in visible list
+    for (const [key, canvas] of this.tiles.entries()) {
+        if (!visibleTiles.some(t => `${t.row}-${t.col}` === key)) {
+            canvas.remove();
+            this.tiles.delete(key);
+            console.log("[TileEvict]", key);
+        }
+    }
+
+    // Enqueue visible tiles
+    for (const tile of visibleTiles) {
+        const key = `${tile.row}-${tile.col}`;
+        if (!this.tiles.has(key)) {
+            const canvas = document.createElement('canvas');
+            canvas.width = tile.width;
+            canvas.height = tile.height;
+            canvas.style.position = 'absolute';
+            canvas.style.left = `${tile.x}px`;
+            canvas.style.top = `${tile.y}px`;
+            this.container.appendChild(canvas);
+            this.tiles.set(key, canvas);
+            
+            // Calculate priority (distance from center)
+            const centerX = this.cameraState.panX + this.cameraState.dims.width / 2;
+            const centerY = this.cameraState.panY + this.cameraState.dims.height / 2;
+            const dist = Math.sqrt(Math.pow(tile.x + tile.width/2 - centerX, 2) + Math.pow(tile.y + tile.height/2 - centerY, 2));
+            
+            this.renderQueue.push({ pageNumber, row: tile.row, col: tile.col, tile, priority: dist });
+        }
+    }
+    
+    this.renderQueue.sort((a, b) => a.priority - b.priority);
+    this.processQueue();
   }
 
-  private processQueue() {
-      // Manage MAX_CONCURRENT, FIFO queue
+  private calculateVisibleTiles(pageNumber: number) {
+    if (!this.pageSize) return { visibleTiles: [], tilesToEvict: [] };
+    
+    const scale = this.cameraState.scale;
+    const pageWidth = this.pageSize.width * scale;
+    const pageHeight = this.pageSize.height * scale;
+    const viewX = -this.cameraState.panX;
+    const viewY = -this.cameraState.panY;
+    const margin = 512;
+
+    const visibleTiles: any[] = [];
+    
+    const numCols = Math.ceil(pageWidth / TILE_SIZE);
+    const numRows = Math.ceil(pageHeight / TILE_SIZE);
+    
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        const x = c * TILE_SIZE;
+        const y = r * TILE_SIZE;
+        const w = Math.min(TILE_SIZE, pageWidth - x);
+        const h = Math.min(TILE_SIZE, pageHeight - y);
+
+        if (x < viewX + this.cameraState.dims.width + margin && x + w > viewX - margin &&
+            y < viewY + this.cameraState.dims.height + margin && y + h > viewY - margin) {
+          visibleTiles.push({ row: r, col: c, x, y, width: w, height: h });
+        }
+      }
+    }
+    return { visibleTiles, tilesToEvict: [] };
   }
 
-  private evictCache() {
-      // Manage 350MB limit, bitmap.close()
+  private async processQueue() {
+      while (this.activeRenders < this.MAX_CONCURRENT && this.renderQueue.length > 0) {
+          const task = this.renderQueue.shift();
+          if (!task) continue;
+          this.activeRenders++;
+          this.renderTile(task).finally(() => {
+              this.activeRenders--;
+              this.processQueue();
+          });
+      }
+  }
+
+  private async renderTile(task: any) {
+      const { row, col, tile, pageNumber } = task;
+      const key = `${row}-${col}`;
+      const canvas = this.tiles.get(key);
+      if (!canvas) return;
+
+      const page = await this.pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: this.cameraState.scale });
+      
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = tile.width;
+      tempCanvas.height = tile.height;
+      const ctx = tempCanvas.getContext('2d');
+      if (!ctx) return;
+
+      // Translate context to draw correct tile region
+      ctx.translate(-tile.x / this.cameraState.scale * viewport.width / (this.pageSize!.width * this.cameraState.scale), -tile.y / this.cameraState.scale * viewport.height / (this.pageSize!.height * this.cameraState.scale));
+      
+      await page.render({
+          canvasContext: ctx,
+          viewport: viewport,
+          intent: 'display'
+      } as any).promise;
+
+      const bitmap = await createImageBitmap(tempCanvas);
+      const drawCtx = canvas.getContext('2d');
+      drawCtx?.drawImage(bitmap, 0, 0);
+      
+      console.log("[TileRender]", key);
+      bitmap.close();
   }
 
   destroy() {
-      // Clear cache, cancel tasks, etc.
-      this.bitmapCache.forEach(entry => entry.bitmap.close());
-      this.bitmapCache.clear();
-      this.tiles.forEach(tile => tile.remove());
+      while (this.container.firstChild) {
+          this.container.removeChild(this.container.firstChild);
+      }
       this.tiles.clear();
+      this.bitmapCache.clear();
   }
 }
 
