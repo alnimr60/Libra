@@ -30,10 +30,9 @@
     --sar: env(safe-area-inset-right, 0px);
   }
 
-  /* Support for mobile overflow-scrolling and touch highlights */
+  /* Support for mobile overflow-scrolling */
   * {
     -webkit-overflow-scrolling: touch;
-    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -97,12 +96,8 @@ body {
   min-height: 1em;
 }
 
-::selection {
-  background: rgba(255, 230, 120, 0.45);
-}
-
 .textLayer ::selection {
-  background: rgba(255, 230, 120, 0.45);
+  background: rgba(59, 130, 246, 0.4);
 }
 
 canvas {
