@@ -1,260 +1,130 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { pdfjs } from '../lib/pdf';
-import { X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { get } from 'idb-keyval';
-import { Book, Bookmark } from '../types';
-
-export interface PDFReaderProps {
-  book: Book;
-  initialPage: number;
-  updateBook: (book: Book) => void;
-  onPageChange: (page: number) => void;
-  onUpdateBookmarks: (bookmarks: Bookmark[]) => void;
-  onClose: () => void;
-}
 
 /**
- * PDFPage: Static rendering component with strict task management.
- * 1. SINGLE RENDER OWNER: Each PDFPage owns its canvas and rendering lifecycle.
- * 11. RENDER GUARDS: Verifies canvas and document before rendering.
+ * STEP 2 & 3: PDFPage Mount & Canvas Test
  */
-function PDFPage({ 
-  pdf, 
-  pageNumber, 
-  availableWidth 
-}: { 
-  pdf: pdfjs.PDFDocumentProxy; 
-  pageNumber: number; 
-  availableWidth: number;
-}) {
+function PDFPage({ pdf }: { pdf: pdfjs.PDFDocumentProxy }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const renderTaskRef = useRef<pdfjs.RenderTask | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function doRender() {
+    console.log('[PDFPage Mounted]');
+    
+    async function testRender() {
       if (!canvasRef.current || !pdf) return;
-      if (pageNumber < 1 || pageNumber > pdf.numPages) return;
-
-      console.group(`[RenderProbe] Page ${pageNumber}`);
-      console.log(`Available Width: ${availableWidth}`);
-
-      // 1. Task Cancellation - Prevent overlapping renders on same canvas
-      if (renderTaskRef.current) {
-        console.log("Cancelling existing task...");
-        try {
-          renderTaskRef.current.cancel();
-        } catch (e) {}
-        renderTaskRef.current = null;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        console.error("[STEP 3 FAIL] No 2d Context");
+        return;
       }
 
+      // STEP 3: Manual Pixel Test
+      console.log("[STEP 3] Drawing Manual Test pattern...");
+      ctx.fillStyle = 'red';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'black';
+      ctx.font = '40px sans-serif';
+      ctx.fillText('CANVAS WORKS', 50, 100);
+
       try {
-        // 2. Fetch Page
-        const page = await pdf.getPage(pageNumber);
-        if (cancelled) return;
+        // STEP 4: PDF Load Test
+        console.log(`[STEP 4] Loading page 1...`);
+        const page = await pdf.getPage(1);
+        console.log('[PAGE LOADED]', page);
 
-        // 3. Viewport Calculation
+        // STEP 5: Simple Render
         const viewport = page.getViewport({ scale: 1 });
-        // availableWidth must be > 0
-        const calcWidth = Math.max(100, availableWidth);
-        const scale = calcWidth / viewport.width;
-        const scaledViewport = page.getViewport({ scale });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
         
-        console.log(`Logical Viewport: ${scaledViewport.width}x${scaledViewport.height} @ ${scale}x`);
+        console.log(`[STEP 5] Render starting. size: ${viewport.width}x${viewport.height}`);
 
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d', { alpha: false });
-        
-        if (!context) {
-          console.error("Failed to get 2D context");
-          return;
-        }
+        // STEP 8: Remove all cancellation for test
+        await page.render({
+          canvasContext: ctx,
+          viewport: viewport
+        }).promise;
 
-        // 4. Match logical/bitmap dimensions
-        canvas.width = scaledViewport.width;
-        canvas.height = scaledViewport.height;
-        // 9. Style width exactly matches expected viewport width
-        canvas.style.width = `${scaledViewport.width}px`;
-        canvas.style.height = `${scaledViewport.height}px`;
-
-        console.log(`Canvas Bitmap: ${canvas.width}x${canvas.height}`);
-
-        // 5. Start Render
-        console.log("Render task started...");
-        renderTaskRef.current = page.render({
-          canvasContext: context,
-          viewport: scaledViewport
-        });
-
-        await renderTaskRef.current.promise;
-        
-        if (!cancelled) {
-          console.log("Render task COMPLETED successfully.");
-        }
-      } catch (err: any) {
-        if (err.name === 'RenderingCancelledException') {
-          console.log("Render task CANCELLED by state change.");
-        } else {
-          console.error("Render task FAILED:", err);
-        }
-      } finally {
-        console.groupEnd();
+        console.log("[STEP 5 SUCCESS] PDF rendered.");
+      } catch (err) {
+        console.error("[RENDER FAIL] RAW ERROR:", err);
       }
     }
 
-    doRender();
-
-    return () => {
-      cancelled = true;
-      if (renderTaskRef.current) {
-        try {
-          renderTaskRef.current.cancel();
-        } catch (e) {}
-      }
-    };
-  }, [pdf, pageNumber, availableWidth]);
+    testRender();
+  }, [pdf]);
 
   return (
-    <div style={{ border: '4px solid green', display: 'inline-block', margin: '20px auto' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <p style={{ color: 'white', position: 'absolute', top: 0, left: 0 }}>PDFPage Mounted</p>
+      {/* STEP 6: Force Visibility */}
       <canvas 
         ref={canvasRef} 
-        style={{ border: '4px solid blue', display: 'block' }} 
+        width={500} 
+        height={700}
+        style={{ 
+          display: 'block', 
+          background: 'white', 
+          border: '4px solid blue',
+          opacity: 1,
+          visibility: 'visible',
+          zIndex: 9999,
+          position: 'relative',
+          margin: 'auto'
+        }} 
       />
     </div>
   );
 }
 
-export default function PDFReader({
-  book,
-  initialPage,
-  onPageChange,
-  onClose
-}: PDFReaderProps) {
+export default function PDFReader({ book }: any) {
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
-  const [pageIndex, setPageIndex] = useState(initialPage);
-  const [viewportDims, setViewportDims] = useState({ width: 0, height: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  // 6. PDF Loading Flow
   useEffect(() => {
-    async function load() {
-      console.log("[PDFReader] Starting fetch for fileDataId:", book.fileDataId);
-      if (!book.fileDataId) return;
-      
-      try {
-        const data = await get<Uint8Array>(book.fileDataId);
-        if (!data) {
-          console.error("[PDFReader] No data found in IDB.");
-          return;
-        }
+    // STEP 7: Worker Test
+    console.log("[STEP 7] pdfjs version:", pdfjs.version);
+    console.log("[STEP 7] worker loaded:", !!(pdfjs as any).GlobalWorkerOptions?.workerSrc);
 
-        console.log("[PDFReader] Data retrieved. Parsing PDF...");
-        const task = pdfjs.getDocument({ data });
-        const doc = await task.promise;
-        
-        console.log("[PDFReader] PDF PARSED. Total Pages:", doc.numPages);
-        setPdf(doc);
-      } catch (e) {
-        console.error("[PDFReader] Document initialization failed:", e);
-      }
+    async function load() {
+      if (!book.fileDataId) return;
+      const data = await get<Uint8Array>(book.fileDataId);
+      if (!data) return;
+      const doc = await pdfjs.getDocument({ data }).promise;
+      setPdf(doc);
     }
     load();
   }, [book.fileDataId]);
 
-  // Viewport Observer
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      console.log(`[ViewportProbe] Size detected: ${width}x${height}`);
-      setViewportDims({ width, height });
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
+  // STEP 1: HARD RENDER TEST
+  // Change to false to proceed to Step 2-8
+  const FORCE_RED_TEST = false; 
 
-  if (!pdf) return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center">
-      <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-2" />
-      <p className="text-gray-500 font-bold">RECOVERING RENDERING SYSTEM...</p>
-    </div>
-  );
+  if (FORCE_RED_TEST) {
+    return (
+      <div style={{ width: '100vw', height: '100vh', background: 'red', zIndex: 99999, position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
+        TEST (IF YOU SEE THIS, REACT MOUNTED)
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col text-white font-sans">
-      {/* Simple Navigation Menu */}
-      <div className="h-16 bg-zinc-900 border-b border-white/10 flex items-center justify-between px-6">
-        <div className="flex items-center gap-4">
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-          <div>
-            <h1 className="font-semibold leading-tight truncate max-w-[200px] md:max-w-md">{book.title}</h1>
-            <p className="text-xs text-gray-400">Stable Baseline - Page {pageIndex + 1} of {pdf.numPages}</p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <button 
-            disabled={pageIndex === 0}
-            onClick={() => {
-              const prev = pageIndex - 1;
-              setPageIndex(prev);
-              onPageChange(prev);
-            }}
-            className="p-2 bg-white/5 hover:bg-white/10 rounded-full disabled:opacity-20 transition-all"
-          >
-            <ChevronLeft />
-          </button>
-          
-          <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-md">
-            <span className="font-mono font-bold text-sm tracking-widest">
-              {pageIndex + 1} / {pdf.numPages}
-            </span>
-          </div>
-
-          <button 
-            disabled={pageIndex === pdf.numPages - 1}
-            onClick={() => {
-              const next = pageIndex + 1;
-              setPageIndex(next);
-              onPageChange(next);
-            }}
-            className="p-2 bg-white/5 hover:bg-white/10 rounded-full disabled:opacity-20 transition-all"
-          >
-            <ChevronRight />
-          </button>
-        </div>
-      </div>
-
-      {/* VIEWPORT-CLIP (RED BORDER) */}
-      <div 
-        ref={containerRef}
-        className="flex-1 w-full relative overflow-hidden" 
-        style={{ border: '4px solid red' }}
-      >
-        {/* PAGE-CONTAINER (YELLOW/GREEN BORDER) */}
-        {viewportDims.width > 0 && (
-          <div 
-            className="w-full h-full overflow-auto flex flex-col pt-10"
-            style={{ border: '4px solid yellow' }}
-          >
-            <PDFPage 
-              pdf={pdf} 
-              pageNumber={pageIndex + 1} 
-              availableWidth={Math.min(viewportDims.width * 0.9, 800)} 
-            />
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        canvas {
-          image-rendering: -webkit-optimize-contrast;
-          image-rendering: crisp-edges;
-        }
-      `}</style>
+    <div style={{ 
+      width: '100vw', 
+      height: '100vh', 
+      overflow: 'hidden', 
+      background: 'black', 
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 99998,
+      border: '4px solid red' // Red border around viewport
+    }}>
+      {pdf ? (
+        <PDFPage pdf={pdf} />
+      ) : (
+        <div style={{ color: 'white', padding: '20px' }}>Loading PDF Document...</div>
+      )}
     </div>
   );
 }
