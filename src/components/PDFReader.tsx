@@ -50,7 +50,27 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
 
+  // FORCED DEBUG TEST - CONFIRMING CAMERA LAYER FUNCTIONALITY
+  useEffect(() => {
+    console.log("[DEBUG_CAMERA] FORCING TEST STATE: pan(200,200) scale(1.5)");
+    panX.set(200);
+    panY.set(200);
+    liveScale.set(1.5);
+    
+    // Add interval to log state continuously
+    const interval = setInterval(() => {
+      console.log("[DEBUG_CAMERA_TICK]", {
+        panX: panX.get(),
+        panY: panY.get(),
+        liveScale: liveScale.get()
+      });
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [panX, panY, liveScale]);
+
   // Sync state scale to liveScale motion value
+  /*
   useEffect(() => {
     try {
       console.log("[PDFReader] Effect: Syncing liveScale to committedScale", { committedScale });
@@ -70,6 +90,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       throw err;
     }
   }, [committedScale, liveScale, panX, panY]);
+  */
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1340,32 +1361,20 @@ const ReaderSheet = React.memo(function ReaderSheet({
             backfaceVisibility: 'hidden',
             width: 'fit-content',
             height: 'fit-content',
-            willChange: 'transform'
+            willChange: 'transform',
+            pointerEvents: 'none' // Allow hits to pass through if needed, but the layer should be visible
           } as any}
           className={cn(
-            "absolute flex flex-shrink-0 gap-0",
-            viewMode === 'double' ? "flex-row" : "flex-col"
+            "absolute top-0 left-0", // Removed flex, using absolute children
+            viewMode === 'double' ? "w-full" : "w-auto"
           )}
         >
-        {viewMode === 'double' ? (
-          <>
-            {direction === 'rtl' ? (
-              <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-                <div style={{ position: 'absolute', left: displayWidth }}>
-                   <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-                </div>
-              </>
-            ) : (
-              <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-                <div style={{ position: 'absolute', left: displayWidth }}>
-                  <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
-                </div>
-              </>
-            )}
-          </>
-        ) : (
+          {viewMode === 'double' ? (
+            <>
+              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+            </>
+          ) : (
           <div 
             className="flex-shrink-0 h-auto relative"
             style={{ 
@@ -1401,11 +1410,15 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   ) : (
     <div 
       className={cn(
-        "flex-shrink-0 h-auto relative bg-white",
+        "bg-white border-2 border-green-500", // DEBUG BORDER
         side === 'left' ? "rounded-l-md" : "rounded-r-md"
       )}
       style={{ 
-        width: width || 'auto'
+        width: width || 'auto',
+        height: 800, // Explicit height for debug
+        position: 'absolute',
+        left: side === 'right' ? width : 0,
+        top: 0
       }}
     >
       <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} panX={panX} panY={panY} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
@@ -1438,14 +1451,26 @@ export const PDFPage = React.memo(({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      console.log(`[VISIBILITY_TRACE] Page ${pageNumber}:`, {
-        camera: { x: panX.get(), y: panY.get(), scale: renderScale },
-        rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-        visibility: rect.width > 0 && rect.height > 0 ? "VISIBLE" : "HIDDEN"
-      });
-    }
+    const update = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        console.log(`[VISIBILITY_TRACE_TICK] Page ${pageNumber}:`, {
+          camera: { x: panX.get(), y: panY.get(), scale: renderScale },
+          rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+          computed: window.getComputedStyle(containerRef.current).transform
+        });
+      }
+    };
+    
+    // Subscribe to motion values for logging
+    const substX = panX.on("change", update);
+    const substY = panY.on("change", update);
+    
+    update();
+    return () => {
+      substX();
+      substY();
+    };
   }, [pageNumber, renderScale, panX, panY]);
 
   return (
@@ -1459,17 +1484,17 @@ export const PDFPage = React.memo(({
         width: 400,
         height: 600,
         backgroundColor: 'red',
-        position: 'relative',
+        position: 'absolute', // FORCE ABSOLUTE
+        top: 0,
+        left: 0,
         flexShrink: 0,
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        direction: 'ltr',
         color: 'white',
         fontSize: '24px',
         fontWeight: 'bold',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        border: '4px solid white'
       }}
     >
       VISIBILITY TEST - PAGE {pageNumber}
