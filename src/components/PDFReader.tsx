@@ -1412,16 +1412,17 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
     <div 
       className="bg-zinc-800 absolute top-0" 
       style={{ 
-        width: 400, // Normalized
-        height: 600, // Normalized
+        width: 400, 
+        height: 600, 
         opacity: 0.1,
-        left: side === 'right' ? 400 : 0
+        left: side === 'right' ? 400 : 0,
+        transformOrigin: '0 0'
       }} 
     />
   ) : (
     <div 
       className={cn(
-        "bg-white outline-4 outline-green-500", // Using outline instead of border to avoid internal offset
+        "bg-white",
         side === 'left' ? "rounded-l-md" : "rounded-r-md"
       )}
       style={{ 
@@ -1430,11 +1431,17 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         position: 'absolute',
         top: 0,
         left: side === 'right' ? 400 : 0,
-        boxSizing: 'border-box',
+        transformOrigin: '0 0',
         zIndex: side === 'right' ? 1 : 2
       }}
     >
       <PDFPage pageNumber={pageNumber} pdf={pdf} width={400} renderScale={renderScale} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} direction={direction} isSpreadChild={true} />
+      
+      {/* Normalized Debug Overlay - Shared Parent Coordinate Space */}
+      <div 
+        className="absolute inset-0 outline-4 outline-green-500 pointer-events-none"
+        style={{ transformOrigin: '0 0' }}
+      />
     </div>
   );
 
@@ -1504,6 +1511,7 @@ export const PDFPage = React.memo(({
         position: 'absolute',
         top: 0,
         left: 0,
+        transformOrigin: '0 0',
         color: 'white',
         fontSize: '24px',
         fontWeight: 'bold',
