@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { pdfjs, samplePDFText, detectDirectionFromText } from '../lib/pdf';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
@@ -88,15 +88,215 @@ async function processQueue() {
   }
 }
 
-interface TileKey {
-  pageIndex: number;
-  tier: number;
-  row: number;
-  col: number;
-}
+/**
+ * ENGINE CORE: Imperative Tile Controller
+ * Handles visibility, lifecycle, and rendering management for a single page.
+ */
+class PageTileRenderer {
+  private tiles = new Map<string, HTMLCanvasElement>();
+  private container: HTMLDivElement;
+  private pdfPage: pdfjs.PDFPageProxy;
+  private pageNumber: number;
+  private side: 'left' | 'right';
+  private readerDims: React.RefObject<{ width: number, height: number }>;
+  private currentVersion = 0;
 
-function getTileKey(k: TileKey) {
-  return `${k.pageIndex}:${k.tier}:${k.row}:${k.col}`;
+  constructor(
+    container: HTMLDivElement, 
+    pdfPage: pdfjs.PDFPageProxy, 
+    pageNumber: number, 
+    side: 'left' | 'right',
+    readerDims: React.RefObject<{ width: number, height: number }>
+  ) {
+    this.container = container;
+    this.pdfPage = pdfPage;
+    this.pageNumber = pageNumber;
+    this.side = side;
+    this.readerDims = readerDims;
+  }
+
+  public update(params: {
+    scale: number,
+    px: number,
+    py: number,
+    tier: number,
+    version: number,
+    isGestureActive: boolean
+  }) {
+    if (params.isGestureActive) return;
+    this.currentVersion = params.version;
+
+    const viewport = this.readerDims.current;
+    if (!viewport || viewport.width <= 0) return;
+
+    // 1. Calculate Intersection in World Space
+    const viewportWorldL = -params.px / params.scale;
+    const viewportWorldR = (viewport.width - params.px) / params.scale;
+    const viewportWorldT = -params.py / params.scale;
+    const viewportWorldB = (viewport.height - params.py) / params.scale;
+
+    const pageWorldL = this.side === 'right' ? 400 : 0;
+    const pageWorldR = pageWorldL + 400;
+    const pageWorldT = 0;
+    const pageWorldB = 600;
+
+    const visL = Math.max(pageWorldL, viewportWorldL);
+    const visR = Math.min(pageWorldR, viewportWorldR);
+    const visT = Math.max(pageWorldT, viewportWorldT);
+    const visB = Math.min(pageWorldB, viewportWorldB);
+
+    if (visR <= visL || visB <= visT) {
+      this.clearHiddenTiles(viewportWorldL, viewportWorldR, viewportWorldT, viewportWorldB);
+      return 0;
+    }
+
+    // 2. Map to local tile grid
+    const localVisL = visL - pageWorldL;
+    const localVisR = visR - pageWorldL;
+    const localVisT = visT - pageWorldT;
+    const localVisB = visB - pageWorldT;
+
+    const startCol = Math.floor(localVisL / TILE_SIZE);
+    const endCol = Math.ceil(localVisR / TILE_SIZE);
+    const startRow = Math.floor(localVisT / TILE_SIZE);
+    const endRow = Math.ceil(localVisB / TILE_SIZE);
+
+    const activeKeys = new Set<string>();
+    let visibleCount = 0;
+
+    // 3. Sync Tiles
+    for (let r = Math.max(0, startRow); r < endRow; r++) {
+      for (let c = Math.max(0, startCol); c < endCol; c++) {
+        const key = `${this.pageNumber}:${params.tier}:${r}:${c}`;
+        activeKeys.add(key);
+        this.ensureTile(key, r, c, params.tier, params.version);
+        visibleCount++;
+      }
+    }
+
+    // 4. Cleanup
+    this.clearHiddenTiles(viewportWorldL, viewportWorldR, viewportWorldT, viewportWorldB, activeKeys);
+    
+    return visibleCount;
+  }
+
+  private ensureTile(key: string, row: number, col: number, tier: number, version: number) {
+    if (this.tiles.has(key)) {
+      const canvas = this.tiles.get(key)!;
+      // If we already have a direct bitmap hit in cache, ensure it's drawn
+      const cached = globalTileCache.get(key);
+      if (cached && canvas.dataset.drawn !== 'true') {
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(cached, 0, 0);
+        canvas.dataset.drawn = 'true';
+        canvas.style.opacity = '1';
+      }
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = TILE_SIZE * dpr * tier;
+    canvas.height = TILE_SIZE * dpr * tier;
+    canvas.style.position = 'absolute';
+    canvas.style.width = `${TILE_SIZE}px`;
+    canvas.style.height = `${TILE_SIZE}px`;
+    canvas.style.left = `${col * TILE_SIZE}px`;
+    canvas.style.top = `${row * TILE_SIZE}px`;
+    canvas.style.opacity = '0';
+    canvas.style.transition = 'opacity 0.2s ease-out';
+    canvas.style.zIndex = String(tier);
+    
+    this.container.appendChild(canvas);
+    this.tiles.set(key, canvas);
+
+    const cached = globalTileCache.get(key);
+    if (cached) {
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(cached, 0, 0);
+      canvas.dataset.drawn = 'true';
+      canvas.style.opacity = '1';
+    } else {
+      this.scheduleRender(key, row, col, tier, version);
+    }
+  }
+
+  private scheduleRender(key: string, row: number, col: number, tier: number, version: number) {
+    globalRenderQueue.push({
+      key,
+      task: async () => {
+        // Validation: still relevant?
+        if (version !== this.currentVersion) return;
+        if (!this.tiles.has(key)) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const viewportBase = this.pdfPage.getViewport({ scale: 1 });
+        const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
+        const targetRenderScale = fitScale * tier * dpr;
+        const viewport = this.pdfPage.getViewport({ scale: targetRenderScale });
+
+        const internalDim = TILE_SIZE * dpr * tier;
+        const offscreen = new OffscreenCanvas(internalDim, internalDim);
+        const ctx = offscreen.getContext('2d');
+        if (!ctx) return;
+
+        const transform = [1, 0, 0, 1, -col * internalDim, -row * internalDim];
+
+        try {
+          await this.pdfPage.render({
+            canvasContext: ctx as any,
+            viewport,
+            transform,
+            intent: 'display'
+          }).promise;
+
+          if (version !== this.currentVersion) return;
+          
+          const bitmap = offscreen.transferToImageBitmap();
+          globalTileCache.set(key, bitmap);
+
+          const canvas = this.tiles.get(key);
+          if (canvas) {
+            const ctx2d = canvas.getContext('2d');
+            ctx2d?.drawImage(bitmap, 0, 0);
+            canvas.dataset.drawn = 'true';
+            requestAnimationFrame(() => {
+              if (canvas) canvas.style.opacity = '1';
+            });
+          }
+        } catch (e) { /* ignore */ }
+      }
+    });
+    processQueue();
+  }
+
+  private clearHiddenTiles(vwL: number, vwR: number, vwT: number, vwB: number, activeKeys?: Set<string>) {
+    const pageWorldL = this.side === 'right' ? 400 : 0;
+    
+    this.tiles.forEach((canvas, key) => {
+      if (activeKeys?.has(key)) return;
+
+      const parts = key.split(':');
+      const tRow = parseInt(parts[2], 10);
+      const tCol = parseInt(parts[3], 10);
+
+      const tL = pageWorldL + tCol * TILE_SIZE;
+      const tR = tL + TILE_SIZE;
+      const tT = tRow * TILE_SIZE;
+      const tB = tT + TILE_SIZE;
+
+      const isVisible = !(tR < vwL || tL > vwR || tB < vwT || tT > vwB);
+      if (!isVisible) {
+        canvas.remove();
+        this.tiles.delete(key);
+      }
+    });
+  }
+
+  public destroy() {
+    this.tiles.forEach(c => c.remove());
+    this.tiles.clear();
+  }
 }
 
 interface PDFReaderProps {
@@ -149,10 +349,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   
   // Initial centering
   useEffect(() => {
-    if (readerDimensions.width > 0 && panX.get() === 0 && panY.get() === 0) {
+    if (readerDimensions?.width && readerDimensions.width > 0 && panX.get() === 0 && panY.get() === 0) {
       const sheetWidth = viewMode === 'double' ? 800 : 400;
       panX.set((readerDimensions.width - sheetWidth) / 2);
       panY.set((readerDimensions.height - 600) / 2);
+      
+      // Pulse renderer version to trigger first visibility pass with centered coordinates
+      setRenderVersion(v => v + 1);
     }
   }, [readerDimensions, viewMode]);
 
@@ -197,8 +400,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     });
   }, [committedScale]);
 
-  // Settlement logic for high-res rendering - RENDERING ONLY
-  useEffect(() => {
+  const [renderVersion, setRenderVersion] = useState(0);
+
+  const triggerSettle = useCallback(() => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     
     settleTimerRef.current = setTimeout(() => {
@@ -208,6 +412,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         // PHASE 2 - SETTLE
         setGestureActive(false);
         renderVersionRef.current++;
+        setRenderVersion(v => v + 1);
         setSettledScale(committedScale);
         
         // Discrete tier mapping
@@ -222,11 +427,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         updateDebug({ tier: newTier, gestureActive: false });
       }
     }, 120); 
-    
+  }, [committedScale]);
+
+  // Settlement logic for high-res rendering - RENDERING ONLY
+  useEffect(() => {
+    triggerSettle();
     return () => {
       if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     };
-  }, [committedScale]);
+  }, [committedScale, triggerSettle]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -275,8 +484,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     
     const zoomedWidth = contentWidth * scale;
     const zoomedHeight = contentHeight * scale;
-    const viewportWidth = readerDimensionsRef.current.width || window.innerWidth;
-    const viewportHeight = readerDimensionsRef.current.height || window.innerHeight;
+    const viewportWidth = readerDimensionsRef.current?.width || window.innerWidth;
+    const viewportHeight = readerDimensionsRef.current?.height || window.innerHeight;
     
     return {
       h: Math.max(0, (zoomedWidth - viewportWidth) / 2),
@@ -646,8 +855,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         const contentWidth = viewMode === 'double' ? 800 : 400;
         const zoomedWidth = contentWidth * currentScaleValue;
         const zoomedHeight = 600 * currentScaleValue;
-        const vw = readerDimensions.width;
-        const vh = readerDimensions.height;
+        const vw = readerDimensions?.width || 0;
+        const vh = readerDimensions?.height || 0;
         
         let nextX = panX.get() + info.delta.x;
         let nextY = panY.get() + info.delta.y;
@@ -692,6 +901,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         longPressTimer.current = null;
       }
 
+      // Trigger settle timer
+      if (liveScale.get() === committedScale) {
+        triggerSettle();
+      } else {
+        setCommittedScale(liveScale.get());
+      }
+
       if (gestureMode.current === GestureMode.SelectingText) {
         // Keep mode until touchend manually? Usually browsers handle selection handles.
         // We reset on handleTouchEnd/pointerup
@@ -709,8 +925,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         const contentWidth = viewMode === 'double' ? 800 : 400;
         const zoomedWidth = contentWidth * currentScaleValue;
         const zoomedHeight = 600 * currentScaleValue;
-        const viewportWidth = readerDimensions.width;
-        const viewportHeight = readerDimensions.height;
+        const viewportWidth = readerDimensions?.width || 0;
+        const viewportHeight = readerDimensions?.height || 0;
         
         const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
         const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
@@ -723,7 +939,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           onUpdate: (v) => {
             if (v < -hMargin) panX.set(-hMargin);
             if (v > hMargin) panX.set(hMargin);
-          }
+          },
+          onComplete: triggerSettle
         });
         animate(panY, panY.get() + velocityY * 0.1, {
           type: 'spring',
@@ -733,7 +950,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           onUpdate: (v) => {
             if (v < -vMargin) panY.set(-vMargin);
             if (v > vMargin) panY.set(vMargin);
-          }
+          },
+          onComplete: triggerSettle
         });
       } else if (mode === GestureMode.SwipingPages) {
         setIsDragging(false);
@@ -1294,7 +1512,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                     liveScale={liveScale}
                     renderTierScale={renderTierScale}
                     settledScale={settledScale}
-                    renderVersionRef={renderVersionRef}
+                    renderVersion={renderVersion}
                     isGestureActiveRef={isGestureActiveRef}
                     committedScale={committedScale}
                     isLandscape={isLandscape}
@@ -1447,12 +1665,12 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale, 
   renderTierScale,
   settledScale,
-  renderVersionRef,
+  renderVersion,
   isGestureActiveRef,
   committedScale,
   isLandscape,
   containerDimensions,
-  readerDimensionsRef, // Pass ref
+  readerDimensionsRef,
   panX,
   panY,
   isCurrent,
@@ -1467,7 +1685,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale: any,
   renderTierScale: number,
   settledScale: number,
-  renderVersionRef: React.MutableRefObject<number>,
+  renderVersion: number,
   isGestureActiveRef: React.MutableRefObject<boolean>,
   committedScale: number,
   isLandscape: boolean,
@@ -1536,11 +1754,11 @@ const ReaderSheet = React.memo(function ReaderSheet({
           >
             {viewMode === 'double' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersionRef={renderVersionRef} isGestureActiveRef={isGestureActiveRef} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersionRef={renderVersionRef} isGestureActiveRef={isGestureActiveRef} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersion={renderVersion} isGestureActiveRef={isGestureActiveRef} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersion={renderVersion} isGestureActiveRef={isGestureActiveRef} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
               </>
             ) : (
-              <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersionRef={renderVersionRef} isGestureActiveRef={isGestureActiveRef} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersion={renderVersion} isGestureActiveRef={isGestureActiveRef} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
             )}
         </motion.div>
     </motion.div>
@@ -1553,7 +1771,7 @@ const SpreadPage = React.memo(function SpreadPage({
   numPages, 
   renderTierScale,
   settledScale,
-  renderVersionRef,
+  renderVersion,
   isGestureActiveRef,
   side, 
   direction, 
@@ -1571,7 +1789,7 @@ const SpreadPage = React.memo(function SpreadPage({
   numPages: number, 
   renderTierScale: number,
   settledScale: number,
-  renderVersionRef: React.MutableRefObject<number>,
+  renderVersion: number,
   isGestureActiveRef: React.MutableRefObject<boolean>,
   side: 'left' | 'right', 
   direction: 'ltr' | 'rtl',
@@ -1618,11 +1836,10 @@ const SpreadPage = React.memo(function SpreadPage({
         pdf={pdf} 
         renderTierScale={renderTierScale}
         settledScale={settledScale}
-        renderVersionRef={renderVersionRef}
+        renderVersion={renderVersion}
         isGestureActiveRef={isGestureActiveRef}
         panX={panX} 
         panY={panY} 
-        liveScale={liveScale} 
         containerDimensions={containerDimensions}
         readerDimensionsRef={readerDimensionsRef}
         isVisible={isVisible}
@@ -1635,16 +1852,18 @@ const SpreadPage = React.memo(function SpreadPage({
 
 // --- NEW TILE ENGINE COMPONENTS ---
 
+/**
+ * TILE SURFACE: React Host for the Imperative Engine
+ */
 const PDFPageTileEngine = React.memo(({ 
   pageNumber, 
   pdf, 
   renderTierScale,
   settledScale,
-  renderVersionRef,
+  renderVersion,
   isGestureActiveRef,
   panX, 
   panY, 
-  liveScale, 
   containerDimensions,
   readerDimensionsRef,
   isVisible,
@@ -1655,274 +1874,91 @@ const PDFPageTileEngine = React.memo(({
   pdf: pdfjs.PDFDocumentProxy,
   renderTierScale: number,
   settledScale: number,
-  renderVersionRef: React.MutableRefObject<number>,
+  renderVersion: number,
   isGestureActiveRef: React.MutableRefObject<boolean>,
   panX: any,
   panY: any,
-  liveScale: any,
-  containerDimensions: { width: number, height: number },
+  containerDimensions?: { width: number, height: number },
   readerDimensionsRef: React.RefObject<{ width: number, height: number }>,
   isVisible: boolean,
   updateDebug: (info: any) => void,
   side: 'left' | 'right'
 }) => {
-  const surfaceRef = useRef<HTMLDivElement>(null);
-  const palette = useRef<HTMLDivElement>(null);
+  const paletteRef = useRef<HTMLDivElement>(null);
+  const engineRef = useRef<PageTileRenderer | null>(null);
   const [pdfPage, setPdfPage] = useState<pdfjs.PDFPageProxy | null>(null);
-  const pdfPageRef = useRef<pdfjs.PDFPageProxy | null>(null);
-  const tilesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
-  // Fixed tier selection logic
-  const tier = renderTierScale;
-
-  // Load PDF page proxy
+  // 1. Lifecycle: PDF Page Loading
   useEffect(() => {
     let active = true;
     pdf.getPage(pageNumber).then(page => {
-      if (active) {
-        setPdfPage(page);
-        pdfPageRef.current = page;
-      }
+      if (active) setPdfPage(page);
     });
     return () => { active = false; };
   }, [pdf, pageNumber]);
 
-  // Tile rendering logic
-  const renderTile = useCallback(async (t: TileKey) => {
-    const page = pdfPageRef.current;
-    if (!page || !palette.current) return;
+  // 1. Lifecycle & Visibility: Respond to page state changes
+  useLayoutEffect(() => {
+    if (!isVisible || !pdfPage || !paletteRef.current || !containerDimensions?.width || containerDimensions.width <= 0) return;
 
-    const key = getTileKey(t);
-    const cached = globalTileCache.get(key);
-    
-    // Find or create canvas for this tile position
-    let canvas = tilesRef.current.get(key);
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      const dpr = window.devicePixelRatio || 1;
-      
-      // CANVAS INTERNAL SIZE: TILE_SIZE * DPR * tier
-      canvas.width = TILE_SIZE * dpr * tier;
-      canvas.height = TILE_SIZE * dpr * tier;
-      canvas.style.position = 'absolute';
-      
-      // CANVAS CSS SIZE: TILE_SIZE px
-      canvas.style.width = `${TILE_SIZE}px`;
-      canvas.style.height = `${TILE_SIZE}px`;
-      canvas.style.left = `${t.col * TILE_SIZE}px`;
-      canvas.style.top = `${t.row * TILE_SIZE}px`;
-      
-      canvas.dataset.tileKey = key;
-      canvas.style.opacity = '0';
-      canvas.style.transition = 'opacity 0.25s ease-out';
-      canvas.style.zIndex = String(t.tier); // Higher tier on top
-      
-      palette.current.appendChild(canvas);
-      tilesRef.current.set(key, canvas);
+    // Ensure engine is ready
+    if (!engineRef.current) {
+      engineRef.current = new PageTileRenderer(
+        paletteRef.current,
+        pdfPage,
+        pageNumber,
+        side,
+        readerDimensionsRef
+      );
     }
 
-    if (cached) {
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(cached, 0, 0);
-      canvas.style.opacity = '1';
-      return;
-    }
+    const run = () => {
+      if (!engineRef.current) return;
+      const count = engineRef.current.update({
+        scale: settledScale,
+        px: panX.get(),
+        py: panY.get(),
+        tier: renderTierScale,
+        version: renderVersion,
+        isGestureActive: isGestureActiveRef.current
+      });
+      if (typeof count === 'number') updateDebug({ visibleTiles: count });
+    };
 
-    // Queue render task
-    const taskVersion = renderVersionRef.current;
-    globalRenderQueue.push({
-      key,
-      task: async () => {
-        // RENDER TASK VALIDATION
-        if (taskVersion !== renderVersionRef.current) return;
-        if (!pdfPageRef.current) return;
-        
-        const dpr = window.devicePixelRatio || 1;
-        const viewportBase = pdfPageRef.current.getViewport({ scale: 1 });
-        const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
-        
-        const targetRenderScale = fitScale * t.tier * dpr;
-        const viewport = pdfPageRef.current.getViewport({ scale: targetRenderScale });
+    // Force pass after DOM commit
+    const h = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(h);
 
-        const internalDim = TILE_SIZE * dpr * tier;
-        const offscreen = new OffscreenCanvas(internalDim, internalDim);
-        const ctx = offscreen.getContext('2d');
-        if (!ctx) return;
-
-        const transform = [
-          1, 0, 0, 1,
-          -t.col * internalDim,
-          -t.row * internalDim
-        ];
-
-        try {
-          await pdfPageRef.current.render({
-            canvasContext: ctx as any,
-            viewport: viewport,
-            transform: transform,
-            intent: 'display'
-          }).promise;
-
-          // RE-VALIDATION after async render
-          if (taskVersion !== renderVersionRef.current) return;
-
-          const bitmap = offscreen.transferToImageBitmap();
-          globalTileCache.set(key, bitmap);
-          
-          const oncomingCtx = canvas!.getContext('2d');
-          oncomingCtx?.drawImage(bitmap, 0, 0);
-          
-          // TILE SWAP RULE: fade in, then cleanup
-          requestAnimationFrame(() => {
-             if (canvas) {
-               canvas.style.opacity = '1';
-             }
-          });
-        } catch (e) {
-          // ignore cancellations
-        }
-      }
-    });
-    processQueue();
-  }, [pageNumber, tier, renderVersionRef]);
-
-  const checkVisibility = useCallback(() => {
-    // GESTURE LOCK: Absolute freeze on visibility recalc during gesture
-    if (isGestureActiveRef.current) return;
-
-    const container = readerDimensionsRef.current;
-    if (!container || !container.width || !pdfPageRef.current) return;
-
-    // CRITICAL: Use settledScale for layout/visibility
-    const scale = settledScale;
-    const px = panX.get();
-    const py = panY.get();
-
-    const vw = container.width;
-    const vh = container.height;
-    
-    const pageOffset = side === 'right' ? 400 : 0;
-    
-    // WORLD SPACE COORDINATES (invariant)
-    // ScreenPoint = (WorldPoint + PageOffset) * Scale + Pan
-    // WorldPoint = (ScreenPoint - Pan) / Scale - PageOffset
-    const worldLeft = (0 - px) / scale - pageOffset;
-    const worldRight = (vw - px) / scale - pageOffset;
-    const worldTop = (0 - py) / scale;
-    const worldBottom = (vh - py) / scale;
-
-    const pageW = 400;
-    const pageH = 600;
-
-    const visL = Math.max(0, worldLeft);
-    const visR = Math.min(pageW, worldRight);
-    const visT = Math.max(0, worldTop);
-    const visB = Math.min(pageH, worldBottom);
-
-    if (visR <= visL || visB <= visT) {
-      console.log("[INITIAL_VISIBLE_TILES] 0 (out of bounds)");
-      updateDebug({ visibleTiles: 0 });
-      return;
-    }
-
-    const logicalTileDim = TILE_SIZE; 
-    
-    const startCol = Math.floor(visL / logicalTileDim);
-    const endCol = Math.ceil(visR / logicalTileDim);
-    const startRow = Math.floor(visT / logicalTileDim);
-    const endRow = Math.ceil(visB / logicalTileDim);
-
-    const visibleKeys = new Set<string>();
-    let count = 0;
-
-    for (let r = Math.max(0, startRow); r < endRow; r++) {
-      for (let c = Math.max(0, startCol); c < endCol; c++) {
-        const tKey: TileKey = { pageIndex: pageNumber, tier, row: r, col: c };
-        const key = getTileKey(tKey);
-        visibleKeys.add(key);
-        renderTile(tKey);
-        count++;
-      }
-    }
-
-    console.log("[INITIAL_VISIBLE_TILES]", count);
-
-    // Cleanup: Keep all tiles (any tier) that overlap the current viewport.
-    // This prevents "white flashes" during refinement.
-    // TILE SWAP RULE: remove old tiles only after new ones are likely visible
-    tilesRef.current.forEach((canvas, key) => {
-      const parts = key.split(':');
-      const tTier = parseInt(parts[1], 10);
-      
-      const tRow = parseInt(parts[2], 10);
-      const tCol = parseInt(parts[3], 10);
-      
-      const viewportBase = pdfPageRef.current!.getViewport({ scale: 1 });
-      const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
-      const dpr = window.devicePixelRatio || 1;
-      const tLogicalDim = TILE_SIZE / (fitScale * tTier * dpr);
-      
-      // Simplify check: if it's our current tier but not in visible set, or outside viewport
-      const tL = tCol * TILE_SIZE;
-      const tR = tL + TILE_SIZE;
-      const tT = tRow * TILE_SIZE;
-      const tB = tT + TILE_SIZE;
-      
-      const isActuallyVisible = !(tR < visL || tL > visR || tB < visT || tT > visB);
-      
-      if (!isActuallyVisible) {
-        canvas.remove();
-        tilesRef.current.delete(key);
-      }
-    });
-
-    updateDebug({ 
-      visibleTiles: count, 
-      tier,
-      activeRenders: activeRenderCount + globalRenderQueue.length
-    });
   }, [
-    pageNumber, 
-    tier, 
+    isVisible, 
+    pdfPage, 
+    containerDimensions?.width, 
+    containerDimensions?.height, 
     settledScale, 
+    renderTierScale, 
+    renderVersion, 
     panX, 
     panY, 
-    side, 
-    renderTile, 
-    updateDebug, 
     isGestureActiveRef, 
-    readerDimensionsRef
+    updateDebug,
+    side,
+    pageNumber
   ]);
 
-  // Intersection logic: which tiles are visible?
+  // Clean up engine when page identity changes
   useEffect(() => {
-    if (!isVisible || !surfaceRef.current || !pdfPage) return;
-
-    checkVisibility();
-
-  }, [isVisible, pdfPage, checkVisibility]);
-
-  // Force one explicit render pass after everything is ready
-  useEffect(() => {
-    if (isVisible && pdfPage && containerDimensions.width > 0) {
-      const handle = requestAnimationFrame(() => {
-        checkVisibility();
-      });
-      return () => cancelAnimationFrame(handle);
-    }
-  }, [isVisible, pdfPage, containerDimensions.width, containerDimensions.height, checkVisibility]);
+    return () => {
+      engineRef.current?.destroy();
+      engineRef.current = null;
+    };
+  }, [pdfPage, pageNumber, side]);
 
   return (
     <div 
-      ref={surfaceRef} 
-      className="absolute inset-0 w-full h-full pointer-events-none ltr"
+      className="absolute inset-0 w-full h-full pointer-events-none"
       style={{ width: 400, height: 600 }}
     >
-      <div 
-        ref={palette}
-        className="absolute inset-0 origin-top-left"
-        style={{ transformOrigin: '0 0' }}
-      />
+      <div ref={paletteRef} className="absolute inset-0" />
     </div>
   );
 });
