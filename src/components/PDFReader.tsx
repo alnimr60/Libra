@@ -1520,8 +1520,11 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         if (!isMounted) return;
 
         // Visual vs Render Separation
-        const visualScale = liveScale.get();
-        const tier = visualScale <= 1.5 ? 1.5 : visualScale <= 3 ? 3 : visualScale <= 6 ? 6 : 8;
+        const pixelRatio = window.devicePixelRatio || 1;
+        // Multiply by 2 or more to guarantee crisp text on all displays
+        const baseMultiplier = 2; 
+        const targetScale = renderScale * pixelRatio * baseMultiplier;
+        const tier = targetScale <= 2 ? 2 : targetScale <= 4 ? 4 : targetScale <= 6 ? 6 : targetScale <= 10 ? 10 : 16;
         
         // Cache management
         if (!pageCache.current.has(pageNumber)) {
