@@ -12,9 +12,9 @@ if (typeof (Promise as any).withResolvers === 'undefined') {
   };
 }
 
-// Use Vite's URL import for the worker to ensure version matching and local serving
+// Use Vite's worker import or the entry point for Rollup compatibility
 // @ts-ignore
-import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.entry';
 
 // For PDF.js 3+, we must use matching versions for the main lib and the worker.
 // @ts-ignore
