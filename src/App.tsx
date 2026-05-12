@@ -9,13 +9,108 @@ import Dashboard from './components/Dashboard';
 import Library from './components/Library';
 import Settings from './components/Settings';
 import AddBookModal from './components/AddBookModal';
-import PDFReader from './components/PDFReader';
-import { Home, Library as LibraryIcon, Settings as SettingsIcon } from 'lucide-react';
+import PremiumPDFReader from './components/PremiumPDFReader';
+import { Home, Library as LibraryIcon, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { useSafeArea } from './components/SafeAreaProvider';
 import { Book } from './types';
 import { translations } from './translations';
+
+// Global error registry for debugging
+const getDebugContext = () => {
+  try {
+    return {
+      href: window.location.href,
+      userAgent: navigator.userAgent,
+      timestamp: new Date().toISOString(),
+      sessionTime: performance.now()
+    };
+  } catch (e) {
+    return {};
+  }
+};
+
+window.addEventListener('error', (event) => {
+  console.error('[GlobalError]', {
+    message: event.message,
+    source: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+    error: event.error?.stack || event.error,
+    context: getDebugContext()
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[GlobalPromiseRejection]', {
+    reason: event.reason?.stack || event.reason,
+    context: getDebugContext()
+  });
+});
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: React.ErrorInfo | null;
+}
+
+class PDFReaderErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null, errorInfo: null };
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[ReactErrorBoundary] CRASH DETECTED', {
+      error: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+      context: getDebugContext()
+    });
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-[1000] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
+            <AlertCircle className="w-8 h-8 text-red-500" />
+          </div>
+          <h2 className="text-xl font-serif text-white mb-2">Application Error</h2>
+          <p className="text-zinc-500 text-sm font-mono max-w-md mb-8">
+            An unexpected error occurred in the PDF reader. We've logged the technical details for analysis.
+          </p>
+          <div className="bg-zinc-900/50 p-4 rounded-xl border border-white/5 w-full max-w-lg mb-8 overflow-auto max-h-48 text-left">
+            <pre className="text-[10px] font-mono text-orange-400 whitespace-pre-wrap">
+              {this.state.error?.message}
+              {"\n\n"}
+              {this.state.error?.stack}
+            </pre>
+          </div>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-8 py-3 bg-white text-black rounded-full font-mono text-[10px] uppercase tracking-widest"
+          >
+            Refresh Application
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 type ActiveTab = 'home' | 'library' | 'settings';
 
@@ -29,9 +124,32 @@ export default function App() {
     addGoal, updateGoal, deleteGoal, logReading 
   } = usePersistence();
   const insets = useSafeArea();
-
   const isRTL = settings.language === 'ar';
   const t = translations[settings.language];
+
+  // Prevent browser viewport pinch zoom and gestures
+  React.useEffect(() => {
+    // 1. Prevent iOS Safari gesture zoom
+    const preventZoom = (e: any) => {
+      if (e.scale && e.scale !== 1) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('gesturestart', preventZoom, { passive: false });
+    document.addEventListener('gesturechange', preventZoom, { passive: false });
+    document.addEventListener('gestureend', preventZoom, { passive: false });
+
+    // 2. Set touch-action on documentElement
+    document.documentElement.style.touchAction = 'manipulation';
+
+    return () => {
+      document.removeEventListener('gesturestart', preventZoom);
+      document.removeEventListener('gesturechange', preventZoom);
+      document.removeEventListener('gestureend', preventZoom);
+      document.documentElement.style.touchAction = '';
+    };
+  }, []);
 
   const activeBook = books.find(b => b.id === activeBookId);
   const currentBooks = books.filter(b => b.status === 'Currently Reading');
@@ -145,31 +263,33 @@ export default function App() {
       {/* Global Reader Overlay */}
       <AnimatePresence>
         {activeBook && (
-          <PDFReader 
-            book={activeBook}
-            initialPage={activeBook.currentPage}
-            updateBook={updateBook}
-            onPageChange={(page) => {
-              if (activeBook) {
-                const diff = page - activeBook.currentPage;
-                if (diff > 0) {
-                  logReading(diff);
+          <PDFReaderErrorBoundary>
+            <PremiumPDFReader 
+              book={activeBook}
+              initialPage={activeBook.currentPage}
+              updateBook={updateBook}
+              onPageChange={(page) => {
+                if (activeBook) {
+                  const diff = page - activeBook.currentPage;
+                  if (diff > 0) {
+                    logReading(diff);
+                  }
                 }
-              }
-              updateBook({
-                ...activeBook!,
-                currentPage: page,
-                lastReadAt: new Date().toISOString(),
-              });
-            }}
-            onUpdateBookmarks={(bookmarks) => {
-              updateBook({
-                ...activeBook,
-                bookmarks,
-              });
-            }}
-            onClose={() => setActiveBookId(null)}
-          />
+                updateBook({
+                  ...activeBook!,
+                  currentPage: page,
+                  lastReadAt: new Date().toISOString(),
+                });
+              }}
+              onUpdateBookmarks={(bookmarks) => {
+                updateBook({
+                  ...activeBook,
+                  bookmarks,
+                });
+              }}
+              onClose={() => setActiveBookId(null)}
+            />
+          </PDFReaderErrorBoundary>
         )}
       </AnimatePresence>
 

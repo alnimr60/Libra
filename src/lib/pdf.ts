@@ -1,4 +1,4 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
 
 // Polyfill Promise.withResolvers for older environments (e.g. iOS < 17.4)
 if (typeof (Promise as any).withResolvers === 'undefined') {
@@ -12,11 +12,11 @@ if (typeof (Promise as any).withResolvers === 'undefined') {
   };
 }
 
-// Use Vite's URL import for the worker to ensure version matching and local serving
+// Use Vite's worker import or the entry point for Rollup compatibility
 // @ts-ignore
-import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.entry';
 
-// For PDF.js 5+, we must use matching versions for the main lib and the worker.
+// For PDF.js 3+, we must use matching versions for the main lib and the worker.
 // @ts-ignore
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
@@ -74,40 +74,65 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
 
 export function detectDirectionFromText(text: string): 'ltr' | 'rtl' {
   if (!text) return 'ltr';
-  // Strip out spaces, digits, and common punctuation for accurate character counting
-  const cleanedText = text.replace(/[\s\d.,!?'"()[\]{}:;\-*_+=&^%$#@~`\\/|<>\u200e\u200f\u202a-\u202e]/g, '');
-  if (cleanedText.length === 0) return 'ltr';
-
-  // Arabic, Hebrew, Persian, Urdu unicode ranges
-  const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
   
-  const rtlMatch = cleanedText.match(rtlRegex);
-  const rtlCharsCount = rtlMatch ? rtlMatch.length : 0;
+  // As requested:
+  // Arabic script ranges: \u0600-\u06FF \u0750-\u077F \u08A0-\u08FF \uFB50-\uFDFF \uFE70-\uFEFF
+  const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
+  const latinRegex = /[a-zA-Z]/g;
   
-  // If more than 20% of the significant characters are RTL, classify it as RTL
-  return (rtlCharsCount / cleanedText.length) > 0.2 ? 'rtl' : 'ltr';
+  const arabicMatch = text.match(arabicRegex);
+  const latinMatch = text.match(latinRegex);
+  
+  const arabicCount = arabicMatch ? arabicMatch.length : 0;
+  const latinCount = latinMatch ? latinMatch.length : 0;
+  
+  const detected = arabicCount > latinCount ? 'rtl' : 'ltr';
+  
+  console.log(`[DirectionDetection] Results:`, {
+    arabicCount,
+    latinCount,
+    detected
+  });
+  
+  return detected;
 }
 
-export async function extractPDFSampleText(file: File): Promise<string> {
-  const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
-  const pdf = await loadingTask.promise;
+export async function samplePDFText(pdf: pdfjs.PDFDocumentProxy): Promise<string> {
   let sampleText = '';
+  // Sample: first, middle, last
+  const pagesToSample = [1, Math.floor(pdf.numPages / 2), pdf.numPages].filter(p => p > 0 && p <= pdf.numPages);
+  const uniquePages = [...new Set(pagesToSample)];
+  
+  console.log(`[DirectionDetection] Sampling pages: ${uniquePages.join(', ')}`);
 
-  const pagesToSample = [1, Math.floor(pdf.numPages / 2), pdf.numPages];
-  for (const pageNum of pagesToSample) {
+  for (const pageNum of uniquePages) {
     try {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
       const text = textContent.items
-        .map((item: any) => item.str)
+        .map((item: any) => (item as any).str)
         .join(' ')
-        .substring(0, 500); // 500 chars per page
+        .substring(0, 1000); // 1000 chars per page
       sampleText += text + '\n';
     } catch (e) {
-      console.warn(`Failed specifically to sample text from page ${pageNum}`);
+      console.warn(`[DirectionDetection] Failed to sample text from page ${pageNum}`, e);
     }
   }
-
+  
   return sampleText.trim();
+}
+
+export async function extractPDFSampleText(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjs.getDocument({ 
+    data: new Uint8Array(arrayBuffer),
+    stopAtErrors: false,
+    enableXfa: true,
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapPacked: true,
+    disableRange: true,
+    disableStream: true
+  });
+  const pdf = await loadingTask.promise;
+  return samplePDFText(pdf);
 }
