@@ -149,15 +149,34 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     activeRenders: 0,
     cacheUsageMB: 0,
     tier: 1,
-    worldRect: { x: 0, y: 0, w: 0, h: 0 }
+    liveScale: 1.0,
+    settledScale: 1.0,
+    gestureActive: false,
+    activeRendersCount: 0
   });
 
   const updateDebug = useCallback((info: Partial<typeof debugInfo>) => {
-    setDebugInfo(prev => ({ ...prev, ...info, cacheUsageMB: globalTileCache.getUsageMB() }));
+    setDebugInfo(prev => ({ 
+      ...prev, 
+      ...info, 
+      cacheUsageMB: globalTileCache.getUsageMB(),
+      activeRendersCount: activeRenderCount 
+    }));
   }, []);
+
+  // --- STABILIZATION STATE ---
+  const isGestureActiveRef = useRef(false);
+  const renderVersionRef = useRef(0);
+  const settleTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const setGestureActive = (active: boolean) => {
+    isGestureActiveRef.current = active;
+    updateDebug({ gestureActive: active });
+  };
 
   // Sync state scale to liveScale motion value - INTERACTION ONLY
   useEffect(() => {
+    if (isAnimatingZoom.current) return;
     animate(liveScale, committedScale, {
       type: 'spring',
       stiffness: 300,
@@ -167,20 +186,33 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   // Settlement logic for high-res rendering - RENDERING ONLY
   useEffect(() => {
-    const timer = setTimeout(() => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    
+    settleTimerRef.current = setTimeout(() => {
       if (!isPinching.current && !isPanning.current && !isAnimatingZoom.current) {
         console.log("[PDFReader] Settle: Updating states", committedScale);
+        
+        // PHASE 2 - SETTLE
+        isGestureActiveRef.current = false;
+        renderVersionRef.current++;
         setSettledScale(committedScale);
         
         // Discrete tier mapping
-        if (committedScale <= 1.5) setRenderTierScale(1);
-        else if (committedScale <= 3) setRenderTierScale(2);
-        else if (committedScale <= 6) setRenderTierScale(4);
-        else if (committedScale <= 12) setRenderTierScale(8);
-        else setRenderTierScale(16);
+        let newTier = 1;
+        if (committedScale <= 1.5) newTier = 1;
+        else if (committedScale <= 3) newTier = 2;
+        else if (committedScale <= 6) newTier = 4;
+        else if (committedScale <= 12) newTier = 8;
+        else newTier = 16;
+        
+        setRenderTierScale(newTier);
+        updateDebug({ tier: newTier, gestureActive: false });
       }
     }, 120); 
-    return () => clearTimeout(timer);
+    
+    return () => {
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    };
   }, [committedScale]);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -245,6 +277,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   // Watch scale changes and clamp pan to visible bounds immediately
   useEffect(() => {
     const unsubscribe = liveScale.on("change", (latestScale) => {
+      updateDebug({ liveScale: latestScale });
       // Don't interfere if user is explicitly pining or pinching
       if (isPinching.current || isPanning.current) return;
       
@@ -562,6 +595,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       // If we are already in a specific mode, don't re-evaluate
       if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
       
+      setGestureActive(true);
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+
       // Stop any running animations
       panX.stop();
       panY.stop();
@@ -814,6 +850,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    setGestureActive(true);
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+
     if (e.touches.length === 2 && !isAnimatingZoom.current) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
@@ -891,6 +930,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       longPressTimer.current = null;
     }
 
+    // Trigger settle timer
+    setCommittedScale(liveScale.get());
+
     if (gestureMode.current === GestureMode.PinchZooming) {
       const finalScale = Math.max(0.5, Math.min(5, liveScale.get()));
       setCommittedScale(finalScale);
@@ -900,6 +942,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       // If we were selecting, reset mode on touch end to Allow new gestures
       gestureMode.current = GestureMode.Idle;
     }
+
+    // Gesture is "ending", but we wait for settle in useEffect
   };
 
   const currentDisplayPage = viewMode === 'double' ? (pageIndex * 2) + 1 : pageIndex + 1;
@@ -1242,6 +1286,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                     liveScale={liveScale}
                     renderTierScale={renderTierScale}
                     settledScale={settledScale}
+                    renderVersionRef={renderVersionRef}
+                    isGestureActiveRef={isGestureActiveRef}
                     committedScale={committedScale}
                     isLandscape={isLandscape}
                     containerDimensions={readerDimensions}
@@ -1267,29 +1313,30 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           </div>
           
           <div className="grid grid-cols-2 gap-y-1 gap-x-4">
-            <span className="opacity-40 uppercase">Scale:</span>
-            <motion.span className="text-white text-right">{debugScale}</motion.span>
+            <span className="opacity-40 uppercase">Scale (Live):</span>
+            <motion.span className="text-white text-right font-bold text-orange-400">{debugScale}</motion.span>
             
-            <span className="opacity-40 uppercase">Pan X/Y:</span>
-            <div className="flex justify-end gap-1 text-white">
-              <motion.span>{debugPanX}</motion.span>
-              <span className="opacity-20">/</span>
-              <motion.span>{debugPanY}</motion.span>
-            </div>
+            <span className="opacity-40 uppercase">Scale (Settled):</span>
+            <span className="text-white text-right">{debugInfo.settledScale.toFixed(3)}</span>
 
-            <span className="opacity-40 uppercase">TIER:</span>
-            <span className="text-white text-right">{debugInfo.tier}x</span>
-
-            <span className="opacity-40 uppercase">TILES:</span>
-            <span className="text-white text-right font-bold">{debugInfo.visibleTiles} visible</span>
-
-            <span className="opacity-40 uppercase">RENDER:</span>
-            <span className={cn("text-right font-bold", debugInfo.activeRenders > 0 ? "text-orange-500" : "text-green-500")}>
-              {debugInfo.activeRenders} active
+            <span className="opacity-40 uppercase">Gesture:</span>
+            <span className={cn("text-right font-bold", debugInfo.gestureActive ? "text-red-500" : "text-green-500")}>
+              {debugInfo.gestureActive ? "ACTIVE" : "IDLE"}
             </span>
 
-            <span className="opacity-40 uppercase">CACHE:</span>
-            <span className="text-white text-right">{debugInfo.cacheUsageMB.toFixed(1)} MB</span>
+            <span className="opacity-40 uppercase">Tier:</span>
+            <span className="text-white text-right">{debugInfo.tier}x</span>
+
+            <span className="opacity-40 uppercase">Tiles:</span>
+            <span className="text-white text-right">{debugInfo.visibleTiles}</span>
+
+            <span className="opacity-40 uppercase">Renders:</span>
+            <span className={cn("text-right", debugInfo.activeRenders > 0 ? "text-orange-500 font-bold" : "text-zinc-500")}>
+              {debugInfo.activeRenders}
+            </span>
+
+            <span className="opacity-40 uppercase">Cache:</span>
+            <span className="text-white text-right">{debugInfo.cacheUsageMB.toFixed(0)}MB</span>
           </div>
 
           <div className="mt-2 pt-2 border-t border-white/5 flex flex-col gap-1">
@@ -1382,6 +1429,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale, 
   renderTierScale,
   settledScale,
+  renderVersionRef,
+  isGestureActiveRef,
   committedScale,
   isLandscape,
   containerDimensions,
@@ -1400,6 +1449,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale: any,
   renderTierScale: number,
   settledScale: number,
+  renderVersionRef: React.MutableRefObject<number>,
+  isGestureActiveRef: React.MutableRefObject<boolean>,
   committedScale: number,
   isLandscape: boolean,
   containerDimensions: { width: number, height: number },
@@ -1477,11 +1528,11 @@ const ReaderSheet = React.memo(function ReaderSheet({
           >
             {viewMode === 'double' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersionRef={renderVersionRef} isGestureActiveRef={isGestureActiveRef} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersionRef={renderVersionRef} isGestureActiveRef={isGestureActiveRef} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
               </>
             ) : (
-              <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+              <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} renderVersionRef={renderVersionRef} isGestureActiveRef={isGestureActiveRef} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
             )}
         </motion.div>
     </motion.div>
@@ -1494,6 +1545,8 @@ const SpreadPage = React.memo(function SpreadPage({
   numPages, 
   renderTierScale,
   settledScale,
+  renderVersionRef,
+  isGestureActiveRef,
   side, 
   direction, 
   panX, 
@@ -1510,6 +1563,8 @@ const SpreadPage = React.memo(function SpreadPage({
   numPages: number, 
   renderTierScale: number,
   settledScale: number,
+  renderVersionRef: React.MutableRefObject<number>,
+  isGestureActiveRef: React.MutableRefObject<boolean>,
   side: 'left' | 'right', 
   direction: 'ltr' | 'rtl',
   panX: any, 
@@ -1555,6 +1610,8 @@ const SpreadPage = React.memo(function SpreadPage({
         pdf={pdf} 
         renderTierScale={renderTierScale}
         settledScale={settledScale}
+        renderVersionRef={renderVersionRef}
+        isGestureActiveRef={isGestureActiveRef}
         panX={panX} 
         panY={panY} 
         liveScale={liveScale} 
@@ -1575,6 +1632,8 @@ const PDFPageTileEngine = React.memo(({
   pdf, 
   renderTierScale,
   settledScale,
+  renderVersionRef,
+  isGestureActiveRef,
   panX, 
   panY, 
   liveScale, 
@@ -1588,6 +1647,8 @@ const PDFPageTileEngine = React.memo(({
   pdf: pdfjs.PDFDocumentProxy,
   renderTierScale: number,
   settledScale: number,
+  renderVersionRef: React.MutableRefObject<number>,
+  isGestureActiveRef: React.MutableRefObject<boolean>,
   panX: any,
   panY: any,
   liveScale: any,
@@ -1657,9 +1718,12 @@ const PDFPageTileEngine = React.memo(({
     }
 
     // Queue render task
+    const taskVersion = renderVersionRef.current;
     globalRenderQueue.push({
       key,
       task: async () => {
+        // RENDER TASK VALIDATION
+        if (taskVersion !== renderVersionRef.current) return;
         if (!pdfPageRef.current) return;
         
         const dpr = window.devicePixelRatio || 1;
@@ -1687,15 +1751,20 @@ const PDFPageTileEngine = React.memo(({
             intent: 'display'
           }).promise;
 
+          // RE-VALIDATION after async render
+          if (taskVersion !== renderVersionRef.current) return;
+
           const bitmap = offscreen.transferToImageBitmap();
           globalTileCache.set(key, bitmap);
           
           const oncomingCtx = canvas!.getContext('2d');
           oncomingCtx?.drawImage(bitmap, 0, 0);
           
-          // Progressive fade in
+          // TILE SWAP RULE: fade in, then cleanup
           requestAnimationFrame(() => {
-             if (canvas) canvas.style.opacity = '1';
+             if (canvas) {
+               canvas.style.opacity = '1';
+             }
           });
         } catch (e) {
           // ignore cancellations
@@ -1703,13 +1772,16 @@ const PDFPageTileEngine = React.memo(({
       }
     });
     processQueue();
-  }, [pageNumber]);
+  }, [pageNumber, tier]);
 
   // Intersection logic: which tiles are visible?
   useEffect(() => {
     if (!isVisible || !surfaceRef.current) return;
 
     const checkVisibility = () => {
+      // GESTURE LOCK: Absolute freeze on visibility recalc during gesture
+      if (isGestureActiveRef.current) return;
+
       const container = readerDimensionsRef.current;
       if (!container || !container.width || !pdfPageRef.current) return;
 
@@ -1767,9 +1839,17 @@ const PDFPageTileEngine = React.memo(({
 
       // Cleanup: Keep all tiles (any tier) that overlap the current viewport.
       // This prevents "white flashes" during refinement.
+      // TILE SWAP RULE: remove old tiles only after new ones are likely visible
       tilesRef.current.forEach((canvas, key) => {
         const parts = key.split(':');
         const tTier = parseInt(parts[1], 10);
+        
+        // If not in current tier, we give it a buffer to stay visible during fade
+        if (tTier !== tier) {
+          // Check if this tile was just replaced? 
+          // For now, simpler "Keep overlapping" is architecture mandate
+        }
+
         const tRow = parseInt(parts[2], 10);
         const tCol = parseInt(parts[3], 10);
         
