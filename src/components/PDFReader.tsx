@@ -46,24 +46,28 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const insets = useSafeArea();
   const [numPages, setNumPages] = useState(0);
   const [committedScale, setCommittedScale] = useState(1.0);
+  const [renderScale, setRenderScale] = useState(1.0);
   const liveScale = useMotionValue(1.0);
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
 
-  // Sync state scale to liveScale motion value
+  // Sync state scale to liveScale motion value - INTERACTION ONLY
   useEffect(() => {
-    try {
-      console.log("[PDFReader] Effect: Syncing liveScale to committedScale", { committedScale });
-      animate(liveScale, committedScale, {
-        type: 'spring',
-        stiffness: 300,
-        damping: 30
-      });
-    } catch (err) {
-      console.error("[PDFReader] Error in scale sync effect:", err);
-      throw err;
-    }
-  }, [committedScale, liveScale]);
+    animate(liveScale, committedScale, {
+      type: 'spring',
+      stiffness: 300,
+      damping: 30
+    });
+  }, [committedScale]);
+
+  // Settlement logic for high-res rendering - RENDERING ONLY
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log("[PDFReader] Settle: Updating renderScale to", committedScale);
+      setRenderScale(committedScale);
+    }, 300); // Wait for animations to finish before re-rendering PDF.js
+    return () => clearTimeout(timer);
+  }, [committedScale]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -94,7 +98,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [renderScale, setRenderScale] = useState(committedScale);
   const [retryKey, setRetryKey] = useState(0);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
@@ -201,20 +204,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
   
-  const baseWidth = React.useMemo(() => {
-    if (readerDimensions.width === 0) return 300; // Fallback
-    if (viewMode === 'double') {
-      const maxWidth = readerDimensions.width * 0.95;
-      const maxHeight = readerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      return Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = readerDimensions.width * 0.9;
-      const maxHeight = readerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      return Math.min(idealWidth, maxWidth);
-    }
-  }, [viewMode, readerDimensions]);
+  const baseWidth = 400; // Simplified
 
   // Double tap to zoom handler
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
@@ -273,28 +263,23 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       let targetPanX = 0;
       let targetPanY = 0;
 
+      // Target pan to center on the safe tap point using focal point math
+      // worldPoint = (screenPoint - pan) / scale
+      // newPan = screenPoint - worldPoint * newScale
+      const containerRect = readerContainerRef.current.getBoundingClientRect();
+      const screenX = (clientX - containerRect.left) - containerRect.width / 2;
+      const screenY = (clientY - containerRect.top) - containerRect.height / 2;
+      const worldX = (screenX - panX.get()) / currentScaleValue;
+      const worldY = (screenY - panY.get()) / currentScaleValue;
+
       if (isZoomedOut) {
-        // Calculate tap position relative to reader container
-        const containerRect = readerContainerRef.current.getBoundingClientRect();
+        targetPanX = screenX - worldX * targetScale;
+        targetPanY = screenY - worldY * targetScale;
         
-        // Clamp tap position to prevent edge-origin explosions
-        const safeTapX = Math.max(containerRect.width * 0.2, Math.min(containerRect.width * 0.8, clientX - containerRect.left));
-        const safeTapY = Math.max(containerRect.height * 0.2, Math.min(containerRect.height * 0.8, clientY - containerRect.top));
-        
-        // Target pan to center on the safe tap point
-        targetPanX = (readerContainerRef.current.clientWidth / 2 - safeTapX) * (targetScale / currentScaleValue);
-        targetPanY = (readerContainerRef.current.clientHeight / 2 - safeTapY) * (targetScale / currentScaleValue);
-        
-        // Clamp target pan before animation
-        const aspect = 1.414;
-        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-        const zoomedWidth = spreadWidth * targetScale;
-        const zoomedHeight = (baseWidth * aspect) * targetScale;
-        const viewportWidth = readerDimensions.width;
-        const viewportHeight = readerDimensions.height;
-        
-        const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
-        const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+        // Clamp target pan
+        const contentWidth = viewMode === 'double' ? 800 : 400;
+        const hMargin = Math.max(0, (contentWidth * targetScale - containerRect.width) / 2);
+        const vMargin = Math.max(0, (600 * targetScale - containerRect.height) / 2);
         
         targetPanX = Math.max(-hMargin, Math.min(hMargin, targetPanX));
         targetPanY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
@@ -400,8 +385,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     mass: 0.8
   });
 
-  const pageCache = useRef<Map<string, ImageBitmap>>(new Map());
-
   // Toggle direction manually
   const toggleDirection = () => {
     setDirection(prev => {
@@ -505,10 +488,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       if (gestureMode.current === GestureMode.PanningZoomedPage) {
         const currentScaleValue = liveScale.get();
         // PANNING MODE (clamped)
-        const aspect = 1.414;
-        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-        const zoomedWidth = spreadWidth * currentScaleValue;
-        const zoomedHeight = (baseWidth * aspect) * currentScaleValue;
+        const contentWidth = viewMode === 'double' ? 800 : 400;
+        const zoomedWidth = contentWidth * currentScaleValue;
+        const zoomedHeight = 600 * currentScaleValue;
         const viewportWidth = readerDimensions.width;
         const viewportHeight = readerDimensions.height;
         
@@ -562,10 +544,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         const velocityX = info.velocity.x;
         const velocityY = info.velocity.y;
         
-        const aspect = 1.414;
-        const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-        const zoomedWidth = spreadWidth * currentScaleValue;
-        const zoomedHeight = (baseWidth * aspect) * currentScaleValue;
+        const contentWidth = viewMode === 'double' ? 800 : 400;
+        const zoomedWidth = contentWidth * currentScaleValue;
+        const zoomedHeight = 600 * currentScaleValue;
         const viewportWidth = readerDimensions.width;
         const viewportHeight = readerDimensions.height;
         
@@ -617,13 +598,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      console.log("[PDFReader] Settle: Updating renderScale to", committedScale);
-      setRenderScale(committedScale);
-    }, 250); // Faster re-render for responsiveness
-    return () => clearTimeout(timer);
-  }, [committedScale]);
 
   useEffect(() => {
     const checkOrientation = () => {
@@ -778,13 +752,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       
       const actualScaleDelta = nextScale / pinchRef.current.initialScale;
       const p_v = pinchRef.current.midpoint;
+      
+      // Focal point zoom: NewPan = FocalPoint - (FocalPoint - OldPan) * ScaleRatio
       const nextPanX = p_v.x - (p_v.x - pinchRef.current.initialPanX) * actualScaleDelta;
       const nextPanY = p_v.y - (p_v.y - pinchRef.current.initialPanY) * actualScaleDelta;
       
-      const aspect = 1.414;
-      const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
-      const zoomedWidth = spreadWidth * nextScale;
-      const zoomedHeight = (baseWidth * aspect) * nextScale;
+      const contentWidth = viewMode === 'double' ? 800 : 400;
+      const zoomedWidth = contentWidth * nextScale;
+      const zoomedHeight = 600 * nextScale;
       const containerW = readerDimensionsRef.current.width || window.innerWidth;
       const containerH = readerDimensionsRef.current.height || window.innerHeight;
       
@@ -1153,7 +1128,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                     liveScale={liveScale}
                     renderScale={renderScale}
                     committedScale={committedScale}
-                    pageCache={pageCache}
                     isLandscape={isLandscape}
                     containerDimensions={readerDimensions}
                     panX={panX}
@@ -1266,7 +1240,6 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale, 
   renderScale, 
   committedScale,
-  pageCache,
   isLandscape,
   containerDimensions,
   panX,
@@ -1282,7 +1255,6 @@ const ReaderSheet = React.memo(function ReaderSheet({
   liveScale: any,
   renderScale: number,
   committedScale: number,
-  pageCache: any,
   isLandscape: boolean,
   containerDimensions: { width: number, height: number },
   panX: any,
@@ -1291,41 +1263,6 @@ const ReaderSheet = React.memo(function ReaderSheet({
 }) {
   console.log(`[HOOK TRACE] ReaderSheet render index: ${index}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
-  
-  // Calculate display width in pixels (BASE SIZE at scale 1.0)
-  const baseWidth = React.useMemo(() => {
-    if (containerDimensions.width === 0) return 0;
-    if (viewMode === 'double') {
-      const maxWidth = containerDimensions.width * 0.95;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      return Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = containerDimensions.width * 0.9;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      return Math.min(idealWidth, maxWidth);
-    }
-  }, [viewMode, containerDimensions]);
-
-  // Use the recalculated one from parent if possible, but let's just use a simplified one here for CSS
-  const [displayWidth, setDisplayWidth] = useState(0);
-  useEffect(() => {
-    if (containerDimensions.width === 0) return;
-    let w = 0;
-    if (viewMode === 'double') {
-      const maxWidth = containerDimensions.width * 0.95;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      w = Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = containerDimensions.width * 0.9;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      w = Math.min(idealWidth, maxWidth);
-    }
-    setDisplayWidth(w);
-  }, [viewMode, containerDimensions]);
   
   const x = useTransform(distance, (d: number) => {
     const multiplier = direction === 'rtl' ? -100 : 100;
@@ -1380,44 +1317,42 @@ const ReaderSheet = React.memo(function ReaderSheet({
         "border-2 border-dashed border-white/10"
       )}
     >
-        <motion.div 
-          id={`sheet-${index}-camera-layer`}
-          ref={cameraLayerRef}
-          style={{ 
-            x: panX,
-            y: panY,
-            scale: liveScale,
-            transformOrigin: "center center",
-            transformStyle: 'preserve-3d',
-            backfaceVisibility: 'hidden',
-            width: viewMode === 'double' ? 800 : 400,
-            height: 600,
-            willChange: 'transform',
-            pointerEvents: 'none'
-          } as any}
-          className="relative"
-        >
-          {viewMode === 'double' ? (
-            <>
-              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={400} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
-              <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={400} renderScale={renderScale} side="right" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
-            </>
-          ) : (
-            <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} width={400} renderScale={renderScale} side="left" isLandscape={isLandscape} direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
-          )}
-      </motion.div>
+          <motion.div 
+            id={`sheet-${index}-camera-layer`}
+            ref={cameraLayerRef}
+            style={{ 
+              x: panX,
+              y: panY,
+              scale: liveScale,
+              transformOrigin: "center center",
+              transformStyle: 'preserve-3d',
+              backfaceVisibility: 'hidden',
+              width: viewMode === 'double' ? 800 : 400,
+              height: 600,
+              willChange: 'transform',
+              pointerEvents: 'none'
+            } as any}
+            className="relative"
+          >
+            {viewMode === 'double' ? (
+              <>
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderScale={renderScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderScale={renderScale} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+              </>
+            ) : (
+              <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderScale={renderScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} />
+            )}
+        </motion.div>
     </motion.div>
   );
 });
 
-const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, side, isLandscape, direction, panX, panY, liveScale, containerDimensions }: { 
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, renderScale, side, direction, panX, panY, liveScale, containerDimensions }: { 
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
-  width: number, 
   renderScale: number,
   side: 'left' | 'right', 
-  isLandscape?: boolean, 
   direction: 'ltr' | 'rtl',
   panX: any, 
   panY: any,
@@ -1454,7 +1389,6 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
       }}
     >
       <PDFPage 
-        key={`page-${pageNumber}-scale-${renderScale}`}
         pageNumber={pageNumber} 
         pdf={pdf} 
         width={400} 
@@ -1534,18 +1468,22 @@ export const PDFPage = React.memo(({
         const fitScale = Math.min(scaleX, scaleY);
         
         // Render at high resolution matching current display AND current zoom level
-        // renderScale is the committedScale from the reader
         const renderViewport = page.getViewport({ scale: fitScale * pixelRatio * renderScale });
         const cssViewport = page.getViewport({ scale: fitScale });
         
+        // Set visual size once and never jitter it
+        canvas.style.width = `400px`;
+        canvas.style.height = `600px`;
+        canvas.style.objectFit = 'contain';
+
+        // Update backing store resolution
         canvas.width = Math.floor(renderViewport.width);
         canvas.height = Math.floor(renderViewport.height);
-        canvas.style.width = `${cssViewport.width}px`;
-        canvas.style.height = `${cssViewport.height}px`;
 
         const renderContext = {
           canvasContext: context,
           viewport: renderViewport,
+          intent: 'display'
         };
 
         const renderTask = page.render(renderContext);
