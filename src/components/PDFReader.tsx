@@ -667,15 +667,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       (animate as any)(panY, targetPanY, {
         ...(animConfig as any),
         onComplete: () => {
-          console.log("[DoubleTap] STEP 6: Animation complete callback start");
           try {
-            console.log("[DoubleTapZoom] Animation Complete, Syncing committedScale", { targetScale });
             setCommittedScale(targetScale);
             
-            console.log("[DoubleTap] STEP 7: committedScale updated");
             requestAnimationFrame(() => {
               isAnimatingZoom.current = false;
-              console.log("[DoubleTapZoom] Lock Released Successfully");
             });
           } catch (syncErr) {
             console.error("[DoubleTapCrash] Error in onComplete sync:", syncErr);
@@ -878,7 +874,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         panY.set(nextY);
       } else if (gestureMode.current === GestureMode.SwipingPages) {
         // SWIPE MODE
-        const scrollWidth = window.innerWidth;
+        const stripWidth = (viewMode === 'double' ? 800 : 400) + 40;
+        const scrollWidth = stripWidth;
         const progress = info.offset.x / scrollWidth;
         
         if (direction === 'rtl') {
@@ -1418,8 +1415,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       {/* Main Viewport */}
       <div 
         ref={readerContainerRef}
-        className="flex-1 relative bg-zinc-900 border-4 border-yellow-500"
-        style={{ touchAction: 'none', overflow: 'visible' }}
+        className="flex-1 relative bg-zinc-900"
+        style={{ touchAction: 'none', overflow: 'hidden' }}
         onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -1530,84 +1527,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         )}
       </div>
 
-      {/* Debug Overlay */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed top-4 right-4 z-[999] bg-black/90 text-zinc-400 p-4 rounded-xl font-mono text-[9px] pointer-events-none border border-white/10 flex flex-col gap-2 shadow-2xl min-w-[180px]">
-          <div className="flex items-center gap-2 text-orange-500 mb-1 border-b border-white/5 pb-2">
-            <Activity className="w-3 h-3" />
-            <span className="uppercase tracking-[0.2em] font-bold">Engine HUD</span>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-y-1 gap-x-4">
-            <span className="opacity-40 uppercase">Camera X/Y:</span>
-            <div className="flex justify-end gap-1 text-white">
-              <motion.span>{debugPanX}</motion.span>
-              <span className="opacity-20">/</span>
-              <motion.span>{debugPanY}</motion.span>
-            </div>
-
-            <span className="opacity-40 uppercase">Scale (Live):</span>
-            <motion.span className="text-white text-right font-bold text-orange-400">{debugScale}</motion.span>
-            
-            <span className="opacity-40 uppercase">Scale (Settled):</span>
-            <span className="text-white text-right">{debugInfo.settledScale.toFixed(3)}</span>
-
-            <span className="opacity-40 uppercase">Page Size:</span>
-            <span className="text-white text-right">400x600</span>
-
-            <span className="opacity-40 uppercase">Gesture:</span>
-            <span className={cn("text-right font-bold", debugInfo.gestureActive ? "text-red-500" : "text-green-500")}>
-              {debugInfo.gestureActive ? "ACTIVE" : "IDLE"}
-            </span>
-
-            <span className="opacity-40 uppercase">Tier:</span>
-            <span className="text-white text-right">{debugInfo.tier}x</span>
-
-            <span className="opacity-40 uppercase">Tiles:</span>
-            <span className="text-white text-right">{debugInfo.visibleTiles} (512px)</span>
-
-            <span className="opacity-40 uppercase">Renders:</span>
-            <span className={cn("text-right", debugInfo.activeRenders > 0 ? "text-orange-500 font-bold" : "text-zinc-500")}>
-              {debugInfo.activeRenders}
-            </span>
-
-            <span className="opacity-40 uppercase">Cache:</span>
-            <span className="text-white text-right">{debugInfo.cacheUsageMB.toFixed(0)}MB</span>
-          </div>
-
-          <div className="mt-2 pt-2 border-t border-white/5 flex flex-col gap-1">
-             <div className="flex justify-between">
-                <span className="opacity-40 uppercase">View:</span>
-                <span className="text-white/60">{viewMode.toUpperCase()}</span>
-             </div>
-             <div className="flex justify-between">
-                <span className="opacity-40 uppercase">Device:</span>
-                <span className="text-white/60">DPR {window.devicePixelRatio}</span>
-             </div>
-          </div>
-        </div>
-      )}
-
-      <AnimatePresence>
-        {false && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[450]"
-          >
-            <button
-              onClick={() => {
-                // handleDoneSelecting
-              }}
-              className="px-6 py-3 bg-orange-500 text-white rounded-full font-mono text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform flex items-center gap-2"
-            >
-              <Check className="w-4 h-4" />
-              Done Selecting
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Removed debug info and selection handle for now */}
 
       {/* Progress Footer */}
       <AnimatePresence>
@@ -1699,8 +1619,12 @@ const ReaderSheet = React.memo(function ReaderSheet({
   console.log(`[HOOK TRACE] ReaderSheet render index: ${index}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
+  const sheetWidth = viewMode === 'double' ? 800 : 400;
+  const gap = 40;
+  const stride = sheetWidth + gap;
+  
   const x = useTransform(distance, (d: number) => {
-    const multiplier = direction === 'rtl' ? -100 : 100;
+    const multiplier = direction === 'rtl' ? -stride : stride;
     return d * multiplier;
   });
   
@@ -1717,22 +1641,20 @@ const ReaderSheet = React.memo(function ReaderSheet({
   const visibility = useTransform(distance, (d: number) => Math.abs(d) <= 1.5 ? 'visible' : 'hidden');
   const cameraLayerRef = useRef<HTMLDivElement>(null);
 
-  const sheetWidth = viewMode === 'double' ? 800 : 400;
-
   return (
     <motion.div
       style={{ 
         opacity, 
         visibility, 
         zIndex,
-        x: useTransform(x, v => `${v}%`), // Use percent for virtualization
+        x: useTransform(x, v => `${v}px`), // Use fixed pixels for virtualization
         rotateY,
         transformStyle: 'preserve-3d',
         backfaceVisibility: 'hidden',
         willChange: 'transform'
       } as any}
       className={cn(
-        "absolute inset-0 select-none overflow-hidden"
+        "absolute inset-0 select-none overflow-visible"
       )}
     >
           <motion.div 
