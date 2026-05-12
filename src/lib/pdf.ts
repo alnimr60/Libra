@@ -1,8 +1,20 @@
-import * as pdfjs from 'pdfjs-dist';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
 
-// Use Vite's URL import for the worker to ensure version matching and local serving
+// Polyfill Promise.withResolvers for older environments (e.g. iOS < 17.4)
+if (typeof (Promise as any).withResolvers === 'undefined') {
+  (Promise as any).withResolvers = function() {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
+// Use the legacy worker for maximum compatibility
 // @ts-ignore
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
 
 // @ts-ignore
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -62,8 +74,7 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
 export function detectDirectionFromText(text: string): 'ltr' | 'rtl' {
   if (!text) return 'ltr';
   
-  // As requested:
-  // Arabic script ranges: \u0600-\u06FF \u0750-\u077F \u08A0-\u08FF \uFB50-\uFDFF \uFE70-\uFEFF
+  // Arabic script ranges
   const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
   const latinRegex = /[a-zA-Z]/g;
   
@@ -73,25 +84,14 @@ export function detectDirectionFromText(text: string): 'ltr' | 'rtl' {
   const arabicCount = arabicMatch ? arabicMatch.length : 0;
   const latinCount = latinMatch ? latinMatch.length : 0;
   
-  const detected = arabicCount > latinCount ? 'rtl' : 'ltr';
-  
-  console.log(`[DirectionDetection] Results:`, {
-    arabicCount,
-    latinCount,
-    detected
-  });
-  
-  return detected;
+  return arabicCount > latinCount ? 'rtl' : 'ltr';
 }
 
 export async function samplePDFText(pdf: pdfjs.PDFDocumentProxy): Promise<string> {
   let sampleText = '';
-  // Sample: first, middle, last
   const pagesToSample = [1, Math.floor(pdf.numPages / 2), pdf.numPages].filter(p => p > 0 && p <= pdf.numPages);
   const uniquePages = [...new Set(pagesToSample)];
   
-  console.log(`[DirectionDetection] Sampling pages: ${uniquePages.join(', ')}`);
-
   for (const pageNum of uniquePages) {
     try {
       const page = await pdf.getPage(pageNum);
@@ -99,11 +99,9 @@ export async function samplePDFText(pdf: pdfjs.PDFDocumentProxy): Promise<string
       const text = textContent.items
         .map((item: any) => (item as any).str)
         .join(' ')
-        .substring(0, 1000); // 1000 chars per page
+        .substring(0, 1000); 
       sampleText += text + '\n';
-    } catch (e) {
-      console.warn(`[DirectionDetection] Failed to sample text from page ${pageNum}`, e);
-    }
+    } catch (e) {}
   }
   
   return sampleText.trim();
