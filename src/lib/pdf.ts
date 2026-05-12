@@ -16,7 +16,7 @@ if (typeof (Promise as any).withResolvers === 'undefined') {
 // @ts-ignore
 import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
 
-// For PDF.js 5+, we must use matching versions for the main lib and the worker.
+// For PDF.js 3+, we must use matching versions for the main lib and the worker.
 // @ts-ignore
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
