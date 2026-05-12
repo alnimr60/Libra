@@ -1,4 +1,4 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
+import * as pdfjs from 'pdfjs-dist';
 
 // Polyfill Promise.withResolvers for older environments (e.g. iOS < 17.4)
 if (typeof (Promise as any).withResolvers === 'undefined') {
@@ -12,12 +12,9 @@ if (typeof (Promise as any).withResolvers === 'undefined') {
   };
 }
 
-// Use the legacy worker for maximum compatibility
-// @ts-ignore
-import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
-
-// @ts-ignore
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+// Version-matched worker from UNPKG ensures the build never fails due to local path resolution issues
+const PDFJS_VERSION = pdfjs.version;
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.js`;
 
 export { pdfjs };
 export interface PDFMetadata {
@@ -25,15 +22,13 @@ export interface PDFMetadata {
   coverUrl?: string;
 }
 
-const version = pdfjs.version;
-
 export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjs.getDocument({ 
     data: arrayBuffer,
     stopAtErrors: false,
     enableXfa: true,
-    cMapUrl: `https://unpkg.com/pdfjs-dist@${version}/cmaps/`,
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/cmaps/`,
     cMapPacked: true,
     disableRange: true,
     disableStream: true
@@ -45,7 +40,6 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   };
 
   try {
-    // Attempt to extract the first page as a cover
     const page = await pdf.getPage(1);
     const viewport = page.getViewport({ scale: 0.5 });
     const canvas = document.createElement('canvas');
@@ -54,14 +48,12 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
     if (context) {
       canvas.height = viewport.height;
       canvas.width = viewport.width;
-
       await page.render({
         canvasContext: context,
         viewport: viewport,
         // @ts-ignore
         canvas: canvas, 
       }).promise;
-
       metadata.coverUrl = canvas.toDataURL('image/jpeg', 0.8);
     }
   } catch (error) {
@@ -73,17 +65,12 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
 
 export function detectDirectionFromText(text: string): 'ltr' | 'rtl' {
   if (!text) return 'ltr';
-  
-  // Arabic script ranges
   const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
   const latinRegex = /[a-zA-Z]/g;
-  
   const arabicMatch = text.match(arabicRegex);
   const latinMatch = text.match(latinRegex);
-  
   const arabicCount = arabicMatch ? arabicMatch.length : 0;
   const latinCount = latinMatch ? latinMatch.length : 0;
-  
   return arabicCount > latinCount ? 'rtl' : 'ltr';
 }
 
@@ -103,7 +90,6 @@ export async function samplePDFText(pdf: pdfjs.PDFDocumentProxy): Promise<string
       sampleText += text + '\n';
     } catch (e) {}
   }
-  
   return sampleText.trim();
 }
 
@@ -113,7 +99,7 @@ export async function extractPDFSampleText(file: File): Promise<string> {
     data: new Uint8Array(arrayBuffer),
     stopAtErrors: false,
     enableXfa: true,
-    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/cmaps/`,
     cMapPacked: true,
     disableRange: true,
     disableStream: true
