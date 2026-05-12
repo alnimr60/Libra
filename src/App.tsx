@@ -9,7 +9,7 @@ import Dashboard from './components/Dashboard';
 import Library from './components/Library';
 import Settings from './components/Settings';
 import AddBookModal from './components/AddBookModal';
-import PDFReader from './components/PDFReader';
+import PremiumPDFReader from './components/PremiumPDFReader';
 import { Home, Library as LibraryIcon, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -264,7 +264,7 @@ export default function App() {
       <AnimatePresence>
         {activeBook && (
           <PDFReaderErrorBoundary>
-            <PDFReader 
+            <PremiumPDFReader 
               book={activeBook}
               initialPage={activeBook.currentPage}
               updateBook={updateBook}

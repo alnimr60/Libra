@@ -15,22 +15,17 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🛡️ Restore Fortress Infrastructure
-        run: |
-          git fetch origin fortress
-          mkdir -p fortress-temp
-          git --work-tree=fortress-temp checkout origin/fortress -- ios justfile capacitor.config.ts package.json package-lock.json
-          mv fortress-temp/ios ./ios
-          mv fortress-temp/justfile ./justfile
-          mv fortress-temp/capacitor.config.ts ./capacitor.config.ts
-          mv fortress-temp/package.json ./package.json
-          mv fortress-temp/package-lock.json ./package-lock.json
-          rm -rf fortress-temp
+      - name: 📦 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-      - name: 📦 Setup & Install
-        run: |
-          npm ci
-          brew install just
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🛠️ Install Just
+        run: brew install just
 
       - name: 🏗️ Build App
         run: |
