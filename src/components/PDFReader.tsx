@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { pdfjs, samplePDFText, detectDirectionFromText } from '../lib/pdf';
 import 'pdfjs-dist/web/pdf_viewer.css';
-import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform, useMotionValueEvent } from 'motion/react';
 import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2, AlertCircle, Activity } from 'lucide-react';
 import { get, set } from 'idb-keyval';
 import { cn } from '../lib/utils';
@@ -1897,8 +1897,7 @@ const PDFPageTileEngine = React.memo(({
     return () => { active = false; };
   }, [pdf, pageNumber]);
 
-  // 1. Lifecycle & Visibility: Respond to page state changes
-  useLayoutEffect(() => {
+  const run = useCallback(() => {
     if (!isVisible || !pdfPage || !paletteRef.current || !containerDimensions?.width || containerDimensions.width <= 0) return;
 
     // Ensure engine is ready
@@ -1912,38 +1911,39 @@ const PDFPageTileEngine = React.memo(({
       );
     }
 
-    const run = () => {
-      if (!engineRef.current) return;
-      const count = engineRef.current.update({
-        scale: settledScale,
-        px: panX.get(),
-        py: panY.get(),
-        tier: renderTierScale,
-        version: renderVersion,
-        isGestureActive: isGestureActiveRef.current
-      });
-      if (typeof count === 'number') updateDebug({ visibleTiles: count });
-    };
-
-    // Force pass after DOM commit
-    const h = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(h);
-
+    const count = engineRef.current.update({
+      scale: settledScale,
+      px: panX.get(),
+      py: panY.get(),
+      tier: renderTierScale,
+      version: renderVersion,
+      isGestureActive: isGestureActiveRef.current
+    });
+    if (typeof count === 'number') updateDebug({ visibleTiles: count });
   }, [
-    isVisible, 
-    pdfPage, 
-    containerDimensions?.width, 
-    containerDimensions?.height, 
-    settledScale, 
-    renderTierScale, 
-    renderVersion, 
-    panX, 
-    panY, 
-    isGestureActiveRef, 
+    isVisible,
+    pdfPage,
+    containerDimensions?.width,
+    containerDimensions?.height,
+    settledScale,
+    renderTierScale,
+    renderVersion,
+    panX,
+    panY,
+    isGestureActiveRef,
     updateDebug,
     side,
     pageNumber
   ]);
+
+  // 1. Lifecycle & Visibility: Respond to page state changes
+  useLayoutEffect(() => {
+    const h = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(h);
+  }, [run]);
+
+  useMotionValueEvent(panX, "change", run);
+  useMotionValueEvent(panY, "change", run);
 
   // Clean up engine when page identity changes
   useEffect(() => {
