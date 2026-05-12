@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallba
 import { pdfjs, samplePDFText, detectDirectionFromText } from '../lib/pdf';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate, useTransform, useMotionValueEvent } from 'motion/react';
-import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2, AlertCircle } from 'lucide-react';
+import { X, Maximize2, Loader2, Plus, Minus, Languages, Navigation, Check, Bookmark as BookmarkIcon, Trash2, AlertCircle, Activity, Search } from 'lucide-react';
 import { get, set } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book, Bookmark } from '../types';
@@ -10,7 +10,7 @@ import { useSafeArea } from './SafeAreaProvider';
 
 // --- TILE ENGINE CONSTANTS ---
 const TILE_SIZE = 512;
-const MAX_CACHE_MB = 450; // Increased for premium smoothness
+const MAX_CACHE_MB = 450;
 const MAX_CONCURRENT_RENDERS = 2;
 
 // --- TILE ENGINE CLASSES ---
@@ -87,10 +87,9 @@ class PageTileRenderer {
     this.logicalHeight = height;
   }
 
-  update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, worldOffsetX: number }) {
-    const { scale, px, py, tier, version, vw, vh, worldOffsetX } = params;
+  update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
+    const { scale, px, py, tier, version, vw, vh, pageOriginX, pageOriginY } = params;
     
-    // Core logic: Map the logical page coordinate to the current reader viewport
     const zoomedWidth = this.logicalWidth * scale;
     const zoomedHeight = this.logicalHeight * scale;
 
@@ -104,9 +103,9 @@ class PageTileRenderer {
         const tx = c * TILE_SIZE;
         const ty = r * TILE_SIZE;
 
-        // Visibility check relative to reader container
-        const tileLeft = px + worldOffsetX + tx;
-        const tileTop = py + ty;
+        // Visibility relative to viewport
+        const tileLeft = px + pageOriginX + tx;
+        const tileTop = py + pageOriginY + ty;
         
         if (tileLeft < vw && tileLeft + TILE_SIZE > 0 && tileTop < vh && tileTop + TILE_SIZE > 0) {
           const key = `${this.pageNumber}-${version}-${tier}-${r}-${c}`;
@@ -132,7 +131,6 @@ class PageTileRenderer {
     canvas.width = TILE_SIZE;
     canvas.height = TILE_SIZE;
     canvas.className = 'absolute';
-    // Style coordinates in logical pixels (container space)
     canvas.style.left = `${tx / currentScale}px`;
     canvas.style.top = `${ty / currentScale}px`;
     canvas.style.width = `${TILE_SIZE / currentScale}px`;
@@ -191,7 +189,7 @@ class PageTileRenderer {
   }
 }
 
-// --- READER COMPONENT (V1 Structure) ---
+// --- READER PROPS ---
 
 interface PDFReaderProps {
   book: Book;
@@ -211,6 +209,7 @@ enum GestureMode {
 }
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
+  // 1. ORIGINAL V1 STATE & GESTURES
   const gestureMode = useRef<GestureMode>(GestureMode.Idle);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartInfo = useRef({ x: 0, y: 0, time: 0 });
@@ -221,7 +220,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
   const [numPages, setNumPages] = useState(0);
-  const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
+  const [viewMode, setViewMode] = useState<'single' | 'double'>(window.innerWidth > 1024 ? 'double' : 'single');
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
   const readerDimensionsRef = useRef({ width: 0, height: 0 });
 
@@ -230,7 +229,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
 
-  // Resolution Tiers
+  // High-Res Tiers
   const [settledScale, setSettledScale] = useState(1.0);
   const [renderTierScale, setRenderTierScale] = useState(1);
   const [renderVersion, setRenderVersion] = useState(0);
@@ -242,16 +241,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       if (!isPinching.current && !isPanning.current && !isAnimatingZoom.current) {
         setRenderVersion(v => v + 1);
         setSettledScale(committedScale);
-        
-        let newTier = 1;
-        if (committedScale <= 1.2) newTier = 1;
-        else if (committedScale <= 2.5) newTier = 2;
-        else if (committedScale <= 5) newTier = 4;
-        else newTier = 8;
-        
+        let newTier = committedScale <= 1.2 ? 1.5 : committedScale <= 2.5 ? 2.5 : committedScale <= 5 ? 5 : 8;
         setRenderTierScale(newTier);
       }
-    }, 120); 
+    }, 150); 
   }, [committedScale]);
 
   useEffect(() => {
@@ -260,6 +253,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [committedScale, triggerSettle]);
 
   useEffect(() => {
+    if (isAnimatingZoom.current) return;
     animate(liveScale, committedScale, { type: 'spring', stiffness: 300, damping: 30 });
     if (committedScale <= 1.05) {
       animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
@@ -302,13 +296,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       try {
         setIsLoading(true);
         const data = await get(book.fileDataId!);
-        if (!data) throw new Error('PDF data not found');
+        if (!data) throw new Error('PDF not found');
         const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(data), stopAtErrors: false, enableXfa: true, cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`, cMapPacked: true }).promise;
         setPdf(pdfDoc);
         setNumPages(pdfDoc.numPages);
-        if (initialPage) {
-          setPageIndex(viewMode === 'double' ? Math.floor((initialPage - 1) / 2) : initialPage - 1);
-        }
+        if (initialPage) setPageIndex(viewMode === 'double' ? Math.floor((initialPage - 1) / 2) : initialPage - 1);
         setIsLoading(false);
       } catch (err: any) {
         setError(err.message);
@@ -318,7 +310,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     loadPDF();
   }, [book.fileDataId]);
 
-  // Gestures (V1 Logic)
+  // V1 GESTURES
   const handlePageChange = (newIndex: number) => {
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
     setPageIndex(safeIndex);
@@ -377,13 +369,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   return (
     <motion.div className="fixed inset-0 bg-zinc-950 flex flex-col z-[300] overflow-hidden select-none touch-none">
-      {/* HUD HEADER */}
+      {/* V1 HEADER (PRESERVED) */}
       <AnimatePresence>
         {showControls && (
           <motion.div initial={{ y: -100 }} animate={{ y: 0 }} exit={{ y: -100 }} className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/80 to-transparent z-[320] flex items-center px-4 gap-4">
              <button onClick={onClose} className="p-2 text-white/80 hover:bg-white/10 rounded-full"><X className="w-5 h-5"/></button>
              <div className="flex-1 min-w-0"><h3 className="text-white text-sm font-medium truncate">{book.title}</h3></div>
-             <div className="flex items-center gap-2">
+             <div className="flex items-center gap-1">
+                <button className="p-2 text-white/60 hover:bg-white/10 rounded-full"><Search className="w-5 h-5"/></button>
+                <button className="p-2 text-white/60 hover:bg-white/10 rounded-full"><Activity className="w-5 h-5"/></button>
                 <button onClick={toggleBookmark} className={cn("p-2 rounded-full transition-colors", isCurrentlyBookmarked ? "text-orange-500 bg-orange-500/10" : "text-white/60 hover:bg-white/10")}>
                    <BookmarkIcon className="w-5 h-5" fill={isCurrentlyBookmarked ? "currentColor" : "none"}/>
                 </button>
@@ -409,14 +403,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
          )}
       </div>
 
-      {/* FOOTER */}
+      {/* V1 FOOTER */}
       <AnimatePresence>
         {showControls && (
           <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }} className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 to-transparent z-[320] flex flex-col gap-4">
              <div className="max-w-2xl mx-auto w-full flex flex-col gap-2">
                <div className="flex justify-between text-white/40 text-[10px] font-mono">
-                 <span>Page {currentPageNumber}</span>
-                 <span>{numPages} Pages</span>
+                 <span>PAGE {currentPageNumber}</span>
+                 <span>{numPages} TOTAL</span>
                </div>
                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                  <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: `${(currentPageNumber / numPages) * 100}%` }}/>
@@ -429,14 +423,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   );
 }
 
-// --- SUB-COMPONENTS ---
+// --- SUB-COMPONENTS (V1 LOGIC + V2 ENGINE) ---
 
 const ReaderSheet = React.memo(({ index, pdf, numPages, viewMode, direction, virtualPage, liveScale, settledScale, renderTierScale, renderVersion, panX, panY, dims, isCurrent }: any) => {
   const distance = useTransform(virtualPage, (v: number) => index - v);
   const x = useTransform(distance, (d: number) => d * (direction === 'rtl' ? -100 : 100));
   const opacity = useTransform(distance, (d: number) => Math.abs(d) > 1.5 ? 0 : 1);
 
-  // Dynamic layout math from V1
   const baseWidth = useMemo(() => {
     if (dims.width === 0) return 400;
     const padding = viewMode === 'double' ? 0.95 : 0.9;
@@ -474,16 +467,16 @@ const PDFPageWrapper = React.memo(({ pdf, pageNumber, numPages, width, tier, set
   if (pageNumber > numPages) return <div className="bg-zinc-800/20" style={{ width, height: width * 1.414 }}/>;
   
   const height = width * (pageSize.height / pageSize.width || 1.414);
-  const worldOffsetX = side === 'left' ? -width : side === 'right' ? 0 : -width/2;
+  const sheetRelX = side === 'left' ? -width : side === 'right' ? 0 : -width/2;
 
   return (
     <div className="bg-white relative overflow-hidden" style={{ width, height }}>
-       <PDFPageTileEngine pageNumber={pageNumber} pdf={pdf} width={width} height={height} tier={tier} settledScale={settledScale} version={version} panX={panX} panY={panY} liveScale={liveScale} dims={dims} isVisible={isVisible} worldOffsetX={worldOffsetX}/>
+       <PDFPageTileEngine pageNumber={pageNumber} pdf={pdf} width={width} height={height} tier={tier} settledScale={settledScale} version={version} panX={panX} panY={panY} liveScale={liveScale} dims={dims} isVisible={isVisible} sheetRelX={sheetRelX}/>
     </div>
   );
 });
 
-const PDFPageTileEngine = React.memo(({ pageNumber, pdf, width, height, tier, settledScale, version, panX, panY, liveScale, dims, isVisible, worldOffsetX }: any) => {
+const PDFPageTileEngine = React.memo(({ pageNumber, pdf, width, height, tier, settledScale, version, panX, panY, liveScale, dims, isVisible, sheetRelX }: any) => {
   const paletteRef = useRef<HTMLDivElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<PageTileRenderer | null>(null);
@@ -511,14 +504,24 @@ const PDFPageTileEngine = React.memo(({ pageNumber, pdf, width, height, tier, se
     if (!isVisible || !pdfPage || !paletteRef.current || !dims.width) return;
     if (!engineRef.current) engineRef.current = new PageTileRenderer(paletteRef.current, pdfPage, pageNumber, width, height);
     
-    // Calculate precise center-based world offset
+    // V1 World Center Math
     const vw = dims.width;
     const vh = dims.height;
     const px = panX.get() + (vw / 2);
     const py = panY.get() + (vh / 2) - (height * settledScale / 2);
 
-    engineRef.current.update({ scale: settledScale, px, py, tier, version, vw, vh, worldOffsetX: worldOffsetX * settledScale });
-  }, [isVisible, pdfPage, settledScale, tier, version, panX, panY, dims, width, height, worldOffsetX]);
+    engineRef.current.update({ 
+      scale: settledScale, 
+      px, 
+      py, 
+      tier, 
+      version, 
+      vw, 
+      vh, 
+      pageOriginX: sheetRelX * settledScale,
+      pageOriginY: 0
+    });
+  }, [isVisible, pdfPage, settledScale, tier, version, panX, panY, dims, width, height, sheetRelX]);
 
   useLayoutEffect(run, [run]);
   useMotionValueEvent(panX, "change", run);
@@ -527,7 +530,11 @@ const PDFPageTileEngine = React.memo(({ pageNumber, pdf, width, height, tier, se
   return (
     <div className="absolute inset-0 w-full h-full pointer-events-none">
       <div ref={paletteRef} className="absolute inset-0 z-0" />
-      <div ref={textLayerRef} className="absolute inset-0 textLayer z-10 pointer-events-auto select-text" />
+      <div 
+        ref={textLayerRef} 
+        className="absolute inset-0 textLayer z-10 pointer-events-auto select-text cursor-text"
+        onClick={(e) => e.stopPropagation()} // Prevent controls toggle on text click
+      />
     </div>
   );
 });
