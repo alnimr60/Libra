@@ -361,7 +361,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     mass: 0.8
   });
 
-  const pageCache = useRef<Map<string, ImageBitmap>>(new Map());
+  const pageCache = useRef<Map<number, Map<number, HTMLCanvasElement>>>(new Map());
 
   // Toggle direction manually
   const toggleDirection = () => {
@@ -1453,30 +1453,13 @@ interface PDFPageProps {
 const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild }) => {
   console.log(`[HOOK TRACE] PDFPage render page: ${pageNumber}`);
   console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const textLayerDivRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
   const [isRendering, setIsRendering] = useState(true);
   const [renderError, setRenderError] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
-  const [renderTier, setRenderTier] = useState(1.0);
-
-  // Debounced tier updates to prevent rendering during active gestures
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    const unsub = liveScale.on('change', (v) => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        const nextTier = v <= 1.2 ? 1.0 : v <= 2.5 ? 2.0 : v <= 5 ? 4.0 : 6.0;
-        setRenderTier(nextTier);
-      }, 150);
-    });
-    return () => {
-      clearTimeout(timeout);
-      unsub();
-    };
-  }, [liveScale]);
 
   const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
   const containerHeight = width * aspectRatio;
@@ -1536,61 +1519,56 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         const page = await pdf.getPage(pageNumber);
         if (!isMounted) return;
 
+        // Visual vs Render Separation
+        const visualScale = liveScale.get();
+        const tier = visualScale <= 1.5 ? 1.5 : visualScale <= 3 ? 3 : visualScale <= 6 ? 6 : 8;
+        
         // Cache management
-        const cacheKey = `${pageNumber}-${renderTier}`;
-        const container = containerRef.current!;
-        const contextCanvas = canvasRef.current!;
-        const ctx = contextCanvas.getContext('2d');
-        if (!ctx) return;
-
-        const dpr = window.devicePixelRatio || 1;
+        if (!pageCache.current.has(pageNumber)) {
+            pageCache.current.set(pageNumber, new Map());
+        }
+        const cacheForPage = pageCache.current.get(pageNumber)!;
+        
         const cssScale = width / pageSize.width;
         const viewport = page.getViewport({ scale: cssScale });
         
-        contextCanvas.width = viewport.width * dpr;
-        contextCanvas.height = viewport.height * dpr;
-        contextCanvas.style.width = `${viewport.width}px`;
-        contextCanvas.style.height = `${viewport.height}px`;
-
-        if (pageCache.current.has(cacheKey)) {
-            const bitmap = pageCache.current.get(cacheKey)!;
-            ctx.clearRect(0, 0, contextCanvas.width, contextCanvas.height);
-            ctx.drawImage(bitmap, 0, 0, contextCanvas.width, contextCanvas.height);
+        // Tiered rendering
+        if (cacheForPage.has(tier)) {
+            const cachedCanvas = cacheForPage.get(tier)!;
+            const container = canvasContainerRef.current;
+            if (container) {
+                container.innerHTML = '';
+                container.appendChild(cachedCanvas);
+            }
             setIsRendering(false);
             return;
         }
 
-        // Render new tier to temporary canvas
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return;
+        // Render if not cached
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context) return;
         
-        // Render at Tier Resolution
-        const renderViewport = page.getViewport({ scale: renderTier * cssScale });
-        tempCanvas.width = Math.min(renderViewport.width * dpr, 12288);
-        tempCanvas.height = Math.min(renderViewport.height * dpr, 12288);
-        tempCtx.scale(dpr, dpr);
+        const renderViewport = page.getViewport({ scale: tier * (width / pageSize.width) });
+        canvas.width = renderViewport.width;
+        canvas.height = renderViewport.height;
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
 
-        if (renderTaskRef.current) renderTaskRef.current.cancel();
-
-        renderTaskRef.current = page.render({
-            canvasContext: tempCtx,
+        const renderTask = page.render({
+            canvasContext: context,
             viewport: renderViewport,
             intent: 'display'
         } as any);
-        await renderTaskRef.current.promise;
+        await renderTask.promise;
         
-        const bitmap = await createImageBitmap(tempCanvas);
-        // Cache management
-        if (pageCache.current.size > 20) {
-            const firstKey = pageCache.current.keys().next().value;
-            pageCache.current.get(firstKey)?.close();
-            pageCache.current.delete(firstKey);
+        cacheForPage.set(tier, canvas);
+        
+        const container = canvasContainerRef.current;
+        if (container) {
+            container.innerHTML = '';
+            container.appendChild(canvas);
         }
-        pageCache.current.set(cacheKey, bitmap);
-        
-        ctx.clearRect(0, 0, contextCanvas.width, contextCanvas.height);
-        ctx.drawImage(bitmap, 0, 0, contextCanvas.width, contextCanvas.height);
         
         // Text layer rendering
         const textLayerDiv = textLayerDivRef.current;
@@ -1622,7 +1600,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdf, pageNumber, width, pageSize.width, renderTier]);
+  }, [pdf, pageNumber, width, pageSize.width, renderScale]);
 
   return (
     <div 
@@ -1665,8 +1643,8 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             direction: 'ltr'
           }}
         >
-          <canvas 
-            ref={canvasRef} 
+          <div 
+            ref={canvasContainerRef} 
             className="block pointer-events-none absolute inset-0 origin-top-left"
             style={{ 
               width: width,
