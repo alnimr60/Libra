@@ -1668,6 +1668,7 @@ const PDFPageTileEngine = React.memo(({
 }) => {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const palette = useRef<HTMLDivElement>(null);
+  const [pdfPage, setPdfPage] = useState<pdfjs.PDFPageProxy | null>(null);
   const pdfPageRef = useRef<pdfjs.PDFPageProxy | null>(null);
   const tilesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
@@ -1678,7 +1679,10 @@ const PDFPageTileEngine = React.memo(({
   useEffect(() => {
     let active = true;
     pdf.getPage(pageNumber).then(page => {
-      if (active) pdfPageRef.current = page;
+      if (active) {
+        setPdfPage(page);
+        pdfPageRef.current = page;
+      }
     });
     return () => { active = false; };
   }, [pdf, pageNumber]);
@@ -1780,129 +1784,133 @@ const PDFPageTileEngine = React.memo(({
       }
     });
     processQueue();
-  }, [pageNumber, tier]);
+  }, [pageNumber, tier, renderVersionRef]);
+
+  const checkVisibility = useCallback(() => {
+    // GESTURE LOCK: Absolute freeze on visibility recalc during gesture
+    if (isGestureActiveRef.current) return;
+
+    const container = readerDimensionsRef.current;
+    if (!container || !container.width || !pdfPageRef.current) return;
+
+    // CRITICAL: Use settledScale for layout/visibility
+    const scale = settledScale;
+    const px = panX.get();
+    const py = panY.get();
+
+    const vw = container.width;
+    const vh = container.height;
+    
+    const pageOffset = side === 'right' ? 400 : 0;
+    
+    // WORLD SPACE COORDINATES (invariant)
+    // ScreenPoint = (WorldPoint + PageOffset) * Scale + Pan
+    // WorldPoint = (ScreenPoint - Pan) / Scale - PageOffset
+    const worldLeft = (0 - px) / scale - pageOffset;
+    const worldRight = (vw - px) / scale - pageOffset;
+    const worldTop = (0 - py) / scale;
+    const worldBottom = (vh - py) / scale;
+
+    const pageW = 400;
+    const pageH = 600;
+
+    const visL = Math.max(0, worldLeft);
+    const visR = Math.min(pageW, worldRight);
+    const visT = Math.max(0, worldTop);
+    const visB = Math.min(pageH, worldBottom);
+
+    if (visR <= visL || visB <= visT) {
+      console.log("[INITIAL_VISIBLE_TILES] 0 (out of bounds)");
+      updateDebug({ visibleTiles: 0 });
+      return;
+    }
+
+    const logicalTileDim = TILE_SIZE; 
+    
+    const startCol = Math.floor(visL / logicalTileDim);
+    const endCol = Math.ceil(visR / logicalTileDim);
+    const startRow = Math.floor(visT / logicalTileDim);
+    const endRow = Math.ceil(visB / logicalTileDim);
+
+    const visibleKeys = new Set<string>();
+    let count = 0;
+
+    for (let r = Math.max(0, startRow); r < endRow; r++) {
+      for (let c = Math.max(0, startCol); c < endCol; c++) {
+        const tKey: TileKey = { pageIndex: pageNumber, tier, row: r, col: c };
+        const key = getTileKey(tKey);
+        visibleKeys.add(key);
+        renderTile(tKey);
+        count++;
+      }
+    }
+
+    console.log("[INITIAL_VISIBLE_TILES]", count);
+
+    // Cleanup: Keep all tiles (any tier) that overlap the current viewport.
+    // This prevents "white flashes" during refinement.
+    // TILE SWAP RULE: remove old tiles only after new ones are likely visible
+    tilesRef.current.forEach((canvas, key) => {
+      const parts = key.split(':');
+      const tTier = parseInt(parts[1], 10);
+      
+      const tRow = parseInt(parts[2], 10);
+      const tCol = parseInt(parts[3], 10);
+      
+      const viewportBase = pdfPageRef.current!.getViewport({ scale: 1 });
+      const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
+      const dpr = window.devicePixelRatio || 1;
+      const tLogicalDim = TILE_SIZE / (fitScale * tTier * dpr);
+      
+      // Simplify check: if it's our current tier but not in visible set, or outside viewport
+      const tL = tCol * TILE_SIZE;
+      const tR = tL + TILE_SIZE;
+      const tT = tRow * TILE_SIZE;
+      const tB = tT + TILE_SIZE;
+      
+      const isActuallyVisible = !(tR < visL || tL > visR || tB < visT || tT > visB);
+      
+      if (!isActuallyVisible) {
+        canvas.remove();
+        tilesRef.current.delete(key);
+      }
+    });
+
+    updateDebug({ 
+      visibleTiles: count, 
+      tier,
+      activeRenders: activeRenderCount + globalRenderQueue.length
+    });
+  }, [
+    pageNumber, 
+    tier, 
+    settledScale, 
+    panX, 
+    panY, 
+    side, 
+    renderTile, 
+    updateDebug, 
+    isGestureActiveRef, 
+    readerDimensionsRef
+  ]);
 
   // Intersection logic: which tiles are visible?
   useEffect(() => {
-    if (!isVisible || !surfaceRef.current) return;
+    if (!isVisible || !surfaceRef.current || !pdfPage) return;
 
-    const checkVisibility = () => {
-      // GESTURE LOCK: Absolute freeze on visibility recalc during gesture
-      if (isGestureActiveRef.current) return;
-
-      const container = readerDimensionsRef.current;
-      if (!container || !container.width || !pdfPageRef.current) return;
-
-      // CRITICAL: Use settledScale for layout/visibility
-      const scale = settledScale;
-      const px = panX.get();
-      const py = panY.get();
-
-      const vw = container.width;
-      const vh = container.height;
-      
-      const pageOffset = side === 'right' ? 400 : 0;
-      
-      // WORLD SPACE COORDINATES (invariant)
-      // ScreenPoint = (WorldPoint + PageOffset) * Scale + Pan
-      // WorldPoint = (ScreenPoint - Pan) / Scale - PageOffset
-      const worldLeft = (0 - px) / scale - pageOffset;
-      const worldRight = (vw - px) / scale - pageOffset;
-      const worldTop = (0 - py) / scale;
-      const worldBottom = (vh - py) / scale;
-
-      const pageW = 400;
-      const pageH = 600;
-
-      const visL = Math.max(0, worldLeft);
-      const visR = Math.min(pageW, worldRight);
-      const visT = Math.max(0, worldTop);
-      const visB = Math.min(pageH, worldBottom);
-
-      if (visR <= visL || visB <= visT) {
-        updateDebug({ visibleTiles: 0 });
-        return;
-      }
-
-      const dpr = window.devicePixelRatio || 1;
-      const logicalTileDim = TILE_SIZE; 
-      
-      const startCol = Math.floor(visL / logicalTileDim);
-      const endCol = Math.ceil(visR / logicalTileDim);
-      const startRow = Math.floor(visT / logicalTileDim);
-      const endRow = Math.ceil(visB / logicalTileDim);
-
-      const visibleKeys = new Set<string>();
-      let count = 0;
-
-      for (let r = Math.max(0, startRow); r < endRow; r++) {
-        for (let c = Math.max(0, startCol); c < endCol; c++) {
-          const tKey: TileKey = { pageIndex: pageNumber, tier, row: r, col: c };
-          const key = getTileKey(tKey);
-          visibleKeys.add(key);
-          renderTile(tKey);
-          count++;
-        }
-      }
-
-      // Cleanup: Keep all tiles (any tier) that overlap the current viewport.
-      // This prevents "white flashes" during refinement.
-      // TILE SWAP RULE: remove old tiles only after new ones are likely visible
-      tilesRef.current.forEach((canvas, key) => {
-        const parts = key.split(':');
-        const tTier = parseInt(parts[1], 10);
-        
-        // If not in current tier, we give it a buffer to stay visible during fade
-        if (tTier !== tier) {
-          // Check if this tile was just replaced? 
-          // For now, simpler "Keep overlapping" is architecture mandate
-        }
-
-        const tRow = parseInt(parts[2], 10);
-        const tCol = parseInt(parts[3], 10);
-        
-        const dpr = window.devicePixelRatio || 1;
-        const viewportBase = pdfPageRef.current!.getViewport({ scale: 1 });
-        const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
-        const tLogicalDim = TILE_SIZE / (fitScale * tTier * dpr);
-        
-        const tL = tCol * tLogicalDim;
-        const tR = tL + tLogicalDim;
-        const tT = tRow * tLogicalDim;
-        const tB = tT + tLogicalDim;
-        
-        // Check overlap with current visible bounds
-        const isActuallyVisible = !(tR < visL || tL > visR || tB < visT || tT > visB);
-        
-        if (!isActuallyVisible) {
-          canvas.remove();
-          tilesRef.current.delete(key);
-        }
-      });
-
-      updateDebug({ 
-        visibleTiles: count, 
-        tier,
-        activeRenders: activeRenderCount + globalRenderQueue.length
-      });
-    };
-
-    // Subscribe to pan changes only if they settle or are significant?
-    // Actually the user said: "DO NOT recalculate visible tiles during active pinch or zoom"
-    // So settledScale as a dependency is enough for zoom.
-    // What about panning? If I pan 1000px, I want new tiles.
-    // The user said: "PHASE 1 — ACTIVE GESTURE: camera-layer transform only. NO tile recalculation"
-    // So panning during zoom (pinch) should not recalc.
-    // But what about normal panning (drag)?
-    // Usually, drag panning should recalc tiles for responsiveness.
-    // But the user's "STRICT SEPARATION" implies we only recalc after settle.
-    
-    // I'll add a listener to panX/panY but maybe throttled? 
-    // Or just rely on settledScale for now as requested.
-    
     checkVisibility();
 
-  }, [isVisible, tier, pageNumber, renderTile, side, updateDebug, settledScale, panX, panY, readerDimensionsRef]);
+  }, [isVisible, pdfPage, checkVisibility]);
+
+  // Force one explicit render pass after everything is ready
+  useEffect(() => {
+    if (isVisible && pdfPage && containerDimensions.width > 0) {
+      const handle = requestAnimationFrame(() => {
+        checkVisibility();
+      });
+      return () => cancelAnimationFrame(handle);
+    }
+  }, [isVisible, pdfPage, containerDimensions.width, containerDimensions.height, checkVisibility]);
 
   return (
     <div 
