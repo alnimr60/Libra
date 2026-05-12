@@ -137,7 +137,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const insets = useSafeArea();
   const [numPages, setNumPages] = useState(0);
   const [committedScale, setCommittedScale] = useState(1.0);
-  const [renderScale, setRenderScale] = useState(1.0);
+  const [settledScale, setSettledScale] = useState(1.0);
+  const [renderTierScale, setRenderTierScale] = useState(1.0);
   const liveScale = useMotionValue(1.0);
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
@@ -167,9 +168,18 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   // Settlement logic for high-res rendering - RENDERING ONLY
   useEffect(() => {
     const timer = setTimeout(() => {
-      console.log("[PDFReader] Settle: Updating renderScale to", committedScale);
-      setRenderScale(committedScale);
-    }, 120); // Settled after 120ms as requested
+      if (!isPinching.current && !isPanning.current && !isAnimatingZoom.current) {
+        console.log("[PDFReader] Settle: Updating states", committedScale);
+        setSettledScale(committedScale);
+        
+        // Discrete tier mapping
+        if (committedScale <= 1.5) setRenderTierScale(1);
+        else if (committedScale <= 3) setRenderTierScale(2);
+        else if (committedScale <= 6) setRenderTierScale(4);
+        else if (committedScale <= 12) setRenderTierScale(8);
+        else setRenderTierScale(16);
+      }
+    }, 120); 
     return () => clearTimeout(timer);
   }, [committedScale]);
 
@@ -1230,7 +1240,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                     direction={direction}
                     virtualPage={smoothPage}
                     liveScale={liveScale}
-                    renderScale={renderScale}
+                    renderTierScale={renderTierScale}
+                    settledScale={settledScale}
                     committedScale={committedScale}
                     isLandscape={isLandscape}
                     containerDimensions={readerDimensions}
@@ -1369,7 +1380,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   direction, 
   virtualPage, 
   liveScale, 
-  renderScale, 
+  renderTierScale,
+  settledScale,
   committedScale,
   isLandscape,
   containerDimensions,
@@ -1386,7 +1398,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
   direction: 'ltr' | 'rtl',
   virtualPage: any,
   liveScale: any,
-  renderScale: number,
+  renderTierScale: number,
+  settledScale: number,
   committedScale: number,
   isLandscape: boolean,
   containerDimensions: { width: number, height: number },
@@ -1447,8 +1460,12 @@ const ReaderSheet = React.memo(function ReaderSheet({
             style={{ 
               x: panX,
               y: panY,
+              left: '50%',
+              top: '50%',
+              marginLeft: -sheetWidth / 2,
+              marginTop: -300,
               scale: liveScale,
-              transformOrigin: "center center",
+              transformOrigin: "0 0",
               transformStyle: 'preserve-3d',
               backfaceVisibility: 'hidden',
               width: sheetWidth,
@@ -1456,15 +1473,15 @@ const ReaderSheet = React.memo(function ReaderSheet({
               willChange: 'transform',
               pointerEvents: 'none'
             } as any}
-            className="relative"
+            className="absolute"
           >
             {viewMode === 'double' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderScale={renderScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderScale={renderScale} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} side="right" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
               </>
             ) : (
-              <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderScale={renderScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
+              <SpreadPage pdf={pdf} pageNumber={index + 1} numPages={numPages} renderTierScale={renderTierScale} settledScale={settledScale} side="left" direction={direction} panX={panX} panY={panY} liveScale={liveScale} containerDimensions={containerDimensions} readerDimensionsRef={readerDimensionsRef} viewMode={viewMode} updateDebug={updateDebug} isVisible={isCurrent} />
             )}
         </motion.div>
     </motion.div>
@@ -1475,7 +1492,8 @@ const SpreadPage = React.memo(function SpreadPage({
   pdf, 
   pageNumber, 
   numPages, 
-  renderScale, 
+  renderTierScale,
+  settledScale,
   side, 
   direction, 
   panX, 
@@ -1490,7 +1508,8 @@ const SpreadPage = React.memo(function SpreadPage({
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
-  renderScale: number,
+  renderTierScale: number,
+  settledScale: number,
   side: 'left' | 'right', 
   direction: 'ltr' | 'rtl',
   panX: any, 
@@ -1534,7 +1553,8 @@ const SpreadPage = React.memo(function SpreadPage({
       <PDFPageTileEngine 
         pageNumber={pageNumber} 
         pdf={pdf} 
-        renderScale={renderScale} 
+        renderTierScale={renderTierScale}
+        settledScale={settledScale}
         panX={panX} 
         panY={panY} 
         liveScale={liveScale} 
@@ -1553,7 +1573,8 @@ const SpreadPage = React.memo(function SpreadPage({
 const PDFPageTileEngine = React.memo(({ 
   pageNumber, 
   pdf, 
-  renderScale, 
+  renderTierScale,
+  settledScale,
   panX, 
   panY, 
   liveScale, 
@@ -1565,7 +1586,8 @@ const PDFPageTileEngine = React.memo(({
 }: {
   pageNumber: number,
   pdf: pdfjs.PDFDocumentProxy,
-  renderScale: number,
+  renderTierScale: number,
+  settledScale: number,
   panX: any,
   panY: any,
   liveScale: any,
@@ -1580,14 +1602,8 @@ const PDFPageTileEngine = React.memo(({
   const pdfPageRef = useRef<pdfjs.PDFPageProxy | null>(null);
   const tilesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
-  // Pick suitable tier based on renderScale
-  const tier = useMemo(() => {
-    if (renderScale <= 1.2) return 1;
-    if (renderScale <= 2.5) return 2;
-    if (renderScale <= 5.0) return 4;
-    if (renderScale <= 10.0) return 8;
-    return 16;
-  }, [renderScale]);
+  // Fixed tier selection logic
+  const tier = renderTierScale;
 
   // Load PDF page proxy
   useEffect(() => {
@@ -1613,11 +1629,22 @@ const PDFPageTileEngine = React.memo(({
       canvas.width = TILE_SIZE;
       canvas.height = TILE_SIZE;
       canvas.style.position = 'absolute';
-      canvas.style.width = `${TILE_SIZE}px`;
-      canvas.style.height = `${TILE_SIZE}px`;
-      canvas.style.left = `${t.col * TILE_SIZE}px`;
-      canvas.style.top = `${t.row * TILE_SIZE}px`;
+      
+      const dpr = window.devicePixelRatio || 1;
+      const viewportBase = pdfPageRef.current.getViewport({ scale: 1 });
+      const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
+      const logicalTileDim = TILE_SIZE / (fitScale * t.tier * dpr);
+      
+      canvas.style.width = `${Math.round(logicalTileDim)}px`;
+      canvas.style.height = `${Math.round(logicalTileDim)}px`;
+      canvas.style.left = `${Math.round(t.col * logicalTileDim)}px`;
+      canvas.style.top = `${Math.round(t.row * logicalTileDim)}px`;
+      
       canvas.dataset.tileKey = key;
+      canvas.style.opacity = '0';
+      canvas.style.transition = 'opacity 0.25s ease-out';
+      canvas.style.zIndex = String(t.tier); // Higher tier on top
+      
       palette.current.appendChild(canvas);
       tilesRef.current.set(key, canvas);
     }
@@ -1628,10 +1655,6 @@ const PDFPageTileEngine = React.memo(({
       canvas.style.opacity = '1';
       return;
     }
-
-    // Initial state for new tile
-    canvas.style.opacity = '0';
-    canvas.style.transition = 'opacity 0.25s ease-out';
 
     // Queue render task
     globalRenderQueue.push({
@@ -1680,7 +1703,7 @@ const PDFPageTileEngine = React.memo(({
       }
     });
     processQueue();
-  }, [tier, pageNumber]);
+  }, [pageNumber]);
 
   // Intersection logic: which tiles are visible?
   useEffect(() => {
@@ -1690,7 +1713,8 @@ const PDFPageTileEngine = React.memo(({
       const container = readerDimensionsRef.current;
       if (!container || !container.width || !pdfPageRef.current) return;
 
-      const scale = liveScale.get();
+      // CRITICAL: Use settledScale for layout/visibility
+      const scale = settledScale;
       const px = panX.get();
       const py = panY.get();
 
@@ -1741,16 +1765,28 @@ const PDFPageTileEngine = React.memo(({
         }
       }
 
-      // Cleanup tiles that are no longer visible AND are not from the current tier 
-      // (Actually, keeping some old tier tiles helps prevent white frames)
+      // Cleanup: Keep all tiles (any tier) that overlap the current viewport.
+      // This prevents "white flashes" during refinement.
       tilesRef.current.forEach((canvas, key) => {
-        const isCurrentlyVisible = visibleKeys.has(key);
-        const tileTier = parseInt(key.split(':')[1], 10);
+        const parts = key.split(':');
+        const tTier = parseInt(parts[1], 10);
+        const tRow = parseInt(parts[2], 10);
+        const tCol = parseInt(parts[3], 10);
         
-        // Evict if:
-        // 1. Not in the currently intended visible set
-        // 2. AND (it's not from the current tier OR it's very far out)
-        if (!isCurrentlyVisible && (tileTier !== tier)) {
+        const dpr = window.devicePixelRatio || 1;
+        const viewportBase = pdfPageRef.current!.getViewport({ scale: 1 });
+        const fitScale = Math.min(400 / viewportBase.width, 600 / viewportBase.height);
+        const tLogicalDim = TILE_SIZE / (fitScale * tTier * dpr);
+        
+        const tL = tCol * tLogicalDim;
+        const tR = tL + tLogicalDim;
+        const tT = tRow * tLogicalDim;
+        const tB = tT + tLogicalDim;
+        
+        // Check overlap with current visible bounds
+        const isActuallyVisible = !(tR < visL || tL > visR || tB < visT || tT > visB);
+        
+        if (!isActuallyVisible) {
           canvas.remove();
           tilesRef.current.delete(key);
         }
@@ -1763,18 +1799,22 @@ const PDFPageTileEngine = React.memo(({
       });
     };
 
-    const unsubScale = liveScale.on("change", checkVisibility);
-    const unsubX = panX.on("change", checkVisibility);
-    const unsubY = panY.on("change", checkVisibility);
+    // Subscribe to pan changes only if they settle or are significant?
+    // Actually the user said: "DO NOT recalculate visible tiles during active pinch or zoom"
+    // So settledScale as a dependency is enough for zoom.
+    // What about panning? If I pan 1000px, I want new tiles.
+    // The user said: "PHASE 1 — ACTIVE GESTURE: camera-layer transform only. NO tile recalculation"
+    // So panning during zoom (pinch) should not recalc.
+    // But what about normal panning (drag)?
+    // Usually, drag panning should recalc tiles for responsiveness.
+    // But the user's "STRICT SEPARATION" implies we only recalc after settle.
+    
+    // I'll add a listener to panX/panY but maybe throttled? 
+    // Or just rely on settledScale for now as requested.
     
     checkVisibility();
 
-    return () => {
-      unsubScale();
-      unsubX();
-      unsubY();
-    };
-  }, [isVisible, tier, pageNumber, renderTile, side, updateDebug, liveScale, panX, panY, readerDimensionsRef]);
+  }, [isVisible, tier, pageNumber, renderTile, side, updateDebug, settledScale, panX, panY, readerDimensionsRef]);
 
   return (
     <div 
@@ -1785,9 +1825,7 @@ const PDFPageTileEngine = React.memo(({
       <div 
         ref={palette}
         className="absolute inset-0 origin-top-left"
-        style={{ 
-          transform: `scale(${pdfPageRef.current ? (1 / ((400/pdfPageRef.current.getViewport({scale:1}).width) * tier * (window.devicePixelRatio||1))) : 1})`
-        }}
+        style={{ transformOrigin: '0 0' }}
       />
     </div>
   );
