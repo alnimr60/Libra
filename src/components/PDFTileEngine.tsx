@@ -152,23 +152,31 @@ class PageTileRenderer {
         const viewport = this.pdfPage.getViewport({ scale: 1 });
         const fitScale = this.logicalWidth / viewport.width;
         
-        // The render scale must be high enough for the current zoom + tier
+        // Final scale for the pixels on the canvas
         const renderScale = fitScale * tier;
         
-        // offsetX/Y moves the PDF origin. We want to 'look' at the tile's location.
-        // We must move the origin by the tile's logical position multiplied by the render scale.
-        const renderViewport = this.pdfPage.getViewport({ 
-          scale: renderScale,
-          offsetX: -(tx * fitScale * tier),
-          offsetY: -(ty * fitScale * tier),
-        });
+        // The viewport defines the scale
+        const renderViewport = this.pdfPage.getViewport({ scale: renderScale });
 
         const offscreen = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
         const offCtx = offscreen.getContext('2d', { alpha: false })!;
         offCtx.fillStyle = '#ffffff';
         offCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-        await this.pdfPage.render({ canvasContext: offCtx as any, viewport: renderViewport }).promise;
+        // Standard Transformation Matrix: [scaleX, 0, 0, scaleY, translateX, translateY]
+        // We move the PDF origin by the tile's logical position * tier
+        const transform = [
+          1, 0, 0, 1, 
+          -(tx * tier), 
+          -(ty * tier)
+        ];
+
+        await this.pdfPage.render({ 
+          canvasContext: offCtx as any, 
+          viewport: renderViewport,
+          transform: transform
+        }).promise;
+
         const bitmap = offscreen.transferToImageBitmap();
         globalTileCache.set(key, bitmap);
         
