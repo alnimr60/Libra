@@ -7,6 +7,7 @@ import { get, set } from 'idb-keyval';
 import { cn } from '../lib/utils';
 import { Book, Bookmark } from '../types';
 import { useSafeArea } from './SafeAreaProvider';
+import { PDFTileEngine } from './PDFTileEngine';
 
 interface PDFReaderProps {
   book: Book;
