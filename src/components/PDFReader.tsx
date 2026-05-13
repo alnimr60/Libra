@@ -1456,223 +1456,61 @@ interface PDFPageProps {
 
 const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild, panX, panY, containerDimensions, side }) => {
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const textLayerDivRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    pdf.getPage(pageNumber).then(page => {
+      const viewport = page.getViewport({ scale: 1 });
+      if (isMounted) {
+        setPageSize({ width: viewport.width, height: viewport.height });
+        
+        // Render Text Layer
+        if (textLayerDivRef.current) {
+          textLayerDivRef.current.innerHTML = '';
+          const fitScale = width / viewport.width;
+          const textViewport = page.getViewport({ scale: fitScale });
+          page.getTextContent().then(content => {
+            if (!isMounted || !textLayerDivRef.current) return;
+            textLayerDivRef.current.style.setProperty('--scale-factor', textViewport.scale.toString());
+            pdfjs.renderTextLayer({ textContentSource: content, container: textLayerDivRef.current, viewport: textViewport, textDivs: [] });
+          });
+        }
+      }
+    });
+    return () => { isMounted = false; };
+  }, [pdf, pageNumber, width]);
 
   const aspectRatio = pageSize.height / pageSize.width || 1.414;
   const displayWidth = width;
   const displayHeight = width * aspectRatio;
+  const sheetRelX = side === 'left' ? -width : side === 'right' ? 0 : -width/2;
 
-  useEffect(() => {
-    const textLayer = textLayerDivRef.current;
-    if (!textLayer) return;
-
-    const handlePointerDown = (e: PointerEvent) => {
-      // Allow browser to handle text selection normally
-      // We don't want to stopPropagation here if it's hitting text
-    };
-
-    textLayer.addEventListener('pointerdown', handlePointerDown, { capture: false });
-    
-    return () => {
-      textLayer.removeEventListener('pointerdown', handlePointerDown);
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-    
-    // Initial size fetch to establish aspect ratio
-    const fetchSize = async () => {
-      try {
-        const page = await pdf.getPage(pageNumber);
-        const viewport = page.getViewport({ scale: 1 });
-        if (isMounted) {
-          setPageSize({ width: viewport.width, height: viewport.height });
-        }
-      } catch (err) {
-        if (isMounted) console.error("Failed to fetch initial page size", err);
-      }
-    };
-    fetchSize();
-
-    return () => { isMounted = false; };
-  }, [pdf, pageNumber]);
-
-  useEffect(() => {
-    let isMounted = true;
-    
-    // Don't render until we have a width and intrinsic page size
-    if (width === 0 || pageSize.width === 0) return;
-
-    setIsRendering(true);
-    setRenderError(false);
-
-    const render = async () => {
-      if (!textLayerDivRef.current || !containerRef.current) return;
-      
-      try {
-        const page = await pdf.getPage(pageNumber);
-        if (!isMounted) return;
-
-        // Visual vs Render Separation
-        const pixelRatio = window.devicePixelRatio || 1;
-        // Multiply by 2 or more to guarantee crisp text on all displays
-        const baseMultiplier = 2; 
-        const targetScale = renderScale * pixelRatio * baseMultiplier;
-        const tier = targetScale <= 2 ? 2 : targetScale <= 4 ? 4 : targetScale <= 6 ? 6 : targetScale <= 10 ? 10 : 16;
-        
-        // Cache management
-        if (!pageCache.current.has(pageNumber)) {
-            pageCache.current.set(pageNumber, new Map());
-        }
-        const cacheForPage = pageCache.current.get(pageNumber)!;
-        
-        const cssScale = width / pageSize.width;
-        const viewport = page.getViewport({ scale: cssScale });
-        
-        // Tiered rendering
-        if (cacheForPage.has(tier)) {
-            const cachedCanvas = cacheForPage.get(tier)!;
-            const container = canvasContainerRef.current;
-            if (container) {
-                container.innerHTML = '';
-                container.appendChild(cachedCanvas);
-            }
-            setIsRendering(false);
-            return;
-        }
-
-        // Render if not cached
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) return;
-        
-        const renderViewport = page.getViewport({ scale: tier * (width / pageSize.width) });
-        canvas.width = renderViewport.width;
-        canvas.height = renderViewport.height;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-
-        const renderTask = page.render({
-            canvasContext: context,
-            viewport: renderViewport,
-            intent: 'display'
-        } as any);
-        await renderTask.promise;
-        
-        cacheForPage.set(tier, canvas);
-        
-        const container = canvasContainerRef.current;
-        if (container) {
-            container.innerHTML = '';
-            container.appendChild(canvas);
-        }
-        
-        // Text layer rendering
-        const textLayerDiv = textLayerDivRef.current;
-        if (textLayerDiv) {
-            textLayerDiv.innerHTML = '';
-            textLayerDiv.style.width = `${viewport.width}px`;
-            textLayerDiv.style.height = `${viewport.height}px`;
-            const textContent = await page.getTextContent();
-            await pdfjs.renderTextLayer({
-                textContentSource: textContent,
-                container: textLayerDiv,
-                viewport: viewport
-            }).promise;
-        }
-
-        setIsRendering(false);
-      } catch (err) {
-          console.error(err);
-          setRenderError(true);
-          setIsRendering(false);
-      }
-    };
-
-    render();
-
-    return () => {
-      isMounted = false;
-      if (renderTaskRef.current) {
-        renderTaskRef.current.cancel();
-      }
-    };
-  }, [pdf, pageNumber, width, pageSize.width, renderScale]);
+  if (pageSize.width === 0) return <div style={{ width: displayWidth, height: displayHeight }} className="bg-white/5 animate-pulse" />;
 
   return (
     <div 
-      ref={containerRef} 
-      className="relative flex items-center justify-center bg-white/5 overflow-hidden"
-      style={{ 
-        width: displayWidth,
-        height: displayHeight
-      }}
+      className="relative bg-white shadow-2xl overflow-hidden"
+      style={{ width: displayWidth, height: displayHeight }}
     >
-      {isRendering && (
-        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/10 z-10 text-white/20">
-          <Loader2 className="w-6 h-6 animate-spin" />
-        </div>
-      )}
-      {renderError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-red-500/50 p-4 text-center z-10">
-          <AlertCircle className="w-8 h-8 mb-2" />
-          <p className="text-[10px] uppercase tracking-widest font-mono">Render Failed</p>
-        </div>
-      )}
-      
-      {pageSize.width > 0 && (
-        <div 
-          id={`page-${pageNumber}-container`}
-          className={cn(
-            "relative bg-white transition-opacity duration-300 select-none ltr",
-            isSpreadChild ? "shadow-none" : "shadow-2xl"
-          )}
-          style={{ 
-            width: displayWidth,
-            height: displayHeight,
-            transform: 'none',
-            position: 'relative',
-            flexShrink: 0,
-            opacity: isRendering ? 0 : 1,
-            contain: 'content',
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            direction: 'ltr'
-          }}
-        >
-          <div 
-            ref={canvasContainerRef} 
-            className="block pointer-events-none absolute inset-0 origin-top-left"
-            style={{ 
-              width: width,
-              height: containerHeight,
-              transform: 'none',
-              WebkitTouchCallout: 'none' 
-            }}
-          />
-          <div 
-            ref={textLayerDivRef} 
-            className="textLayer"
-            dir="ltr"
-            style={{ 
-              width: width,
-              height: containerHeight,
-              pointerEvents: 'auto',
-              zIndex: 5,
-              userSelect: 'text',
-              WebkitUserSelect: 'text',
-              direction: 'ltr',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              transform: 'none',
-              transformOrigin: 'top left',
-              whiteSpace: 'pre',
-              '--scale-factor': (pageSize.width > 0 ? (width / pageSize.width) : 1).toString()
-            } as React.CSSProperties} 
-          />
-        </div>
-      )}
+      <PDFTileEngine 
+        pageNumber={pageNumber}
+        pdf={pdf}
+        width={displayWidth}
+        height={displayHeight}
+        panX={panX}
+        panY={panY}
+        liveScale={liveScale}
+        committedScale={committedScale}
+        dims={containerDimensions}
+        isVisible={true}
+        sheetRelX={sheetRelX}
+      />
+      <div 
+        ref={textLayerDivRef} 
+        className="textLayer absolute inset-0 z-10 pointer-events-auto select-text cursor-text"
+        onClick={(e) => e.stopPropagation()}
+      />
     </div>
   );
 });
