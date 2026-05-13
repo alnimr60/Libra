@@ -57,6 +57,9 @@ const globalTileCache = new TileLRUCache();
 const globalRenderQueue: { key: string, task: () => Promise<void> }[] = [];
 let activeRenderCount = 0;
 
+const globalPdfIds = new WeakMap<any, string>();
+let globalNextPdfId = 1;
+
 async function processQueue() {
   if (activeRenderCount >= MAX_CONCURRENT_RENDERS || globalRenderQueue.length === 0) return;
   activeRenderCount++;
@@ -257,7 +260,11 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     if (!isVisible || !pdfPage || !paletteRef.current || !dims.width) return;
     
     if (!engineRef.current) {
-      const fingerprint = (pdf as any).fingerprint || "fallback-doc";
+      let fingerprint = globalPdfIds.get(pdf);
+      if (!fingerprint) {
+        fingerprint = `pdf-doc-${globalNextPdfId++}`;
+        globalPdfIds.set(pdf, fingerprint);
+      }
       engineRef.current = new PageTileRenderer(paletteRef.current, pdfPage, pageNumber, width, height, fingerprint);
     }
     
