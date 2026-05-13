@@ -84,34 +84,33 @@ class PageTileRenderer {
   update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
     const { scale, px, py, tier, version, vw, vh, pageOriginX, pageOriginY } = params;
     
-    // THE GLASS-STITCH STRATEGY:
-    // Instead of fixed 512px tiles, we divide the page into exactly 4 vertical pillars.
-    // This ensures that (ColumnWidth * 4) ALWAYS equals (PageWidth) exactly.
-    const numCols = 4;
-    const numRows = Math.ceil(this.logicalHeight / (this.logicalWidth / 2));
+    // We use a fixed physical tile size for rendering
+    const RENDER_TILE_SIZE = 512;
+    // We snap the resolution tier to a clean integer to avoid rounding gaps
+    const snapTier = Math.max(1, Math.floor(tier));
     
-    const tileWidth = this.logicalWidth / numCols;
-    const tileHeight = this.logicalHeight / numRows;
+    const logicalTileWidth = RENDER_TILE_SIZE / snapTier;
+    const cols = Math.ceil(this.logicalWidth / logicalTileWidth);
+    const rows = Math.ceil(this.logicalHeight / logicalTileWidth);
 
     const visibleKeys = new Set<string>();
 
-    for (let r = 0; r < numRows; r++) {
-      for (let c = 0; c < numCols; c++) {
-        const tx = c * tileWidth;
-        const ty = r * tileHeight;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const tx = c * logicalTileWidth;
+        const ty = r * logicalTileWidth;
 
         // Visibility check relative to reader viewport
         const tileLeft = px + pageOriginX + (tx * scale);
         const tileTop = py + pageOriginY + (ty * scale);
-        const physicalTileW = tileWidth * scale;
-        const physicalTileH = tileHeight * scale;
+        const physicalDisplaySize = logicalTileWidth * scale;
         
-        if (tileLeft < vw && tileLeft + physicalTileW > 0 && tileTop < vh && tileTop + physicalTileH > 0) {
-          const key = `${this.pageNumber}-${version}-${tier}-${r}-${c}`;
+        if (tileLeft < vw && tileLeft + physicalDisplaySize > 0 && tileTop < vh && tileTop + physicalDisplaySize > 0) {
+          const key = `${this.pageNumber}-${version}-${snapTier}-${r}-${c}`;
           visibleKeys.add(key);
 
           if (!this.tiles.has(key)) {
-            this.createTile(key, r, c, tier, tileWidth, tileHeight, tx, ty);
+            this.createTile(key, r, c, snapTier, logicalTileWidth, tx, ty);
           }
         }
       }
@@ -125,19 +124,18 @@ class PageTileRenderer {
     });
   }
 
-  private async createTile(key: string, row: number, col: number, tier: number, tw: number, th: number, tx: number, ty: number) {
+  private async createTile(key: string, row: number, col: number, tier: number, lts: number, tx: number, ty: number) {
     const canvas = document.createElement('canvas');
-    const pw = Math.ceil(tw * tier);
-    const ph = Math.ceil(th * tier);
+    const RENDER_TILE_SIZE = 512;
     
-    canvas.width = pw;
-    canvas.height = ph;
+    canvas.width = RENDER_TILE_SIZE;
+    canvas.height = RENDER_TILE_SIZE;
     canvas.className = 'absolute pointer-events-none';
     
     canvas.style.left = `${tx}px`;
     canvas.style.top = `${ty}px`;
-    canvas.style.width = `${tw}px`;
-    canvas.style.height = `${th}px`;
+    canvas.style.width = `${lts}px`;
+    canvas.style.height = `${lts}px`;
     
     this.container.appendChild(canvas);
     this.tiles.set(key, canvas);
@@ -146,12 +144,12 @@ class PageTileRenderer {
     const ctx = canvas.getContext('2d', { alpha: false })!;
 
     if (cached) {
-      ctx.drawImage(cached, 0, 0, pw, ph);
+      ctx.drawImage(cached, 0, 0);
       return;
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, pw, ph);
+    ctx.fillRect(0, 0, RENDER_TILE_SIZE, RENDER_TILE_SIZE);
 
     globalRenderQueue.push({
       key,
@@ -160,22 +158,20 @@ class PageTileRenderer {
 
         const baseViewport = this.pdfPage.getViewport({ scale: 1 });
         const fitScale = this.logicalWidth / baseViewport.width;
+        // CRITICAL: We must use the exact same tier (snapTier) for rendering as we did for the grid
         const renderScale = fitScale * tier;
         
-        const cropX = (col / 4) * baseViewport.width;
-        const cropW = (1 / 4) * baseViewport.width;
-        const cropY = (row / (this.logicalHeight / (this.logicalWidth / 2))) * baseViewport.height;
-        const cropH = (1 / (this.logicalHeight / (this.logicalWidth / 2))) * baseViewport.height;
-
+        // Native Tiling: Use a standard offset that is guaranteed to be a multiple of the tile size
         const renderViewport = this.pdfPage.getViewport({ 
           scale: renderScale,
-          viewBox: [cropX, baseViewport.height - cropY - cropH, cropX + cropW, baseViewport.height - cropY]
+          offsetX: -(col * RENDER_TILE_SIZE),
+          offsetY: -(row * RENDER_TILE_SIZE)
         });
 
-        const offscreen = new OffscreenCanvas(pw, ph);
+        const offscreen = new OffscreenCanvas(RENDER_TILE_SIZE, RENDER_TILE_SIZE);
         const offCtx = offscreen.getContext('2d', { alpha: false })!;
         offCtx.fillStyle = '#ffffff';
-        offCtx.fillRect(0, 0, pw, ph);
+        offCtx.fillRect(0, 0, RENDER_TILE_SIZE, RENDER_TILE_SIZE);
 
         await this.pdfPage.render({ 
           canvasContext: offCtx as any, 
@@ -186,7 +182,7 @@ class PageTileRenderer {
         globalTileCache.set(key, bitmap);
         
         if (this.tiles.has(key)) {
-          ctx.drawImage(bitmap, 0, 0, pw, ph);
+          ctx.drawImage(bitmap, 0, 0);
         }
       }
     });
