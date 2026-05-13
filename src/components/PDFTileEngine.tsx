@@ -4,7 +4,7 @@ import { useMotionValueEvent } from 'motion/react';
 
 // --- TILE ENGINE CONSTANTS ---
 const TILE_SIZE = 512;
-const MAX_CACHE_MB = 450;
+const MAX_CACHE_MB = 150; // Reduced from 450MB to prevent mobile OOM crashes
 const MAX_CONCURRENT_RENDERS = 2;
 
 // --- TILE ENGINE CLASSES ---
@@ -86,8 +86,8 @@ class PageTileRenderer {
     this.fingerprint = fingerprint;
   }
 
-  update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
-    const { scale, px, py, tier, version, vw, vh, pageOriginX, pageOriginY } = params;
+  update(params: { scale: number, px: number, py: number, tier: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
+    const { scale, px, py, tier, vw, vh, pageOriginX, pageOriginY } = params;
     
     const RENDER_TILE_SIZE = 512;
     const snapTier = Math.max(1, Math.floor(tier));
@@ -108,8 +108,8 @@ class PageTileRenderer {
         const physicalDisplaySize = logicalTileWidth * scale;
         
         if (tileLeft < vw && tileLeft + physicalDisplaySize > 0 && tileTop < vh && tileTop + physicalDisplaySize > 0) {
-          // Use fingerprint to guarantee zero cross-book contamination
-          const key = `${this.fingerprint}-${this.pageNumber}-${version}-${snapTier}-${r}-${c}`;
+          // Version is removed from the key to prevent cache thrashing on zoom settling
+          const key = `${this.fingerprint}-${this.pageNumber}-${snapTier}-${r}-${c}`;
           visibleKeys.add(key);
 
           if (!this.tiles.has(key)) {
@@ -277,13 +277,12 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
       px, 
       py, 
       tier, 
-      version, 
       vw: dims.width, 
       vh: dims.height, 
       pageOriginX: sheetRelX * committedScale,
       pageOriginY: 0
     });
-  }, [isVisible, pdfPage, committedScale, tier, version, panX, panY, dims, width, height, sheetRelX, pdf]);
+  }, [isVisible, pdfPage, committedScale, tier, panX, panY, dims, width, height, sheetRelX, pdf]);
 
   useLayoutEffect(run, [run]);
   useMotionValueEvent(panX, "change", run);
