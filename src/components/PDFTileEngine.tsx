@@ -84,22 +84,20 @@ class PageTileRenderer {
   update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
     const { scale, px, py, tier, version, vw, vh, pageOriginX, pageOriginY } = params;
     
-    const zoomedWidth = this.logicalWidth * scale;
-    const zoomedHeight = this.logicalHeight * scale;
-
-    const cols = Math.ceil(zoomedWidth / TILE_SIZE);
-    const rows = Math.ceil(zoomedHeight / TILE_SIZE);
+    // We render tiles at the logical width/height of the page
+    const cols = Math.ceil(this.logicalWidth / (TILE_SIZE / scale));
+    const rows = Math.ceil(this.logicalHeight / (TILE_SIZE / scale));
 
     const visibleKeys = new Set<string>();
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const tx = c * TILE_SIZE;
-        const ty = r * TILE_SIZE;
+        const tx = c * (TILE_SIZE / scale);
+        const ty = r * (TILE_SIZE / scale);
 
-        // Visibility relative to viewport
-        const tileLeft = px + pageOriginX + tx;
-        const tileTop = py + pageOriginY + ty;
+        // Visibility check: Map logical tile to reader viewport
+        const tileLeft = px + pageOriginX + (tx * scale);
+        const tileTop = py + pageOriginY + (ty * scale);
         
         if (tileLeft < vw && tileLeft + TILE_SIZE > 0 && tileTop < vh && tileTop + TILE_SIZE > 0) {
           const key = `${this.pageNumber}-${version}-${tier}-${r}-${c}`;
@@ -125,8 +123,10 @@ class PageTileRenderer {
     canvas.width = TILE_SIZE;
     canvas.height = TILE_SIZE;
     canvas.className = 'absolute pointer-events-none';
-    canvas.style.left = `${tx / currentScale}px`;
-    canvas.style.top = `${ty / currentScale}px`;
+    
+    // Position tiles in logical pixels (1:1 with the container)
+    canvas.style.left = `${tx}px`;
+    canvas.style.top = `${ty}px`;
     canvas.style.width = `${TILE_SIZE / currentScale}px`;
     canvas.style.height = `${TILE_SIZE / currentScale}px`;
     
@@ -151,12 +151,16 @@ class PageTileRenderer {
 
         const viewport = this.pdfPage.getViewport({ scale: 1 });
         const fitScale = this.logicalWidth / viewport.width;
+        
+        // The render scale must be high enough for the current zoom + tier
         const renderScale = fitScale * tier;
         
+        // offsetX/Y moves the PDF origin. We want to 'look' at the tile's location.
+        // We must move the origin by the tile's logical position multiplied by the render scale.
         const renderViewport = this.pdfPage.getViewport({ 
           scale: renderScale,
-          offsetX: -(col * TILE_SIZE * (tier / currentScale)),
-          offsetY: -(row * TILE_SIZE * (tier / currentScale)),
+          offsetX: -(tx * fitScale * tier),
+          offsetY: -(ty * fitScale * tier),
         });
 
         const offscreen = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
