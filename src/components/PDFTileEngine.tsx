@@ -84,27 +84,34 @@ class PageTileRenderer {
   update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
     const { scale, px, py, tier, version, vw, vh, pageOriginX, pageOriginY } = params;
     
-    // We render tiles at the logical width/height of the page
-    const cols = Math.ceil(this.logicalWidth / (TILE_SIZE / scale));
-    const rows = Math.ceil(this.logicalHeight / (TILE_SIZE / scale));
+    // THE GLASS-STITCH STRATEGY:
+    // Instead of fixed 512px tiles, we divide the page into exactly 4 vertical pillars.
+    // This ensures that (ColumnWidth * 4) ALWAYS equals (PageWidth) exactly.
+    const numCols = 4;
+    const numRows = Math.ceil(this.logicalHeight / (this.logicalWidth / 2));
+    
+    const tileWidth = this.logicalWidth / numCols;
+    const tileHeight = this.logicalHeight / numRows;
 
     const visibleKeys = new Set<string>();
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const tx = c * (TILE_SIZE / scale);
-        const ty = r * (TILE_SIZE / scale);
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        const tx = c * tileWidth;
+        const ty = r * tileHeight;
 
-        // Visibility check: Map logical tile to reader viewport
+        // Visibility check relative to reader viewport
         const tileLeft = px + pageOriginX + (tx * scale);
         const tileTop = py + pageOriginY + (ty * scale);
+        const physicalTileW = tileWidth * scale;
+        const physicalTileH = tileHeight * scale;
         
-        if (tileLeft < vw && tileLeft + TILE_SIZE > 0 && tileTop < vh && tileTop + TILE_SIZE > 0) {
+        if (tileLeft < vw && tileLeft + physicalTileW > 0 && tileTop < vh && tileTop + physicalTileH > 0) {
           const key = `${this.pageNumber}-${version}-${tier}-${r}-${c}`;
           visibleKeys.add(key);
 
           if (!this.tiles.has(key)) {
-            this.createTile(key, r, c, tier, scale, tx, ty);
+            this.createTile(key, r, c, tier, tileWidth, tileHeight, tx, ty);
           }
         }
       }
@@ -118,17 +125,19 @@ class PageTileRenderer {
     });
   }
 
-  private async createTile(key: string, row: number, col: number, tier: number, currentScale: number, tx: number, ty: number) {
+  private async createTile(key: string, row: number, col: number, tier: number, tw: number, th: number, tx: number, ty: number) {
     const canvas = document.createElement('canvas');
-    canvas.width = TILE_SIZE;
-    canvas.height = TILE_SIZE;
+    const pw = Math.ceil(tw * tier);
+    const ph = Math.ceil(th * tier);
+    
+    canvas.width = pw;
+    canvas.height = ph;
     canvas.className = 'absolute pointer-events-none';
     
-    // Position tiles in logical pixels (1:1 with the container)
     canvas.style.left = `${tx}px`;
     canvas.style.top = `${ty}px`;
-    canvas.style.width = `${TILE_SIZE / currentScale}px`;
-    canvas.style.height = `${TILE_SIZE / currentScale}px`;
+    canvas.style.width = `${tw}px`;
+    canvas.style.height = `${th}px`;
     
     this.container.appendChild(canvas);
     this.tiles.set(key, canvas);
@@ -137,51 +146,47 @@ class PageTileRenderer {
     const ctx = canvas.getContext('2d', { alpha: false })!;
 
     if (cached) {
-      ctx.drawImage(cached, 0, 0);
+      ctx.drawImage(cached, 0, 0, pw, ph);
       return;
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    ctx.fillRect(0, 0, pw, ph);
 
     globalRenderQueue.push({
       key,
       task: async () => {
         if (!this.tiles.has(key)) return;
 
-        const viewport = this.pdfPage.getViewport({ scale: 1 });
-        const fitScale = this.logicalWidth / viewport.width;
-        
-        // Final scale for the pixels on the canvas
+        const baseViewport = this.pdfPage.getViewport({ scale: 1 });
+        const fitScale = this.logicalWidth / baseViewport.width;
         const renderScale = fitScale * tier;
         
-        // The viewport defines the scale
-        const renderViewport = this.pdfPage.getViewport({ scale: renderScale });
+        const cropX = (col / 4) * baseViewport.width;
+        const cropW = (1 / 4) * baseViewport.width;
+        const cropY = (row / (this.logicalHeight / (this.logicalWidth / 2))) * baseViewport.height;
+        const cropH = (1 / (this.logicalHeight / (this.logicalWidth / 2))) * baseViewport.height;
 
-        const offscreen = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
+        const renderViewport = this.pdfPage.getViewport({ 
+          scale: renderScale,
+          viewBox: [cropX, baseViewport.height - cropY - cropH, cropX + cropW, baseViewport.height - cropY]
+        });
+
+        const offscreen = new OffscreenCanvas(pw, ph);
         const offCtx = offscreen.getContext('2d', { alpha: false })!;
         offCtx.fillStyle = '#ffffff';
-        offCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
-
-        // Standard Transformation Matrix: [scaleX, 0, 0, scaleY, translateX, translateY]
-        // We move the PDF origin by the tile's logical position * tier
-        const transform = [
-          1, 0, 0, 1, 
-          -(tx * tier), 
-          -(ty * tier)
-        ];
+        offCtx.fillRect(0, 0, pw, ph);
 
         await this.pdfPage.render({ 
           canvasContext: offCtx as any, 
-          viewport: renderViewport,
-          transform: transform
+          viewport: renderViewport 
         }).promise;
 
         const bitmap = offscreen.transferToImageBitmap();
         globalTileCache.set(key, bitmap);
         
         if (this.tiles.has(key)) {
-          ctx.drawImage(bitmap, 0, 0);
+          ctx.drawImage(bitmap, 0, 0, pw, ph);
         }
       }
     });
@@ -234,9 +239,8 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     const timer = setTimeout(() => {
       setVersion(v => v + 1);
       let newTier = 1;
-      if (committedScale <= 1.2) newTier = 1.5;
-      else if (committedScale <= 2.5) newTier = 2.5;
-      else if (committedScale <= 5) newTier = 5;
+      if (committedScale <= 1.5) newTier = 2;
+      else if (committedScale <= 3) newTier = 4;
       else newTier = 8;
       setTier(newTier);
     }, 150);
