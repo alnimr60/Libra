@@ -72,21 +72,21 @@ class PageTileRenderer {
   private pageNumber: number;
   private logicalWidth: number;
   private logicalHeight: number;
+  private fingerprint: string;
 
-  constructor(container: HTMLDivElement, pdfPage: pdfjs.PDFPageProxy, pageNumber: number, width: number, height: number) {
+  constructor(container: HTMLDivElement, pdfPage: pdfjs.PDFPageProxy, pageNumber: number, width: number, height: number, fingerprint: string) {
     this.container = container;
     this.pdfPage = pdfPage;
     this.pageNumber = pageNumber;
     this.logicalWidth = width;
     this.logicalHeight = height;
+    this.fingerprint = fingerprint;
   }
 
   update(params: { scale: number, px: number, py: number, tier: number, version: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
     const { scale, px, py, tier, version, vw, vh, pageOriginX, pageOriginY } = params;
     
-    // We use a fixed physical tile size for rendering
     const RENDER_TILE_SIZE = 512;
-    // We snap the resolution tier to a clean integer to avoid rounding gaps
     const snapTier = Math.max(1, Math.floor(tier));
     
     const logicalTileWidth = RENDER_TILE_SIZE / snapTier;
@@ -100,13 +100,13 @@ class PageTileRenderer {
         const tx = c * logicalTileWidth;
         const ty = r * logicalTileWidth;
 
-        // Visibility check relative to reader viewport
         const tileLeft = px + pageOriginX + (tx * scale);
         const tileTop = py + pageOriginY + (ty * scale);
         const physicalDisplaySize = logicalTileWidth * scale;
         
         if (tileLeft < vw && tileLeft + physicalDisplaySize > 0 && tileTop < vh && tileTop + physicalDisplaySize > 0) {
-          const key = `${this.pageNumber}-${version}-${snapTier}-${r}-${c}`;
+          // Use fingerprint to guarantee zero cross-book contamination
+          const key = `${this.fingerprint}-${this.pageNumber}-${version}-${snapTier}-${r}-${c}`;
           visibleKeys.add(key);
 
           if (!this.tiles.has(key)) {
@@ -154,14 +154,13 @@ class PageTileRenderer {
     globalRenderQueue.push({
       key,
       task: async () => {
+        // If the tile was deleted (e.g. scrolled past), abort instantly to clear queue
         if (!this.tiles.has(key)) return;
 
         const baseViewport = this.pdfPage.getViewport({ scale: 1 });
         const fitScale = this.logicalWidth / baseViewport.width;
-        // CRITICAL: We must use the exact same tier (snapTier) for rendering as we did for the grid
         const renderScale = fitScale * tier;
         
-        // Native Tiling: Use a standard offset that is guaranteed to be a multiple of the tile size
         const renderViewport = this.pdfPage.getViewport({ 
           scale: renderScale,
           offsetX: -(col * RENDER_TILE_SIZE),
@@ -230,7 +229,17 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     return () => { active = false; };
   }, [pdf, pageNumber]);
 
-  // 2. Resolution: Update Tier when zoom settles
+  // 2. Cleanup: Destroy Engine on unmount to clear queue
+  useEffect(() => {
+    return () => {
+      if (engineRef.current) {
+        engineRef.current.destroy();
+        engineRef.current = null;
+      }
+    };
+  }, []);
+
+  // 3. Resolution: Update Tier when zoom settles
   useEffect(() => {
     const timer = setTimeout(() => {
       setVersion(v => v + 1);
@@ -243,10 +252,14 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     return () => clearTimeout(timer);
   }, [committedScale]);
 
-  // 3. Rendering: Update tiles on pan/zoom
+  // 4. Rendering: Update tiles on pan/zoom
   const run = useCallback(() => {
     if (!isVisible || !pdfPage || !paletteRef.current || !dims.width) return;
-    if (!engineRef.current) engineRef.current = new PageTileRenderer(paletteRef.current, pdfPage, pageNumber, width, height);
+    
+    if (!engineRef.current) {
+      const fingerprint = (pdf as any).fingerprint || "fallback-doc";
+      engineRef.current = new PageTileRenderer(paletteRef.current, pdfPage, pageNumber, width, height, fingerprint);
+    }
     
     // Bridge V1 Math to Engine
     const px = panX.get() + (dims.width / 2);
@@ -263,7 +276,7 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
       pageOriginX: sheetRelX * committedScale,
       pageOriginY: 0
     });
-  }, [isVisible, pdfPage, committedScale, tier, version, panX, panY, dims, width, height, sheetRelX]);
+  }, [isVisible, pdfPage, committedScale, tier, version, panX, panY, dims, width, height, sheetRelX, pdf]);
 
   useLayoutEffect(run, [run]);
   useMotionValueEvent(panX, "change", run);
@@ -273,3 +286,4 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     <div ref={paletteRef} className="absolute inset-0 z-0 pointer-events-none" />
   );
 });
+
