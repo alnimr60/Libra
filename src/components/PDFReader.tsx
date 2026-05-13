@@ -1352,13 +1352,13 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="left" isLandscape={isLandscape} liveScale={liveScale} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} numPages={numPages} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} side="right" isLandscape={isLandscape} liveScale={liveScale} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
               </>
             )}
           </>
@@ -1370,7 +1370,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
               maxHeight: '90vh'
             }}
           >
-            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} liveScale={liveScale} direction={direction} />
+            <PDFPage pageNumber={index + 1} pdf={pdf} width={displayWidth} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} liveScale={liveScale} direction={direction} panX={panX} panY={panY} containerDimensions={containerDimensions} />
           </div>
         )}
       </motion.div>
@@ -1378,7 +1378,7 @@ const ReaderSheet = React.memo(function ReaderSheet({
   );
 });
 
-const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, committedScale, pageCache, side, isLandscape, liveScale, direction }: { 
+const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, width, renderScale, committedScale, pageCache, side, isLandscape, liveScale, direction, panX, panY, containerDimensions }: { 
   pdf: pdfjs.PDFDocumentProxy, 
   pageNumber: number, 
   numPages: number, 
@@ -1389,7 +1389,10 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   side: 'left' | 'right', 
   isLandscape?: boolean, 
   liveScale: any,
-  direction: 'ltr' | 'rtl'
+  direction: 'ltr' | 'rtl',
+  panX: any,
+  panY: any,
+  containerDimensions: { width: number, height: number }
 }) {
   console.log(`[HOOK TRACE] SpreadPage render page: ${pageNumber}`);
   const isOutOfBounds = pageNumber > numPages;
@@ -1407,7 +1410,6 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         width: width || 'auto'
       }}
     >
-      {/* Outer edge peek effect (pseudo-page stack) */}
       <div className={cn(
         "absolute inset-y-0 w-2 z-[-1] bg-zinc-100 border border-zinc-300 shadow-sm rounded-sm",
         side === 'left' ? "-left-1" : "-right-1"
@@ -1417,7 +1419,6 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
         side === 'left' ? "-left-2" : "-right-2"
       )} />
 
-      {/* Decorative center seam shadow - only visible transition, not a hard line */}
       <div className={cn(
         "absolute inset-y-0 w-16 z-10 pointer-events-none",
         side === 'left' 
@@ -1425,13 +1426,12 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
           : "left-0 bg-gradient-to-r from-black/20 via-black/5 to-transparent"
       )} />
 
-      {/* Clean outer border for the spread unit */}
       <div className={cn(
         "absolute inset-0 z-20 pointer-events-none border-zinc-200",
         side === 'left' ? "border-l border-y rounded-l-md shadow-[inset_1px_0_1px_rgba(255,255,255,1)]" : "border-r border-y rounded-r-md shadow-[inset_-1px_0_1px_rgba(255,255,255,1)]"
       )} />
 
-      <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} liveScale={liveScale} direction={direction} isSpreadChild={true} />
+      <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} renderScale={renderScale} committedScale={committedScale} pageCache={pageCache} liveScale={liveScale} direction={direction} isSpreadChild={true} panX={panX} panY={panY} containerDimensions={containerDimensions} side={side} />
     </div>
   );
 
@@ -1448,24 +1448,18 @@ interface PDFPageProps {
   direction: 'ltr' | 'rtl';
   isSpreadChild?: boolean;
   pageCache: any;
+  panX: any;
+  panY: any;
+  containerDimensions: { width: number, height: number };
+  side?: 'left' | 'right' | 'center';
 }
 
-const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild }) => {
-  console.log(`[HOOK TRACE] PDFPage render page: ${pageNumber}`);
-  console.log(`[PDFPage] Render Page: ${pageNumber} | CSS Width: ${width} | resScale: ${renderScale}`);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const textLayerDivRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const renderTaskRef = useRef<any>(null);
-  const [isRendering, setIsRendering] = useState(true);
-  const [renderError, setRenderError] = useState(false);
+const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild, panX, panY, containerDimensions, side }) => {
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
-  const aspectRatio = pageSize.width > 0 ? pageSize.height / pageSize.width : 1.414;
-  const containerHeight = width * aspectRatio;
-
+  const aspectRatio = pageSize.height / pageSize.width || 1.414;
   const displayWidth = width;
-  const displayHeight = containerHeight;
+  const displayHeight = width * aspectRatio;
 
   useEffect(() => {
     const textLayer = textLayerDivRef.current;
