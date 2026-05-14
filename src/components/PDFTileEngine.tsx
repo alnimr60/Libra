@@ -19,6 +19,7 @@ interface PDFTileEngineProps {
 
 // SINGLETON RENDER CANVAS to prevent iOS Safari 16-context limit crash
 let globalSniperCanvas: HTMLCanvasElement | null = null;
+let sniperMutex = Promise.resolve(); // MUTEX LOCK: Ensures only one page uses the singleton at a time
 
 function getSniperCanvas(width: number, height: number) {
   if (!globalSniperCanvas) {
@@ -37,6 +38,7 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   const [pdfPage, setPdfPage] = useState<any>(null);
   const renderTimeout = useRef<any>(null);
   const currentRenderTask = useRef<any>(null);
+  const currentTaskToken = useRef<any>(null);
   const [mounted, setMounted] = useState(false);
 
   // 0. Hydration Safe Mount
@@ -96,58 +98,70 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
       currentRenderTask.current = null;
     }
 
-    // Re-use the Singleton Canvas to completely prevent GPU context limit crashes on Mobile
-    const offscreen = getSniperCanvas(physicalWidth, physicalHeight);
-    const ctx = offscreen.getContext('2d', { alpha: false });
-    if (!ctx) return;
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, physicalWidth, physicalHeight);
+    // Generate a unique token for this specific render request
+    const myToken = {};
+    currentTaskToken.current = myToken;
 
-    // PDF.JS MATH
-    const baseViewport = pdfPage.getViewport({ scale: 1 });
-    
-    // Scale the PDF up to match the exact physical Retina pixels of the screen intersection
-    const renderScale = (rect.width * dpr) / baseViewport.width;
+    // MUTEX QUEUE: Wait in line for the Singleton Canvas
+    sniperMutex = sniperMutex.then(async () => {
+      // If the user panned again while we were waiting in line, abort this stale request
+      if (currentTaskToken.current !== myToken) return;
 
-    // Shift the PDF camera to crop out the parts of the page that are off-screen
-    const shiftXScreen = visLeft - rect.left;
-    const shiftYScreen = visTop - rect.top;
-    
-    const renderViewport = pdfPage.getViewport({ 
-      scale: renderScale,
-      offsetX: -Math.round(shiftXScreen * dpr),
-      offsetY: -Math.round(shiftYScreen * dpr)
-    });
-
-    const renderTask = pdfPage.render({
-      canvasContext: ctx,
-      viewport: renderViewport
-    });
-    
-    currentRenderTask.current = renderTask;
-
-    try {
-      await renderTask.promise;
+      // Re-use the Singleton Canvas to completely prevent GPU context limit crashes on Mobile
+      const offscreen = getSniperCanvas(physicalWidth, physicalHeight);
+      const ctx = offscreen.getContext('2d', { alpha: false });
+      if (!ctx) return;
       
-      if (currentRenderTask.current === renderTask) {
-        canvas.width = physicalWidth;
-        canvas.height = physicalHeight;
-        canvas.style.left = `${visLeft}px`;
-        canvas.style.top = `${visTop}px`;
-        canvas.style.width = `${visWidth}px`;
-        canvas.style.height = `${visHeight}px`;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, physicalWidth, physicalHeight);
+
+      // PDF.JS MATH
+      const baseViewport = pdfPage.getViewport({ scale: 1 });
+      
+      // Scale the PDF up to match the exact physical Retina pixels of the screen intersection
+      const renderScale = (rect.width * dpr) / baseViewport.width;
+
+      // Shift the PDF camera to crop out the parts of the page that are off-screen
+      const shiftXScreen = visLeft - rect.left;
+      const shiftYScreen = visTop - rect.top;
+      
+      const renderViewport = pdfPage.getViewport({ 
+        scale: renderScale,
+        offsetX: -Math.round(shiftXScreen * dpr),
+        offsetY: -Math.round(shiftYScreen * dpr)
+      });
+
+      const renderTask = pdfPage.render({
+        canvasContext: ctx,
+        viewport: renderViewport
+      });
+      
+      currentRenderTask.current = renderTask;
+
+      try {
+        await renderTask.promise;
         
-        const mainCtx = canvas.getContext('2d', { alpha: false });
-        if (mainCtx) {
-          mainCtx.drawImage(offscreen, 0, 0);
+        // If this is still the active request, copy the image from the Singleton to our Portal Canvas
+        if (currentTaskToken.current === myToken) {
+          canvas.width = physicalWidth;
+          canvas.height = physicalHeight;
+          canvas.style.left = `${visLeft}px`;
+          canvas.style.top = `${visTop}px`;
+          canvas.style.width = `${visWidth}px`;
+          canvas.style.height = `${visHeight}px`;
+          
+          const mainCtx = canvas.getContext('2d', { alpha: false });
+          if (mainCtx) {
+            mainCtx.drawImage(offscreen, 0, 0);
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'RenderingCancelledException') {
+          console.error('PDF Sniper Render Error:', err);
         }
       }
-    } catch (err: any) {
-      if (err.name !== 'RenderingCancelledException') {
-        console.error('PDF Sniper Render Error:', err);
-      }
-    }
+    }).catch(console.error);
+    
   }, [isVisible, pdfPage, committedScale, panX, panY]);
 
   // 3. Debounce Engine: Wait for motion to stop, hide sharp canvas during motion
