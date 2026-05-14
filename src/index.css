@@ -84,7 +84,7 @@ body {
 }
 
 .textLayer span {
-  color: transparent;
+  color: rgba(0, 0, 0, 0.005);
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -97,7 +97,7 @@ body {
 }
 
 .textLayer ::selection {
-  background: rgba(59, 130, 246, 0.4);
+  background: rgba(249, 115, 22, 0.4);
 }
 
 canvas {
