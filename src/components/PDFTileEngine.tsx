@@ -1,230 +1,6 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { pdfjs } from '../lib/pdf';
 import { useMotionValueEvent } from 'motion/react';
-
-// --- TILE ENGINE CONSTANTS ---
-const TILE_SIZE = 512;
-const MAX_CACHE_MB = 150; // Reduced from 450MB to prevent mobile OOM crashes
-const MAX_CONCURRENT_RENDERS = 1; // CRITICAL: PDF.js will abort or corrupt if multiple tiles render concurrently on the same page
-
-// --- TILE ENGINE CLASSES ---
-
-class TileLRUCache {
-  private cache = new Map<string, { bitmap: ImageBitmap, size: number }>();
-  private order: string[] = [];
-  private currentSizeMB = 0;
-
-  get(key: string) {
-    const item = this.cache.get(key);
-    if (item) {
-      this.order = this.order.filter(k => k !== key);
-      this.order.push(key);
-      return item.bitmap;
-    }
-    return null;
-  }
-
-  set(key: string, bitmap: ImageBitmap) {
-    const size = (bitmap.width * bitmap.height * 4) / (1024 * 1024);
-    if (this.cache.has(key)) {
-      this.currentSizeMB -= this.cache.get(key)!.size;
-    }
-    
-    while (this.currentSizeMB + size > MAX_CACHE_MB && this.order.length > 0) {
-      const oldestKey = this.order.shift()!;
-      const oldestItem = this.cache.get(oldestKey);
-      if (oldestItem) {
-        this.currentSizeMB -= oldestItem.size;
-        oldestItem.bitmap.close();
-        this.cache.delete(oldestKey);
-      }
-    }
-
-    this.cache.set(key, { bitmap, size });
-    this.order.push(key);
-    this.currentSizeMB += size;
-  }
-
-  clear() {
-    this.cache.forEach(item => item.bitmap.close());
-    this.cache.clear();
-    this.order = [];
-    this.currentSizeMB = 0;
-  }
-}
-
-const globalTileCache = new TileLRUCache();
-const globalRenderQueue: { key: string, task: () => Promise<void> }[] = [];
-let activeRenderCount = 0;
-
-const globalPdfIds = new WeakMap<any, string>();
-let globalNextPdfId = 1;
-
-// SINGLETON RENDER CANVAS to prevent iOS Safari 16-context limit crash
-let globalRenderCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
-let globalRenderCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
-
-function getRenderContext() {
-  if (globalRenderCtx && globalRenderCanvas) return { canvas: globalRenderCanvas, ctx: globalRenderCtx };
-  
-  if (typeof OffscreenCanvas !== 'undefined') {
-    globalRenderCanvas = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
-  } else {
-    globalRenderCanvas = document.createElement('canvas');
-    globalRenderCanvas.width = TILE_SIZE;
-    globalRenderCanvas.height = TILE_SIZE;
-  }
-  globalRenderCtx = globalRenderCanvas.getContext('2d', { alpha: false }) as any;
-  return { canvas: globalRenderCanvas, ctx: globalRenderCtx };
-}
-
-async function processQueue() {
-  if (activeRenderCount >= MAX_CONCURRENT_RENDERS || globalRenderQueue.length === 0) return;
-  activeRenderCount++;
-  const item = globalRenderQueue.shift();
-  if (!item) { activeRenderCount--; return; }
-  try { await item.task(); } finally { activeRenderCount--; processQueue(); }
-}
-
-class PageTileRenderer {
-  private tiles = new Map<string, HTMLCanvasElement>();
-  private container: HTMLDivElement;
-  private pdfPage: pdfjs.PDFPageProxy;
-  private pageNumber: number;
-  private logicalWidth: number;
-  private logicalHeight: number;
-  private fingerprint: string;
-
-  constructor(container: HTMLDivElement, pdfPage: pdfjs.PDFPageProxy, pageNumber: number, width: number, height: number, fingerprint: string) {
-    this.container = container;
-    this.pdfPage = pdfPage;
-    this.pageNumber = pageNumber;
-    this.logicalWidth = width;
-    this.logicalHeight = height;
-    this.fingerprint = fingerprint;
-  }
-
-  update(params: { scale: number, px: number, py: number, tier: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
-    const { scale, px, py, tier, vw, vh, pageOriginX, pageOriginY } = params;
-    
-    const snapTier = Math.max(1, Math.floor(tier));
-    
-    const logicalTileWidth = TILE_SIZE / snapTier;
-    const cols = Math.ceil(this.logicalWidth / logicalTileWidth);
-    const rows = Math.ceil(this.logicalHeight / logicalTileWidth);
-
-    const visibleKeys = new Set<string>();
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const tx = c * logicalTileWidth;
-        const ty = r * logicalTileWidth;
-
-        const tileLeft = px + pageOriginX + (tx * scale);
-        const tileTop = py + pageOriginY + (ty * scale);
-        const physicalDisplaySize = logicalTileWidth * scale;
-        
-        if (tileLeft < vw && tileLeft + physicalDisplaySize > 0 && tileTop < vh && tileTop + physicalDisplaySize > 0) {
-          const key = `${this.fingerprint}-${this.pageNumber}-${snapTier}-${r}-${c}`;
-          visibleKeys.add(key);
-
-          if (!this.tiles.has(key)) {
-            this.createTile(key, r, c, snapTier, logicalTileWidth, tx, ty);
-          }
-        }
-      }
-    }
-
-    this.tiles.forEach((canvas, key) => {
-      if (!visibleKeys.has(key)) {
-        // CRITICAL VRAM WIPE: Force browser to dump GPU memory instantly before removing element
-        canvas.width = 0;
-        canvas.height = 0;
-        canvas.remove();
-        this.tiles.delete(key);
-      }
-    });
-  }
-
-  private async createTile(key: string, row: number, col: number, tier: number, lts: number, tx: number, ty: number) {
-    const canvas = document.createElement('canvas');
-    
-    canvas.width = TILE_SIZE;
-    canvas.height = TILE_SIZE;
-    canvas.className = 'absolute pointer-events-none';
-    
-    canvas.style.left = `${tx}px`;
-    canvas.style.top = `${ty}px`;
-    canvas.style.width = `${lts}px`;
-    canvas.style.height = `${lts}px`;
-    
-    this.container.appendChild(canvas);
-    this.tiles.set(key, canvas);
-
-    const cached = globalTileCache.get(key);
-    const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) return; // Abort if GPU context is temporarily unavailable
-
-    if (cached) {
-      ctx.drawImage(cached, 0, 0);
-      return;
-    }
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
-
-    globalRenderQueue.push({
-      key,
-      task: async () => {
-        if (!this.tiles.has(key)) return;
-
-        const baseViewport = this.pdfPage.getViewport({ scale: 1 });
-        const fitScale = this.logicalWidth / baseViewport.width;
-        const renderScale = fitScale * tier;
-        
-        const renderViewport = this.pdfPage.getViewport({ 
-          scale: renderScale,
-          offsetX: -(col * TILE_SIZE),
-          offsetY: -(row * TILE_SIZE)
-        });
-
-        // Use the Mobile-Safe Singleton Canvas instead of creating a new one
-        const { canvas: offscreen, ctx: offCtx } = getRenderContext();
-        if (!offCtx) return;
-        
-        offCtx.fillStyle = '#ffffff';
-        offCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
-
-        await this.pdfPage.render({ 
-          canvasContext: offCtx as any, 
-          viewport: renderViewport 
-        }).promise;
-
-        // Take a snapshot of the singleton canvas to save in cache
-        const bitmap = await createImageBitmap(offscreen as ImageBitmapSource);
-        globalTileCache.set(key, bitmap);
-        
-        if (this.tiles.has(key)) {
-          ctx.drawImage(bitmap, 0, 0);
-        }
-      }
-    });
-
-    processQueue();
-  }
-
-  destroy() {
-    this.tiles.forEach(canvas => {
-      // CRITICAL VRAM WIPE
-      canvas.width = 0;
-      canvas.height = 0;
-      canvas.remove();
-    });
-    this.tiles.clear();
-  }
-}
-
-// --- REACT COMPONENT ---
 
 interface PDFTileEngineProps {
   pageNumber: number;
@@ -241,14 +17,14 @@ interface PDFTileEngineProps {
 }
 
 export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({ 
-  pageNumber, pdf, width, height, panX, panY, liveScale, committedScale, dims, isVisible, sheetRelX 
+  pageNumber, pdf, width, height, panX, panY, committedScale, dims, isVisible, sheetRelX 
 }) => {
-  const paletteRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<PageTileRenderer | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdfPage, setPdfPage] = useState<any>(null);
-  const [tier, setTier] = useState(1);
+  const renderTimeout = useRef<any>(null);
+  const currentRenderTask = useRef<any>(null);
 
-  // 1. Lifecycle: Load PDF Page
+  // 1. Load PDF Page
   useEffect(() => {
     let active = true;
     pdf.getPage(pageNumber).then(page => {
@@ -257,63 +33,132 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     return () => { active = false; };
   }, [pdf, pageNumber]);
 
-  // 2. Cleanup: Destroy Engine on unmount to clear queue
-  useEffect(() => {
-    return () => {
-      if (engineRef.current) {
-        engineRef.current.destroy();
-        engineRef.current = null;
-      }
+  // 2. The Adobe-style "Sniper" Render
+  const drawHighRes = useCallback(async () => {
+    if (!isVisible || !pdfPage || !canvasRef.current || !dims.width) return;
+    
+    // Calculate page position relative to the center of the screen
+    const pageScreenLeft = panX.get() + (dims.width / 2) + (sheetRelX * committedScale);
+    const pageScreenTop = panY.get() + (dims.height / 2) - (height * committedScale / 2);
+
+    // Create a bounding box for the screen (with a 10% buffer for smooth panning)
+    const bufferX = dims.width * 0.1;
+    const bufferY = dims.height * 0.1;
+    const screenBox = {
+      left: -bufferX,
+      top: -bufferY,
+      right: dims.width + bufferX,
+      bottom: dims.height + bufferY
     };
-  }, []);
 
-  // 3. Resolution: Update Tier when zoom settles
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      let newTier = 1;
-      if (committedScale <= 1.5) newTier = 2;
-      else if (committedScale <= 3) newTier = 4;
-      else newTier = 8;
-      setTier(newTier);
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [committedScale]);
+    // Calculate the exact intersection of the screen box and the scaled PDF page
+    const visLeftScreen = Math.max(screenBox.left, pageScreenLeft);
+    const visTopScreen = Math.max(screenBox.top, pageScreenTop);
+    const visRightScreen = Math.min(screenBox.right, pageScreenLeft + (width * committedScale));
+    const visBottomScreen = Math.min(screenBox.bottom, pageScreenTop + (height * committedScale));
 
-  // 4. Rendering: Update tiles on pan/zoom
-  const run = useCallback(() => {
-    if (!isVisible || !pdfPage || !paletteRef.current || !dims.width) return;
-    
-    if (!engineRef.current) {
-      let fingerprint = globalPdfIds.get(pdf);
-      if (!fingerprint) {
-        fingerprint = `pdf-doc-${globalNextPdfId++}`;
-        globalPdfIds.set(pdf, fingerprint);
-      }
-      engineRef.current = new PageTileRenderer(paletteRef.current, pdfPage, pageNumber, width, height, fingerprint);
+    const visWidthScreen = visRightScreen - visLeftScreen;
+    const visHeightScreen = visBottomScreen - visTopScreen;
+
+    // If the page is off-screen, clear the canvas memory instantly
+    if (visWidthScreen <= 0 || visHeightScreen <= 0) {
+      canvasRef.current.width = 0;
+      canvasRef.current.height = 0;
+      return;
     }
+
+    // Convert from Screen space down to Logical Page CSS space
+    const logicalLeft = (visLeftScreen - pageScreenLeft) / committedScale;
+    const logicalTop = (visTopScreen - pageScreenTop) / committedScale;
+    const logicalWidth = visWidthScreen / committedScale;
+    const logicalHeight = visHeightScreen / committedScale;
+
+    // Scale up by Device Pixel Ratio for Retina/Mobile clarity
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const physicalWidth = Math.ceil(visWidthScreen * dpr);
+    const physicalHeight = Math.ceil(visHeightScreen * dpr);
+
+    const canvas = canvasRef.current;
     
-    // Bridge V1 Math to Engine
-    const px = panX.get() + (dims.width / 2);
-    const py = panY.get() + (dims.height / 2) - (height * committedScale / 2);
+    // Cancel any older render if the user scrolled again
+    if (currentRenderTask.current) {
+      currentRenderTask.current.cancel();
+      currentRenderTask.current = null;
+    }
 
-    engineRef.current.update({ 
-      scale: committedScale, 
-      px, 
-      py, 
-      tier, 
-      vw: dims.width, 
-      vh: dims.height, 
-      pageOriginX: sheetRelX * committedScale,
-      pageOriginY: 0
+    // Prepare a temporary offscreen canvas so the old image stays visible until the new one is ready
+    const offscreen = document.createElement('canvas');
+    offscreen.width = physicalWidth;
+    offscreen.height = physicalHeight;
+    const ctx = offscreen.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, physicalWidth, physicalHeight);
+
+    // Calculate exact PDF zoom and camera shift
+    const baseViewport = pdfPage.getViewport({ scale: 1 });
+    const fitScale = width / baseViewport.width;
+    const renderScale = fitScale * committedScale * dpr;
+
+    const renderViewport = pdfPage.getViewport({ 
+      scale: renderScale,
+      offsetX: -Math.round(logicalLeft * committedScale * dpr),
+      offsetY: -Math.round(logicalTop * committedScale * dpr)
     });
-  }, [isVisible, pdfPage, committedScale, tier, panX, panY, dims, width, height, sheetRelX, pdf]);
 
-  useLayoutEffect(run, [run]);
-  useMotionValueEvent(panX, "change", run);
-  useMotionValueEvent(panY, "change", run);
+    // Command PDF.js to render ONLY this specific rectangle
+    const renderTask = pdfPage.render({
+      canvasContext: ctx,
+      viewport: renderViewport
+    });
+    
+    currentRenderTask.current = renderTask;
+
+    try {
+      await renderTask.promise;
+      
+      // Safety check: Make sure this is still the active request
+      if (currentRenderTask.current === renderTask) {
+        canvas.width = physicalWidth;
+        canvas.height = physicalHeight;
+        canvas.style.left = `${logicalLeft}px`;
+        canvas.style.top = `${logicalTop}px`;
+        canvas.style.width = `${logicalWidth}px`;
+        canvas.style.height = `${logicalHeight}px`;
+        
+        const mainCtx = canvas.getContext('2d', { alpha: false });
+        if (mainCtx) {
+          mainCtx.drawImage(offscreen, 0, 0);
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== 'RenderingCancelledException') {
+        console.error('PDF Sniper Render Error:', err);
+      }
+    }
+  }, [isVisible, pdfPage, committedScale, panX, panY, dims, width, height, sheetRelX]);
+
+  // 3. Debounce Engine: Wait 150ms after the user STOPS panning/zooming before firing the sniper
+  const scheduleRender = useCallback(() => {
+    clearTimeout(renderTimeout.current);
+    renderTimeout.current = setTimeout(drawHighRes, 150);
+  }, [drawHighRes]);
+
+  useEffect(() => {
+    scheduleRender();
+    return () => clearTimeout(renderTimeout.current);
+  }, [committedScale, scheduleRender]);
+
+  useMotionValueEvent(panX, "change", scheduleRender);
+  useMotionValueEvent(panY, "change", scheduleRender);
 
   return (
-    <div ref={paletteRef} className="absolute inset-0 z-0 pointer-events-none" />
+    <canvas 
+      ref={canvasRef} 
+      className="absolute z-10 pointer-events-none origin-top-left" 
+      style={{ width: 0, height: 0 }}
+    />
   );
 });
 
