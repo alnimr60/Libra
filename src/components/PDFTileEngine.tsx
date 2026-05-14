@@ -5,7 +5,7 @@ import { useMotionValueEvent } from 'motion/react';
 // --- TILE ENGINE CONSTANTS ---
 const TILE_SIZE = 512;
 const MAX_CACHE_MB = 150; // Reduced from 450MB to prevent mobile OOM crashes
-const MAX_CONCURRENT_RENDERS = 2;
+const MAX_CONCURRENT_RENDERS = 1; // CRITICAL: PDF.js will abort or corrupt if multiple tiles render concurrently on the same page
 
 // --- TILE ENGINE CLASSES ---
 
@@ -108,7 +108,6 @@ class PageTileRenderer {
         const physicalDisplaySize = logicalTileWidth * scale;
         
         if (tileLeft < vw && tileLeft + physicalDisplaySize > 0 && tileTop < vh && tileTop + physicalDisplaySize > 0) {
-          // Version is removed from the key to prevent cache thrashing on zoom settling
           const key = `${this.fingerprint}-${this.pageNumber}-${snapTier}-${r}-${c}`;
           visibleKeys.add(key);
 
@@ -121,6 +120,9 @@ class PageTileRenderer {
 
     this.tiles.forEach((canvas, key) => {
       if (!visibleKeys.has(key)) {
+        // CRITICAL VRAM WIPE: Force browser to dump GPU memory instantly before removing element
+        canvas.width = 0;
+        canvas.height = 0;
         canvas.remove();
         this.tiles.delete(key);
       }
@@ -144,7 +146,8 @@ class PageTileRenderer {
     this.tiles.set(key, canvas);
 
     const cached = globalTileCache.get(key);
-    const ctx = canvas.getContext('2d', { alpha: false })!;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return; // Abort if GPU context is temporarily unavailable
 
     if (cached) {
       ctx.drawImage(cached, 0, 0);
@@ -157,7 +160,6 @@ class PageTileRenderer {
     globalRenderQueue.push({
       key,
       task: async () => {
-        // If the tile was deleted (e.g. scrolled past), abort instantly to clear queue
         if (!this.tiles.has(key)) return;
 
         const baseViewport = this.pdfPage.getViewport({ scale: 1 });
@@ -171,7 +173,9 @@ class PageTileRenderer {
         });
 
         const offscreen = new OffscreenCanvas(RENDER_TILE_SIZE, RENDER_TILE_SIZE);
-        const offCtx = offscreen.getContext('2d', { alpha: false })!;
+        const offCtx = offscreen.getContext('2d', { alpha: false });
+        if (!offCtx) return; // Prevent silent crash on memory pressure
+        
         offCtx.fillStyle = '#ffffff';
         offCtx.fillRect(0, 0, RENDER_TILE_SIZE, RENDER_TILE_SIZE);
 
@@ -193,7 +197,12 @@ class PageTileRenderer {
   }
 
   destroy() {
-    this.tiles.forEach(c => c.remove());
+    this.tiles.forEach(canvas => {
+      // CRITICAL VRAM WIPE
+      canvas.width = 0;
+      canvas.height = 0;
+      canvas.remove();
+    });
     this.tiles.clear();
   }
 }
@@ -221,7 +230,6 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   const engineRef = useRef<PageTileRenderer | null>(null);
   const [pdfPage, setPdfPage] = useState<any>(null);
   const [tier, setTier] = useState(1);
-  const [version, setVersion] = useState(0);
 
   // 1. Lifecycle: Load PDF Page
   useEffect(() => {
@@ -245,7 +253,6 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   // 3. Resolution: Update Tier when zoom settles
   useEffect(() => {
     const timer = setTimeout(() => {
-      setVersion(v => v + 1);
       let newTier = 1;
       if (committedScale <= 1.5) newTier = 2;
       else if (committedScale <= 3) newTier = 4;
