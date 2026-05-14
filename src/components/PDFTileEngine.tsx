@@ -60,6 +60,24 @@ let activeRenderCount = 0;
 const globalPdfIds = new WeakMap<any, string>();
 let globalNextPdfId = 1;
 
+// SINGLETON RENDER CANVAS to prevent iOS Safari 16-context limit crash
+let globalRenderCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+let globalRenderCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+
+function getRenderContext() {
+  if (globalRenderCtx && globalRenderCanvas) return { canvas: globalRenderCanvas, ctx: globalRenderCtx };
+  
+  if (typeof OffscreenCanvas !== 'undefined') {
+    globalRenderCanvas = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
+  } else {
+    globalRenderCanvas = document.createElement('canvas');
+    globalRenderCanvas.width = TILE_SIZE;
+    globalRenderCanvas.height = TILE_SIZE;
+  }
+  globalRenderCtx = globalRenderCanvas.getContext('2d', { alpha: false }) as any;
+  return { canvas: globalRenderCanvas, ctx: globalRenderCtx };
+}
+
 async function processQueue() {
   if (activeRenderCount >= MAX_CONCURRENT_RENDERS || globalRenderQueue.length === 0) return;
   activeRenderCount++;
@@ -89,10 +107,9 @@ class PageTileRenderer {
   update(params: { scale: number, px: number, py: number, tier: number, vw: number, vh: number, pageOriginX: number, pageOriginY: number }) {
     const { scale, px, py, tier, vw, vh, pageOriginX, pageOriginY } = params;
     
-    const RENDER_TILE_SIZE = 512;
     const snapTier = Math.max(1, Math.floor(tier));
     
-    const logicalTileWidth = RENDER_TILE_SIZE / snapTier;
+    const logicalTileWidth = TILE_SIZE / snapTier;
     const cols = Math.ceil(this.logicalWidth / logicalTileWidth);
     const rows = Math.ceil(this.logicalHeight / logicalTileWidth);
 
@@ -131,10 +148,9 @@ class PageTileRenderer {
 
   private async createTile(key: string, row: number, col: number, tier: number, lts: number, tx: number, ty: number) {
     const canvas = document.createElement('canvas');
-    const RENDER_TILE_SIZE = 512;
     
-    canvas.width = RENDER_TILE_SIZE;
-    canvas.height = RENDER_TILE_SIZE;
+    canvas.width = TILE_SIZE;
+    canvas.height = TILE_SIZE;
     canvas.className = 'absolute pointer-events-none';
     
     canvas.style.left = `${tx}px`;
@@ -155,7 +171,7 @@ class PageTileRenderer {
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, RENDER_TILE_SIZE, RENDER_TILE_SIZE);
+    ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
     globalRenderQueue.push({
       key,
@@ -168,23 +184,24 @@ class PageTileRenderer {
         
         const renderViewport = this.pdfPage.getViewport({ 
           scale: renderScale,
-          offsetX: -(col * RENDER_TILE_SIZE),
-          offsetY: -(row * RENDER_TILE_SIZE)
+          offsetX: -(col * TILE_SIZE),
+          offsetY: -(row * TILE_SIZE)
         });
 
-        const offscreen = new OffscreenCanvas(RENDER_TILE_SIZE, RENDER_TILE_SIZE);
-        const offCtx = offscreen.getContext('2d', { alpha: false });
-        if (!offCtx) return; // Prevent silent crash on memory pressure
+        // Use the Mobile-Safe Singleton Canvas instead of creating a new one
+        const { canvas: offscreen, ctx: offCtx } = getRenderContext();
+        if (!offCtx) return;
         
         offCtx.fillStyle = '#ffffff';
-        offCtx.fillRect(0, 0, RENDER_TILE_SIZE, RENDER_TILE_SIZE);
+        offCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
         await this.pdfPage.render({ 
           canvasContext: offCtx as any, 
           viewport: renderViewport 
         }).promise;
 
-        const bitmap = offscreen.transferToImageBitmap();
+        // Take a snapshot of the singleton canvas to save in cache
+        const bitmap = await createImageBitmap(offscreen as ImageBitmapSource);
         globalTileCache.set(key, bitmap);
         
         if (this.tiles.has(key)) {
