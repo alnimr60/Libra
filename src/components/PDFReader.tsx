@@ -390,6 +390,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       // Determine mode if still Idle
       if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
+        // Evaluate if user is trying to select text natively
+        const selection = window.getSelection();
+        const hasTextSelected = selection && selection.type === 'Range' && selection.toString().trim().length > 0;
+        const velocityX = Math.abs(info.velocity.x);
+        
+        // If there's an active text selection and it's not a fast swipe, lock into SelectingText
+        if (hasTextSelected && velocityX < 300) {
+          gestureMode.current = GestureMode.SelectingText;
+          return;
+        }
+
         if (currentScaleValue > 1.05) {
           gestureMode.current = GestureMode.PanningZoomedPage;
         } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
@@ -420,6 +431,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         panX.set(clampedX);
         panY.set(clampedY);
       } else if (gestureMode.current === GestureMode.SwipingPages) {
+        // Clear text selection to prevent blue highlights while swiping page
+        const selection = window.getSelection();
+        if (selection && selection.type === 'Range') {
+          selection.removeAllRanges();
+        }
+
         // SWIPE MODE
         const scrollWidth = window.innerWidth;
         const progress = info.offset.x / scrollWidth;
