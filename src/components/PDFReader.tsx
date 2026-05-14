@@ -276,6 +276,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePointerDown = (e: React.PointerEvent) => {
     try {
+      if (e.button === 2) return; // ignore right clicks
       const target = e.target as HTMLElement;
       if (target.closest('button, input')) return;
       
@@ -284,7 +285,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       
       // Reset selection if not already in selection mode
       if (gestureMode.current !== GestureMode.SelectingText) {
-        // window.getSelection()?.removeAllRanges(); // Optional: clear selection on new tap
+        window.getSelection()?.removeAllRanges(); // Clear selection on new tap so it doesn't leak into new drag gestures
       }
 
       touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
@@ -462,9 +463,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       }
 
       if (gestureMode.current === GestureMode.SelectingText) {
-        // Keep mode until touchend manually? Usually browsers handle selection handles.
-        // We reset on handleTouchEnd/pointerup
-        return;
+        // Reset mode so subsequent swipe gestures work on mouse/PC
+        gestureMode.current = GestureMode.Idle;
       }
 
       const mode = gestureMode.current;
