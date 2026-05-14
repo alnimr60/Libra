@@ -986,8 +986,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         onClick={(e) => {
           // If text is selected, do not trigger page turn or click actions
           if (window.getSelection()?.toString().trim().length) {
+            console.log('Click ignored due to text selection');
             return;
           }
+
+          console.log('onClick triggered on readerContainer. showControls:', showControls);
 
           // If controls are shown, clicking hides them. If hidden, clicking might show them OR turn page.
           if (!showControls) {
@@ -1253,8 +1256,6 @@ const ReaderSheet = React.memo(function ReaderSheet({
         zIndex,
         x,
         rotateY,
-        transformStyle: 'preserve-3d',
-        backfaceVisibility: 'hidden',
         willChange: 'transform'
       } as any}
       className={cn(
@@ -1270,8 +1271,6 @@ const ReaderSheet = React.memo(function ReaderSheet({
             x: panX,
             y: panY,
             scale: totalScale,
-            transformStyle: 'preserve-3d',
-            backfaceVisibility: 'hidden',
             width: 'fit-content',
             height: 'fit-content',
             willChange: 'transform'
@@ -1441,8 +1440,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
       />
       <div 
         ref={textLayerDivRef} 
-        className="textLayer absolute inset-0 z-10 pointer-events-auto select-text cursor-text"
-        onClick={(e) => e.stopPropagation()}
+        className="textLayer absolute inset-0 z-40 pointer-events-auto select-text cursor-text"
       />
     </div>
   );
