@@ -17,6 +17,18 @@ interface PDFTileEngineProps {
   sheetRelX: number; // For side-by-side positioning
 }
 
+// SINGLETON RENDER CANVAS to prevent iOS Safari 16-context limit crash
+let globalSniperCanvas: HTMLCanvasElement | null = null;
+
+function getSniperCanvas(width: number, height: number) {
+  if (!globalSniperCanvas) {
+    globalSniperCanvas = document.createElement('canvas');
+  }
+  globalSniperCanvas.width = width;
+  globalSniperCanvas.height = height;
+  return globalSniperCanvas;
+}
+
 export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({ 
   pageNumber, pdf, width, height, panX, panY, committedScale, dims, isVisible 
 }) => {
@@ -25,6 +37,12 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   const [pdfPage, setPdfPage] = useState<any>(null);
   const renderTimeout = useRef<any>(null);
   const currentRenderTask = useRef<any>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // 0. Hydration Safe Mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // 1. Load PDF Page
   useEffect(() => {
@@ -40,8 +58,6 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     if (!isVisible || !pdfPage || !measureRef.current || !canvasRef.current) return;
     
     // EXACT ON-SCREEN COORDINATES
-    // getBoundingClientRect calculates the final physical screen position
-    // AFTER all CSS transforms (panX, panY, scale) have been applied by the browser.
     const rect = measureRef.current.getBoundingClientRect();
     
     // Screen bounds
@@ -60,26 +76,28 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     const canvas = canvasRef.current;
 
     // If page is completely off-screen, clear canvas
-    if (visWidth <= 0 || visHeight <= 0) {
+    if (visWidth <= 0 || visHeight <= 0 || rect.width <= 0) {
       canvas.width = 0;
       canvas.height = 0;
       return;
     }
 
     // HARDWARE PIXELS
-    // We bypass CSS scaling completely to avoid mobile browser blurring
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const physicalWidth = Math.ceil(visWidth * dpr);
     const physicalHeight = Math.ceil(visHeight * dpr);
 
     if (currentRenderTask.current) {
-      currentRenderTask.current.cancel();
+      try {
+        currentRenderTask.current.cancel();
+      } catch (e) {
+        // Ignore cancel errors
+      }
       currentRenderTask.current = null;
     }
 
-    const offscreen = document.createElement('canvas');
-    offscreen.width = physicalWidth;
-    offscreen.height = physicalHeight;
+    // Re-use the Singleton Canvas to completely prevent GPU context limit crashes on Mobile
+    const offscreen = getSniperCanvas(physicalWidth, physicalHeight);
     const ctx = offscreen.getContext('2d', { alpha: false });
     if (!ctx) return;
     
@@ -155,7 +173,7 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   return (
     <>
       <div ref={measureRef} className="absolute inset-0 pointer-events-none" />
-      {typeof document !== 'undefined' && createPortal(
+      {mounted && typeof document !== 'undefined' && createPortal(
         <canvas 
           ref={canvasRef} 
           className="fixed z-50 pointer-events-none transition-opacity duration-150" 
