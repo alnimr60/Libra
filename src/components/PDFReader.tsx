@@ -987,8 +987,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             return;
           }
 
-          if ((e.target as HTMLElement).closest('.textLayer')) return;
-
           // If controls are shown, clicking hides them. If hidden, clicking might show them OR turn page.
           if (!showControls) {
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
