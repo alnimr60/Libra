@@ -27,15 +27,6 @@ enum GestureMode {
 }
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
-  console.log("[HOOK TRACE] PDFReader render");
-  console.log("[PDFReader] Render");
-
-  useEffect(() => {
-    console.log("[PDFReader] COMPONENT MOUNTED");
-    return () => {
-      console.warn("[PDFReader] COMPONENT UNMOUNTED - Is this unexpected during gesture?");
-    };
-  }, []);
   const gestureMode = useRef<GestureMode>(GestureMode.Idle);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartInfo = useRef({ x: 0, y: 0, time: 0 });
@@ -53,22 +44,16 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   // Sync state scale to liveScale motion value
   useEffect(() => {
-    try {
-      console.log("[PDFReader] Effect: Syncing liveScale to committedScale", { committedScale });
-      animate(liveScale, committedScale, {
-        type: 'spring',
-        stiffness: 300,
-        damping: 30
-      });
-      
-      // Reset panning smoothly when zooming out significantly or switching modes
-      if (committedScale <= 1.05) {
-        animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-        animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
-      }
-    } catch (err) {
-      console.error("[PDFReader] Error in scale sync effect:", err);
-      throw err;
+    animate(liveScale, committedScale, {
+      type: 'spring',
+      stiffness: 300,
+      damping: 30
+    });
+    
+    // Reset panning smoothly when zooming out significantly or switching modes
+    if (committedScale <= 1.05) {
+      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
     }
   }, [committedScale, liveScale, panX, panY]);
 
@@ -97,11 +82,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       onUpdateBookmarks([...bookmarks, newBookmark]);
     }
   };
-  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [renderScale, setRenderScale] = useState(committedScale);
+  const renderScale = committedScale; // Direct — no delayed state update
   const [retryKey, setRetryKey] = useState(0);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
@@ -120,7 +105,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        console.log("[PDFReader] Recalculating layout dimensions:", entry.contentRect.width, entry.contentRect.height);
         const newDims = {
           width: entry.contentRect.width,
           height: entry.contentRect.height
@@ -181,11 +165,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   // Double tap to zoom handler
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   
-  // Motion transforms for UI display - defined at top level to avoid conditional hook calls
+  // Motion transform for zoom percentage display
   const liveScalePercent = useTransform(liveScale, v => `${Math.round(v * 100)}%`);
-  const debugScale = useTransform(liveScale, v => typeof v === 'number' ? v.toFixed(3) : v);
-  const debugPanX = useTransform(panX, v => typeof v === 'number' ? v.toFixed(1) : v);
-  const debugPanY = useTransform(panY, v => typeof v === 'number' ? v.toFixed(1) : v);
 
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
     console.log("[DoubleTap] STEP 1: Entry", { clientX, clientY });
@@ -196,39 +177,26 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       }
       
       // Safety lock: Don't interrupt existing zoom animations or pinch gestures
-      if (isAnimatingZoom.current || isPinching.current) {
-        console.log("[DoubleTapZoom] Locked: animation or pinch in progress", {
-          isAnimatingZoom: isAnimatingZoom.current,
-          isPinching: isPinching.current
-        });
-        return;
-      }
+      if (isAnimatingZoom.current || isPinching.current) return;
 
-      console.log("[DoubleTap] STEP 2: Pre-read scale");
-      const currentScaleValue = liveScale.get();
-      
-      // Diagnostic logging
-      console.log("[DoubleTapZoom] Start Event", {
-        currentScale: currentScaleValue,
-        currentScaleType: typeof currentScaleValue,
-        currentScaleFinite: Number.isFinite(currentScaleValue)
-      });
-
-      if (!Number.isFinite(currentScaleValue)) {
-        console.error("[DoubleTapZoom] CRITICAL ERROR: non-finite current scale.");
-        // We no longer silently reset here to catch the true error
-        throw new Error(`Non-finite currentScaleValue: ${currentScaleValue}`);
-      }
+      if (!Number.isFinite(liveScale.get())) return;
 
       // Mark as animating zoom BEFORE anything else to lock other gestures
       isAnimatingZoom.current = true;
+      
+      // Safety timeout in case animation gets interrupted (Bug 5 fix)
+      setTimeout(() => {
+        if (isAnimatingZoom.current) {
+          isAnimatingZoom.current = false;
+        }
+      }, 1000);
 
-      console.log("[DoubleTap] STEP 3: Stopping previous animations");
       // Stop all active animations to prevent conflicts during transition
       liveScale.stop();
       panX.stop();
       panY.stop();
 
+      const currentScaleValue = liveScale.get();
       const isZoomedOut = currentScaleValue <= 1.05;
       const targetScale = isZoomedOut ? 2.5 : 1.0;
       
@@ -269,42 +237,34 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         setShowControls(false);
       }
 
-      console.log("[DoubleTap] STEP 5: Starting animate()");
-      // Start the core imperative animation simultaneously
+      // @ts-ignore
       const animConfig = { 
         type: 'spring', 
         stiffness: 300, 
         damping: 30
       };
       
+      // @ts-ignore
       animate(liveScale, targetScale, animConfig);
+      // @ts-ignore
       animate(panX, targetPanX, animConfig);
+      // @ts-ignore
       animate(panY, targetPanY, {
         ...animConfig,
         onComplete: () => {
-          console.log("[DoubleTap] STEP 6: Animation complete callback start");
           try {
-            console.log("[DoubleTapZoom] Animation Complete, Syncing committedScale", { targetScale });
             setCommittedScale(targetScale);
-            
-            console.log("[DoubleTap] STEP 7: committedScale updated");
             requestAnimationFrame(() => {
               isAnimatingZoom.current = false;
-              console.log("[DoubleTapZoom] Lock Released Successfully");
             });
           } catch (syncErr) {
-            console.error("[DoubleTapCrash] Error in onComplete sync:", syncErr);
             isAnimatingZoom.current = false;
-            throw syncErr;
           }
         }
       });
 
     } catch (err) {
-      console.error("[DoubleTapCrash] CRITICAL FAILURE in handleDoubleTapZoom", err);
       isAnimatingZoom.current = false;
-      // Re-throw to ensure the crash is visible to the ErrorBoundary or Global listeners
-      throw err;
     }
   };
 
@@ -413,14 +373,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   // Keep virtualPage in sync with state
   useEffect(() => {
-    if (!isDragging) {
+    if (!isDraggingRef.current) {
       animate(virtualPage, pageIndex, {
         type: 'spring',
         stiffness: 450,
         damping: 45
       });
     }
-  }, [pageIndex, isDragging, virtualPage]);
+  }, [pageIndex, virtualPage]);
 
   const handlePanStart = (e: any, info: any) => {
     try {
@@ -461,7 +421,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
           gestureMode.current = GestureMode.SwipingPages;
         }
-        setIsDragging(true);
+        isDraggingRef.current = true;
       }
 
       if (gestureMode.current === GestureMode.PanningZoomedPage) {
@@ -518,7 +478,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       const mode = gestureMode.current;
       if (mode === GestureMode.PanningZoomedPage) {
-        setIsDragging(false);
+        isDraggingRef.current = false;
         const currentScaleValue = liveScale.get();
         // INERTIAL PANNING
         const velocityX = info.velocity.x;
@@ -555,7 +515,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           }
         });
       } else if (mode === GestureMode.SwipingPages) {
-        setIsDragging(false);
+        isDraggingRef.current = false;
         const offset = info.offset.x;
         const velocity = info.velocity.x;
         const threshold = 50;
@@ -579,13 +539,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      console.log("[PDFReader] Settle: Updating renderScale to", committedScale);
-      setRenderScale(committedScale);
-    }, 400); // Increased settle time for better stability
-    return () => clearTimeout(timer);
-  }, [committedScale]);
+
 
   useEffect(() => {
     const checkOrientation = () => {
@@ -696,7 +650,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       
       gestureMode.current = GestureMode.PinchZooming;
       isPinching.current = true;
-      setIsDragging(false);
+      isDraggingRef.current = false;
       
       const t1 = e.touches[0];
       const t2 = e.touches[1];
@@ -1128,28 +1082,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           </motion.div>
         )}
       </div>
-
-      {/* Debug Overlay */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed top-4 right-4 z-[999] bg-black/80 text-white p-4 rounded-xl font-mono text-[10px] pointer-events-none border border-white/10 flex flex-col gap-1">
-          <div className="flex justify-between gap-4">
-            <span className="opacity-40 uppercase tracking-widest">Scale</span>
-            <motion.span>{debugScale}</motion.span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="opacity-40 uppercase tracking-widest">Pan X</span>
-            <motion.span>{debugPanX}</motion.span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="opacity-40 uppercase tracking-widest">Pan Y</span>
-            <motion.span>{debugPanY}</motion.span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="opacity-40 uppercase tracking-widest">Mode</span>
-            <span>{gestureMode.current}</span>
-          </div>
-        </div>
-      )}
 
       <AnimatePresence>
         {false && (
