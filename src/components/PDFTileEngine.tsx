@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { pdfjs } from '../lib/pdf';
 import { useMotionValueEvent } from 'motion/react';
 
@@ -17,8 +18,9 @@ interface PDFTileEngineProps {
 }
 
 export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({ 
-  pageNumber, pdf, width, height, panX, panY, committedScale, dims, isVisible, sheetRelX 
+  pageNumber, pdf, width, height, panX, panY, committedScale, dims, isVisible 
 }) => {
+  const measureRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdfPage, setPdfPage] = useState<any>(null);
   const renderTimeout = useRef<any>(null);
@@ -33,60 +35,48 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     return () => { active = false; };
   }, [pdf, pageNumber]);
 
-  // 2. The Adobe-style "Sniper" Render
+  // 2. The Native-Hardware Portal Render
   const drawHighRes = useCallback(async () => {
-    if (!isVisible || !pdfPage || !canvasRef.current || !dims.width) return;
+    if (!isVisible || !pdfPage || !measureRef.current || !canvasRef.current) return;
     
-    // Calculate page position relative to the center of the screen
-    const pageScreenLeft = panX.get() + (dims.width / 2) + (sheetRelX * committedScale);
-    const pageScreenTop = panY.get() + (dims.height / 2) - (height * committedScale / 2);
+    // EXACT ON-SCREEN COORDINATES
+    // getBoundingClientRect calculates the final physical screen position
+    // AFTER all CSS transforms (panX, panY, scale) have been applied by the browser.
+    const rect = measureRef.current.getBoundingClientRect();
+    
+    // Screen bounds
+    const sw = window.innerWidth;
+    const sh = window.innerHeight;
 
-    // Create a bounding box for the screen (with a 10% buffer for smooth panning)
-    const bufferX = dims.width * 0.1;
-    const bufferY = dims.height * 0.1;
-    const screenBox = {
-      left: -bufferX,
-      top: -bufferY,
-      right: dims.width + bufferX,
-      bottom: dims.height + bufferY
-    };
+    // VISIBLE INTERSECTION
+    const visLeft = Math.max(0, rect.left);
+    const visTop = Math.max(0, rect.top);
+    const visRight = Math.min(sw, rect.right);
+    const visBottom = Math.min(sh, rect.bottom);
 
-    // Calculate the exact intersection of the screen box and the scaled PDF page
-    const visLeftScreen = Math.max(screenBox.left, pageScreenLeft);
-    const visTopScreen = Math.max(screenBox.top, pageScreenTop);
-    const visRightScreen = Math.min(screenBox.right, pageScreenLeft + (width * committedScale));
-    const visBottomScreen = Math.min(screenBox.bottom, pageScreenTop + (height * committedScale));
+    const visWidth = visRight - visLeft;
+    const visHeight = visBottom - visTop;
 
-    const visWidthScreen = visRightScreen - visLeftScreen;
-    const visHeightScreen = visBottomScreen - visTopScreen;
+    const canvas = canvasRef.current;
 
-    // If the page is off-screen, clear the canvas memory instantly
-    if (visWidthScreen <= 0 || visHeightScreen <= 0) {
-      canvasRef.current.width = 0;
-      canvasRef.current.height = 0;
+    // If page is completely off-screen, clear canvas
+    if (visWidth <= 0 || visHeight <= 0) {
+      canvas.width = 0;
+      canvas.height = 0;
       return;
     }
 
-    // Convert from Screen space down to Logical Page CSS space
-    const logicalLeft = (visLeftScreen - pageScreenLeft) / committedScale;
-    const logicalTop = (visTopScreen - pageScreenTop) / committedScale;
-    const logicalWidth = visWidthScreen / committedScale;
-    const logicalHeight = visHeightScreen / committedScale;
-
-    // Scale up by Device Pixel Ratio for Retina/Mobile clarity
+    // HARDWARE PIXELS
+    // We bypass CSS scaling completely to avoid mobile browser blurring
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const physicalWidth = Math.ceil(visWidthScreen * dpr);
-    const physicalHeight = Math.ceil(visHeightScreen * dpr);
+    const physicalWidth = Math.ceil(visWidth * dpr);
+    const physicalHeight = Math.ceil(visHeight * dpr);
 
-    const canvas = canvasRef.current;
-    
-    // Cancel any older render if the user scrolled again
     if (currentRenderTask.current) {
       currentRenderTask.current.cancel();
       currentRenderTask.current = null;
     }
 
-    // Prepare a temporary offscreen canvas so the old image stays visible until the new one is ready
     const offscreen = document.createElement('canvas');
     offscreen.width = physicalWidth;
     offscreen.height = physicalHeight;
@@ -96,18 +86,22 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, physicalWidth, physicalHeight);
 
-    // Calculate exact PDF zoom and camera shift
+    // PDF.JS MATH
     const baseViewport = pdfPage.getViewport({ scale: 1 });
-    const fitScale = width / baseViewport.width;
-    const renderScale = fitScale * committedScale * dpr;
+    
+    // Scale the PDF up to match the exact physical Retina pixels of the screen intersection
+    const renderScale = (rect.width * dpr) / baseViewport.width;
 
+    // Shift the PDF camera to crop out the parts of the page that are off-screen
+    const shiftXScreen = visLeft - rect.left;
+    const shiftYScreen = visTop - rect.top;
+    
     const renderViewport = pdfPage.getViewport({ 
       scale: renderScale,
-      offsetX: -Math.round(logicalLeft * committedScale * dpr),
-      offsetY: -Math.round(logicalTop * committedScale * dpr)
+      offsetX: -Math.round(shiftXScreen * dpr),
+      offsetY: -Math.round(shiftYScreen * dpr)
     });
 
-    // Command PDF.js to render ONLY this specific rectangle
     const renderTask = pdfPage.render({
       canvasContext: ctx,
       viewport: renderViewport
@@ -118,14 +112,13 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     try {
       await renderTask.promise;
       
-      // Safety check: Make sure this is still the active request
       if (currentRenderTask.current === renderTask) {
         canvas.width = physicalWidth;
         canvas.height = physicalHeight;
-        canvas.style.left = `${logicalLeft}px`;
-        canvas.style.top = `${logicalTop}px`;
-        canvas.style.width = `${logicalWidth}px`;
-        canvas.style.height = `${logicalHeight}px`;
+        canvas.style.left = `${visLeft}px`;
+        canvas.style.top = `${visTop}px`;
+        canvas.style.width = `${visWidth}px`;
+        canvas.style.height = `${visHeight}px`;
         
         const mainCtx = canvas.getContext('2d', { alpha: false });
         if (mainCtx) {
@@ -137,12 +130,18 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
         console.error('PDF Sniper Render Error:', err);
       }
     }
-  }, [isVisible, pdfPage, committedScale, panX, panY, dims, width, height, sheetRelX]);
+  }, [isVisible, pdfPage, committedScale, panX, panY]);
 
-  // 3. Debounce Engine: Wait 150ms after the user STOPS panning/zooming before firing the sniper
+  // 3. Debounce Engine: Wait for motion to stop, hide sharp canvas during motion
   const scheduleRender = useCallback(() => {
+    if (canvasRef.current) {
+       canvasRef.current.style.opacity = '0';
+    }
     clearTimeout(renderTimeout.current);
-    renderTimeout.current = setTimeout(drawHighRes, 150);
+    renderTimeout.current = setTimeout(() => {
+      if (canvasRef.current) canvasRef.current.style.opacity = '1';
+      drawHighRes();
+    }, 150);
   }, [drawHighRes]);
 
   useEffect(() => {
@@ -154,11 +153,17 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   useMotionValueEvent(panY, "change", scheduleRender);
 
   return (
-    <canvas 
-      ref={canvasRef} 
-      className="absolute z-10 pointer-events-none origin-top-left" 
-      style={{ width: 0, height: 0 }}
-    />
+    <>
+      <div ref={measureRef} className="absolute inset-0 pointer-events-none" />
+      {typeof document !== 'undefined' && createPortal(
+        <canvas 
+          ref={canvasRef} 
+          className="fixed z-50 pointer-events-none transition-opacity duration-150" 
+          style={{ width: 0, height: 0, top: 0, left: 0 }}
+        />,
+        document.body
+      )}
+    </>
   );
 });
 
