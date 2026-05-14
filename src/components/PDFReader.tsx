@@ -61,7 +61,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>(book.readingDirection || 'ltr');
   const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
-  const [pageIndex, setPageIndex] = useState(0); // 0-based for internal math
+  const [pageIndex, setPageIndex] = useState(() => {
+    if (initialPage > 1) {
+      const mode = typeof window !== 'undefined' && window.innerWidth > 1024 ? 'double' : 'single';
+      return mode === 'double' ? Math.floor((initialPage - 1) / 2) : initialPage - 1;
+    }
+    return 0;
+  }); // 0-based for internal math
   const [isTemporal, setIsTemporal] = useState(false);
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
   const [navigatorTab, setNavigatorTab] = useState<'pages' | 'bookmarks'>('pages');
@@ -337,39 +343,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     });
   };
 
-  // Automatic reading direction detection
-  useEffect(() => {
-    if (!pdf || book.directionDetected) {
-      if (book.directionDetected) {
-        console.log(`[DirectionDetection] already detected for "${book.title}", skipping.`);
-      }
-      return;
-    }
-
-    const runDetection = async () => {
-      console.log(`[DirectionDetection] Starting detection for "${book.title}"`);
-      try {
-        const text = await samplePDFText(pdf);
-        const detected = detectDirectionFromText(text);
-        
-        console.log(`[DirectionDetection] Final decision for "${book.title}": ${detected.toUpperCase()}`);
-        
-        // Update local state
-        setDirection(detected);
-        
-        // Persist result
-        updateBook({
-          ...book,
-          readingDirection: detected,
-          directionDetected: true
-        });
-      } catch (err) {
-        console.error(`[DirectionDetection] Failed to run detection:`, err);
-      }
-    };
-
-    runDetection();
-  }, [pdf, book.id, book.directionDetected]);
+  // Automatic reading direction detection is now done during loadPDF
 
   // Keep virtualPage in sync with state
   useEffect(() => {
@@ -574,25 +548,36 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           throw new Error('This book\'s PDF file could not be found in local storage. This can happen if browser data was cleared. Please re-select the PDF file.');
         }
         
-    const loadingTask = pdfjs.getDocument({ 
-      data: new Uint8Array(data),
-      stopAtErrors: false,
-      enableXfa: true,
-      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
-      cMapPacked: true,
-      disableRange: true,
-      disableStream: true
-    });
+        const loadingTask = pdfjs.getDocument({ 
+          data: new Uint8Array(data),
+          stopAtErrors: false,
+          enableXfa: true,
+          cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+          cMapPacked: true,
+          disableRange: true,
+          disableStream: true
+        });
         const pdfDoc = await loadingTask.promise;
         setPdf(pdfDoc);
         setNumPages(pdfDoc.numPages);
-        setDirection(book.readingDirection || 'ltr');
 
-        // Set initial page index
-        if (initialPage) {
-          const mode = window.innerWidth > 1024 ? 'double' : 'single';
-          setPageIndex(mode === 'double' ? Math.floor((initialPage - 1) / 2) : initialPage - 1);
+        let finalDirection = book.readingDirection || 'ltr';
+        if (!book.directionDetected) {
+          try {
+            const text = await samplePDFText(pdfDoc);
+            finalDirection = detectDirectionFromText(text);
+            updateBook({
+              ...book,
+              readingDirection: finalDirection,
+              directionDetected: true
+            });
+          } catch (e) {
+            console.error(`[DirectionDetection] Failed to run detection:`, e);
+          }
         }
+        setDirection(finalDirection);
+
+        // Initial page index is handled by useState initializer
 
         setIsLoading(false);
       } catch (err: any) {
