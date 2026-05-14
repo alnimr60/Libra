@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { pdfjs } from '../lib/pdf';
 import { useMotionValueEvent } from 'motion/react';
 
@@ -14,39 +13,47 @@ interface PDFTileEngineProps {
   committedScale: number;
   dims: { width: number, height: number };
   isVisible: boolean;
-  sheetRelX: number; // For side-by-side positioning
-}
-
-// SINGLETON RENDER CANVAS to prevent iOS Safari 16-context limit crash
-let globalSniperCanvas: HTMLCanvasElement | null = null;
-let sniperMutex = Promise.resolve(); // MUTEX LOCK: Ensures only one page uses the singleton at a time
-
-function getSniperCanvas(width: number, height: number) {
-  if (!globalSniperCanvas) {
-    globalSniperCanvas = document.createElement('canvas');
-  }
-  globalSniperCanvas.width = width;
-  globalSniperCanvas.height = height;
-  return globalSniperCanvas;
+  sheetRelX: number;
 }
 
 export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({ 
-  pageNumber, pdf, width, height, panX, panY, committedScale, dims, isVisible 
+  pageNumber, pdf, width, height, panX, panY, committedScale, isVisible 
 }) => {
-  const measureRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const [pdfPage, setPdfPage] = useState<any>(null);
   const renderTimeout = useRef<any>(null);
   const currentRenderTask = useRef<any>(null);
-  const currentTaskToken = useRef<any>(null);
-  const [mounted, setMounted] = useState(false);
+  const baseRenderTask = useRef<any>(null);
+  const renderGeneration = useRef(0);
 
-  // 0. Hydration Safe Mount
+  // Cleanup on unmount
   useEffect(() => {
-    setMounted(true);
+    return () => {
+      if (offscreenRef.current) {
+        offscreenRef.current.width = 0;
+        offscreenRef.current.height = 0;
+        offscreenRef.current = null;
+      }
+      if (baseRenderTask.current) {
+        try { baseRenderTask.current.cancel(); } catch (_) { /* ignore */ }
+      }
+      if (currentRenderTask.current) {
+        try { currentRenderTask.current.cancel(); } catch (_) { /* ignore */ }
+      }
+    };
   }, []);
 
-  // 1. Load PDF Page
+  const getOffscreen = useCallback((w: number, h: number) => {
+    if (!offscreenRef.current) offscreenRef.current = document.createElement('canvas');
+    offscreenRef.current.width = w;
+    offscreenRef.current.height = h;
+    return offscreenRef.current;
+  }, []);
+
+  // Load PDF page
   useEffect(() => {
     let active = true;
     pdf.getPage(pageNumber).then(page => {
@@ -55,123 +62,147 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     return () => { active = false; };
   }, [pdf, pageNumber]);
 
-  // 2. The Native-Hardware Portal Render
-  const drawHighRes = useCallback(async () => {
-    if (!isVisible || !pdfPage || !measureRef.current || !canvasRef.current) return;
+  // Base render (1x scale, drawn once when page loads)
+  useEffect(() => {
+    if (!pdfPage || !baseCanvasRef.current || !isVisible) return;
     
-    // EXACT ON-SCREEN COORDINATES
-    const rect = measureRef.current.getBoundingClientRect();
-    
-    // Screen bounds
-    const sw = window.innerWidth;
-    const sh = window.innerHeight;
-
-    // VISIBLE INTERSECTION
-    const visLeft = Math.max(0, rect.left);
-    const visTop = Math.max(0, rect.top);
-    const visRight = Math.min(sw, rect.right);
-    const visBottom = Math.min(sh, rect.bottom);
-
-    const visWidth = visRight - visLeft;
-    const visHeight = visBottom - visTop;
-
-    const canvas = canvasRef.current;
-
-    // If page is completely off-screen, clear canvas
-    if (visWidth <= 0 || visHeight <= 0 || rect.width <= 0) {
-      canvas.width = 0;
-      canvas.height = 0;
-      return;
-    }
-
-    // HARDWARE PIXELS
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const physicalWidth = Math.ceil(visWidth * dpr);
-    const physicalHeight = Math.ceil(visHeight * dpr);
-
-    if (currentRenderTask.current) {
-      try {
-        currentRenderTask.current.cancel();
-      } catch (e) {
-        // Ignore cancel errors
-      }
-      currentRenderTask.current = null;
-    }
-
-    // Generate a unique token for this specific render request
-    const myToken = {};
-    currentTaskToken.current = myToken;
-
-    // MUTEX QUEUE: Wait in line for the Singleton Canvas
-    sniperMutex = sniperMutex.then(async () => {
-      // If the user panned again while we were waiting in line, abort this stale request
-      if (currentTaskToken.current !== myToken) return;
-
-      // Re-use the Singleton Canvas to completely prevent GPU context limit crashes on Mobile
-      const offscreen = getSniperCanvas(physicalWidth, physicalHeight);
-      const ctx = offscreen.getContext('2d', { alpha: false });
+    const drawBase = async () => {
+      const canvas = baseCanvasRef.current;
+      if (!canvas) return;
+      
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const viewport = pdfPage.getViewport({ scale: 1 });
+      const fitScale = width / viewport.width;
+      
+      const physicalWidth = Math.ceil(width * dpr);
+      const physicalHeight = Math.ceil(height * dpr);
+      
+      canvas.width = physicalWidth;
+      canvas.height = physicalHeight;
+      
+      const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) return;
       
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, physicalWidth, physicalHeight);
 
-      // PDF.JS MATH
-      const baseViewport = pdfPage.getViewport({ scale: 1 });
+      const renderViewport = pdfPage.getViewport({ scale: fitScale * dpr });
       
-      // Scale the PDF up to match the exact physical Retina pixels of the screen intersection
-      const renderScale = (rect.width * dpr) / baseViewport.width;
-
-      // Shift the PDF camera to crop out the parts of the page that are off-screen
-      const shiftXScreen = visLeft - rect.left;
-      const shiftYScreen = visTop - rect.top;
-      
-      const renderViewport = pdfPage.getViewport({ 
-        scale: renderScale,
-        offsetX: -Math.round(shiftXScreen * dpr),
-        offsetY: -Math.round(shiftYScreen * dpr)
-      });
-
-      const renderTask = pdfPage.render({
+      baseRenderTask.current = pdfPage.render({
         canvasContext: ctx,
         viewport: renderViewport
       });
-      
-      currentRenderTask.current = renderTask;
 
       try {
-        await renderTask.promise;
-        
-        // If this is still the active request, copy the image from the Singleton to our Portal Canvas
-        if (currentTaskToken.current === myToken) {
-          canvas.width = physicalWidth;
-          canvas.height = physicalHeight;
-          canvas.style.left = `${visLeft}px`;
-          canvas.style.top = `${visTop}px`;
-          canvas.style.width = `${visWidth}px`;
-          canvas.style.height = `${visHeight}px`;
-          
-          const mainCtx = canvas.getContext('2d', { alpha: false });
-          if (mainCtx) {
-            mainCtx.drawImage(offscreen, 0, 0);
-          }
-        }
+        await baseRenderTask.current.promise;
       } catch (err: any) {
         if (err.name !== 'RenderingCancelledException') {
-          console.error('PDF Sniper Render Error:', err);
+          console.error('[PDFTileEngine] Base render error:', err);
         }
       }
-    }).catch(console.error);
+    };
     
-  }, [isVisible, pdfPage, committedScale, panX, panY]);
+    drawBase();
+  }, [pdfPage, width, height, isVisible]);
 
-  // 3. Debounce Engine: Wait for motion to stop, hide sharp canvas during motion
-  const scheduleRender = useCallback(() => {
-    if (canvasRef.current) {
-       canvasRef.current.style.opacity = '0';
+  // High-resolution render (zoomed in viewport)
+  const drawHighRes = useCallback(async () => {
+    if (!isVisible || !pdfPage || !containerRef.current || !canvasRef.current) return;
+    
+    // We only need to redraw if zoomed in
+    if (committedScale <= 1.05) {
+      canvasRef.current.style.opacity = '0';
+      return;
     }
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const sw = window.innerWidth;
+    const sh = window.innerHeight;
+
+    // Calculate visible intersection
+    const visLeft = Math.max(0, rect.left);
+    const visTop = Math.max(0, rect.top);
+    const visRight = Math.min(sw, rect.right);
+    const visBottom = Math.min(sh, rect.bottom);
+    const visWidth = visRight - visLeft;
+    const visHeight = visBottom - visTop;
+
+    const canvas = canvasRef.current;
+
+    if (visWidth <= 0 || visHeight <= 0 || rect.width <= 0) {
+      canvas.style.opacity = '0';
+      return;
+    }
+
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const physicalWidth = Math.ceil(visWidth * dpr);
+    const physicalHeight = Math.ceil(visHeight * dpr);
+
+    if (currentRenderTask.current) {
+      try { currentRenderTask.current.cancel(); } catch (_) { }
+      currentRenderTask.current = null;
+    }
+
+    const myGeneration = ++renderGeneration.current;
+    const offscreen = getOffscreen(physicalWidth, physicalHeight);
+    const ctx = offscreen.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, physicalWidth, physicalHeight);
+
+    const baseViewport = pdfPage.getViewport({ scale: 1 });
+    const renderScale = (rect.width * dpr) / baseViewport.width;
+    
+    const shiftXScreen = visLeft - rect.left;
+    const shiftYScreen = visTop - rect.top;
+    
+    const renderViewport = pdfPage.getViewport({ 
+      scale: renderScale,
+      offsetX: -Math.round(shiftXScreen * dpr),
+      offsetY: -Math.round(shiftYScreen * dpr)
+    });
+
+    const renderTask = pdfPage.render({
+      canvasContext: ctx,
+      viewport: renderViewport
+    });
+    currentRenderTask.current = renderTask;
+
+    try {
+      await renderTask.promise;
+      
+      if (renderGeneration.current === myGeneration && canvasRef.current) {
+        canvas.width = physicalWidth;
+        canvas.height = physicalHeight;
+        
+        // Position relative to the container! Not the screen!
+        // We use percentages to ensure it sticks properly even if the container transforms
+        const leftPercent = ((visLeft - rect.left) / rect.width) * 100;
+        const topPercent = ((visTop - rect.top) / rect.height) * 100;
+        const widthPercent = (visWidth / rect.width) * 100;
+        const heightPercent = (visHeight / rect.height) * 100;
+
+        canvas.style.left = `${leftPercent}%`;
+        canvas.style.top = `${topPercent}%`;
+        canvas.style.width = `${widthPercent}%`;
+        canvas.style.height = `${heightPercent}%`;
+        
+        const mainCtx = canvas.getContext('2d', { alpha: false });
+        if (mainCtx) mainCtx.drawImage(offscreen, 0, 0);
+        
+        canvas.style.opacity = '1';
+      }
+    } catch (err: any) {
+      if (err.name !== 'RenderingCancelledException') {
+        console.error('[PDFTileEngine] Render error:', err);
+      }
+    }
+  }, [isVisible, pdfPage, committedScale, panX, panY, getOffscreen]);
+
+  const scheduleRender = useCallback(() => {
     clearTimeout(renderTimeout.current);
     renderTimeout.current = setTimeout(() => {
-      if (canvasRef.current) canvasRef.current.style.opacity = '1';
       drawHighRes();
     }, 150);
   }, [drawHighRes]);
@@ -185,17 +216,19 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   useMotionValueEvent(panY, "change", scheduleRender);
 
   return (
-    <>
-      <div ref={measureRef} className="absolute inset-0 pointer-events-none" />
-      {mounted && typeof document !== 'undefined' && createPortal(
-        <canvas 
-          ref={canvasRef} 
-          className="fixed z-50 pointer-events-none transition-opacity duration-150" 
-          style={{ width: 0, height: 0, top: 0, left: 0 }}
-        />,
-        document.body
-      )}
-    </>
+    <div ref={containerRef} className="absolute inset-0 w-full h-full">
+      {/* Base layer: 1x resolution, always visible, scales up natively during pinch */}
+      <canvas 
+        ref={baseCanvasRef} 
+        className="absolute inset-0 w-full h-full pointer-events-none" 
+      />
+      
+      {/* High-res overlay: Sharpens the visible area when zoomed in */}
+      <canvas 
+        ref={canvasRef} 
+        className="absolute z-10 pointer-events-none transition-opacity duration-200" 
+        style={{ width: 0, height: 0, top: 0, left: 0, opacity: 0 }}
+      />
+    </div>
   );
 });
-
