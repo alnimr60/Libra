@@ -71,14 +71,15 @@ body {
 }
 
 /* PDF Text Layer Selection Styling */
-::selection {
+*::selection {
+  background-color: rgba(249, 115, 22, 0.45) !important;
   background: rgba(249, 115, 22, 0.45) !important;
-  color: inherit;
+  -webkit-tap-highlight-color: rgba(249, 115, 22, 0.2) !important;
 }
 
-::-moz-selection {
+*::-moz-selection {
+  background-color: rgba(249, 115, 22, 0.45) !important;
   background: rgba(249, 115, 22, 0.45) !important;
-  color: inherit;
 }
 
 .textLayer {
@@ -106,18 +107,17 @@ body {
   min-height: 1em;
 }
 
-.textLayer ::selection,
-.textLayer *::selection,
-.textLayer span::selection {
+.textLayer span::selection,
+.textLayer span *::selection {
+  background-color: rgba(249, 115, 22, 0.5) !important;
   background: rgba(249, 115, 22, 0.5) !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
-  -webkit-background-clip: padding-box;
 }
 
-.textLayer ::-moz-selection,
-.textLayer *::-moz-selection,
-.textLayer span::-moz-selection {
+.textLayer span::-moz-selection,
+.textLayer span *::-moz-selection {
+  background-color: rgba(249, 115, 22, 0.5) !important;
   background: rgba(249, 115, 22, 0.5) !important;
   color: transparent !important;
 }
