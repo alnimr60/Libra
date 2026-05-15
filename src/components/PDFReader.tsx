@@ -984,10 +984,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={(e) => {
-          // If text is selected, do not trigger page turn or click actions
-          if (window.getSelection()?.toString().trim().length) {
-            console.log('Click ignored due to text selection');
-            return;
+          // If text is selected, check if we should ignore the click
+          const selection = window.getSelection();
+          if (selection && selection.toString().trim().length > 0) {
+            console.log('Selection exists, but checking if it was a real click');
+            // If it's a very short selection or just a click, we might want to clear it
+            // But for now, let's allow the click to togggle controls if it's a simple tap
+            // and the selection didn't change significantly.
+            // Actually, let's just NOT return here, instead let selection coexist.
           }
 
           console.log('onClick triggered on readerContainer. showControls:', showControls);
@@ -1440,7 +1444,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
       />
       <div 
         ref={textLayerDivRef} 
-        className="textLayer absolute inset-0 z-40 pointer-events-auto select-text cursor-text"
+        className="textLayer absolute inset-0 z-[60] pointer-events-auto select-text cursor-text"
       />
     </div>
   );
