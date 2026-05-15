@@ -83,7 +83,8 @@ body {
 }
 
 .textLayer span {
-  color: rgba(0, 0, 0, 0.01);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -95,8 +96,19 @@ body {
   min-height: 1em;
 }
 
-.textLayer ::selection {
-  background: rgba(249, 115, 22, 0.6);
+.textLayer ::selection,
+.textLayer *::selection,
+.textLayer span::selection {
+  background: rgba(249, 115, 22, 0.5) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.textLayer ::-moz-selection,
+.textLayer *::-moz-selection,
+.textLayer span::-moz-selection {
+  background: rgba(249, 115, 22, 0.5) !important;
+  color: transparent !important;
 }
 
 canvas {
