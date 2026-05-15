@@ -71,6 +71,16 @@ body {
 }
 
 /* PDF Text Layer Selection Styling */
+::selection {
+  background: rgba(249, 115, 22, 0.45) !important;
+  color: inherit;
+}
+
+::-moz-selection {
+  background: rgba(249, 115, 22, 0.45) !important;
+  color: inherit;
+}
+
 .textLayer {
   position: absolute;
   inset: 0;
@@ -83,8 +93,8 @@ body {
 }
 
 .textLayer span {
-  color: transparent;
-  -webkit-text-fill-color: transparent;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -102,6 +112,7 @@ body {
   background: rgba(249, 115, 22, 0.5) !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
+  -webkit-background-clip: padding-box;
 }
 
 .textLayer ::-moz-selection,
