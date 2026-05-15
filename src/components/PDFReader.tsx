@@ -60,7 +60,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>(book.readingDirection || 'ltr');
-  const [viewMode, setViewMode] = useState<'single' | 'double'>('single');
+  const [viewMode, setViewMode] = useState<'single' | 'double'>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth > 1024 ? 'double' : 'single';
+    }
+    return 'single';
+  });
   const [pageIndex, setPageIndex] = useState(() => {
     if (initialPage > 1) {
       const mode = typeof window !== 'undefined' && window.innerWidth > 1024 ? 'double' : 'single';
@@ -219,7 +224,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         setShowControls(false);
       }
 
-      const animConfig = { type: 'spring', stiffness: 300, damping: 30 };
+      const animConfig = { type: 'spring' as const, stiffness: 300, damping: 30 };
       animate(liveScale, targetScale, animConfig);
       animate(panX, targetPanX, animConfig);
       animate(panY, targetPanY, {
@@ -576,6 +581,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, []);
 
   const totalSheets = viewMode === 'double' ? Math.ceil(numPages / 2) : numPages;
+  const isReady = !isLoading && readerDimensions.width > 0;
   
   const handlePageChange = (newIndex: number, isJump: boolean = false) => {
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
@@ -709,7 +715,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden transition-all duration-500"
+      transition={{ duration: 0.3 }}
+      className="fixed inset-0 z-[300] bg-zinc-950 flex flex-col overflow-hidden"
     >
       <AnimatePresence>
         {isNavigatorOpen && (
@@ -980,7 +987,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           }
         }}
       >
-        {isLoading ? (
+        {!isReady ? (
           <div className="flex flex-col items-center gap-4 text-white/40">
             <Loader2 className="w-12 h-12 animate-spin" />
             <p className="text-sm font-mono uppercase tracking-widest">Optimizing View...</p>
@@ -1028,7 +1035,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                 
                 return (
                   <ReaderSheet 
-                    key={sheetIndex}
+                    key={`${sheetIndex}-${viewMode}`}
                     index={sheetIndex}
                     pdf={pdf!}
                     numPages={numPages}
@@ -1075,7 +1082,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       {/* Progress Footer */}
       <AnimatePresence>
-        {showControls && !isLoading && !error && (
+        {showControls && isReady && !error && (
           <motion.div 
             initial={{ y: 120 }}
             animate={{ y: 0 }}
@@ -1170,24 +1177,8 @@ const ReaderSheet = React.memo(function ReaderSheet({
     }
   }, [viewMode, containerDimensions]);
 
-  // Use the recalculated one from parent if possible, but let's just use a simplified one here for CSS
-  const [displayWidth, setDisplayWidth] = useState(0);
-  useEffect(() => {
-    if (containerDimensions.width === 0) return;
-    let w = 0;
-    if (viewMode === 'double') {
-      const maxWidth = containerDimensions.width * 0.95;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = (maxHeight * 0.707) * 2;
-      w = Math.min(idealWidth, maxWidth) / 2;
-    } else {
-      const maxWidth = containerDimensions.width * 0.9;
-      const maxHeight = containerDimensions.height * 0.9;
-      const idealWidth = maxHeight * 0.707;
-      w = Math.min(idealWidth, maxWidth);
-    }
-    setDisplayWidth(w);
-  }, [viewMode, containerDimensions]);
+  // Use the recalculated one from parent if possible
+  const displayWidth = baseWidth;
   
   const x = useTransform(distance, (d: number) => {
     const multiplier = direction === 'rtl' ? -100 : 100;
@@ -1351,7 +1342,10 @@ interface PDFPageProps {
 }
 
 const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, renderScale, committedScale, pageCache, liveScale, direction, isSpreadChild, panX, panY, containerDimensions, side }) => {
-  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [pageSize, setPageSize] = useState(() => {
+    // Start with a reasonable guess to minimize layout jump
+    return { width: width || 1, height: (width || 1) * 1.414 };
+  });
   const textLayerDivRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1382,7 +1376,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
   const displayHeight = width * aspectRatio;
   const sheetRelX = side === 'left' ? -width : side === 'right' ? 0 : -width/2;
 
-  if (pageSize.width === 0) return <div style={{ width: displayWidth, height: displayHeight }} className="bg-white/5 animate-pulse" />;
+  if (pageSize.width <= 1) return <div style={{ width: displayWidth, height: displayHeight }} className="bg-zinc-900 animate-pulse rounded-sm" />;
 
   return (
     <div 
