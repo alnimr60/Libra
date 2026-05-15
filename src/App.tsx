@@ -261,9 +261,9 @@ export default function App() {
       </nav>
 
       {/* Global Reader Overlay */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {activeBook && (
-          <PDFReaderErrorBoundary>
+          <PDFReaderErrorBoundary key={activeBook.id}>
             <PDFReader 
               book={activeBook}
               initialPage={activeBook.currentPage}

@@ -69,7 +69,7 @@ export default function Dashboard({
 
   if (books.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full px-10 text-center gap-6" dir={isRTL ? "rtl" : "ltr"}>
+      <div className="flex flex-col items-center justify-center min-h-[70vh] px-10 text-center gap-6" dir={isRTL ? "rtl" : "ltr"}>
         <div className="w-24 h-24 bg-zinc-200 dark:bg-zinc-800 rounded-full flex items-center justify-center animate-pulse">
            <BookOpen className="w-10 h-10 text-zinc-400 dark:text-zinc-600" />
         </div>
