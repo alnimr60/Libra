@@ -91,8 +91,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const isDraggingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState(false);
+  const lastPanTime = useRef(0);
   const [showControls, setShowControls] = useState(true);
-  const renderScale = committedScale; // Direct — no delayed state update
+  const renderScale = committedScale;
   const [retryKey, setRetryKey] = useState(0);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
@@ -175,29 +176,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const liveScalePercent = useTransform(liveScale, v => `${Math.round(v * 100)}%`);
 
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
-    console.log("[DoubleTap] STEP 1: Entry", { clientX, clientY });
     try {
-      if (!readerContainerRef.current) {
-        console.warn("[DoubleTapZoom] Abort: No reader container ref");
-        return;
-      }
-      
-      // Safety lock: Don't interrupt existing zoom animations or pinch gestures
+      if (!readerContainerRef.current) return;
       if (isAnimatingZoom.current || isPinching.current) return;
-
       if (!Number.isFinite(liveScale.get())) return;
 
-      // Mark as animating zoom BEFORE anything else to lock other gestures
       isAnimatingZoom.current = true;
-      
-      // Safety timeout in case animation gets interrupted (Bug 5 fix)
-      setTimeout(() => {
-        if (isAnimatingZoom.current) {
-          isAnimatingZoom.current = false;
-        }
-      }, 1000);
-
-      // Stop all active animations to prevent conflicts during transition
       liveScale.stop();
       panX.stop();
       panY.stop();
@@ -210,18 +194,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       let targetPanY = 0;
 
       if (isZoomedOut) {
-        // Calculate tap position relative to reader container
         const containerRect = readerContainerRef.current.getBoundingClientRect();
-        
-        // Clamp tap position to prevent edge-origin explosions
         const safeTapX = Math.max(containerRect.width * 0.2, Math.min(containerRect.width * 0.8, clientX - containerRect.left));
         const safeTapY = Math.max(containerRect.height * 0.2, Math.min(containerRect.height * 0.8, clientY - containerRect.top));
         
-        // Target pan to center on the safe tap point
         targetPanX = (readerContainerRef.current.clientWidth / 2 - safeTapX) * (targetScale / currentScaleValue);
         targetPanY = (readerContainerRef.current.clientHeight / 2 - safeTapY) * (targetScale / currentScaleValue);
         
-        // Clamp target pan before animation
         const aspect = 1.414;
         const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
         const zoomedWidth = spreadWidth * targetScale;
@@ -236,39 +215,20 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         targetPanY = Math.max(-vMargin, Math.min(vMargin, targetPanY));
       }
       
-      console.log("[DoubleTap] STEP 4: Animation setup complete", { targetScale, isZoomedOut, targetPanX, targetPanY });
-
-      // Handle UI controls state change cautiously
       if (isZoomedOut && showControls) {
         setShowControls(false);
       }
 
-      // @ts-ignore
-      const animConfig = { 
-        type: 'spring', 
-        stiffness: 300, 
-        damping: 30
-      };
-      
-      // @ts-ignore
+      const animConfig = { type: 'spring', stiffness: 300, damping: 30 };
       animate(liveScale, targetScale, animConfig);
-      // @ts-ignore
       animate(panX, targetPanX, animConfig);
-      // @ts-ignore
       animate(panY, targetPanY, {
         ...animConfig,
         onComplete: () => {
-          try {
-            setCommittedScale(targetScale);
-            requestAnimationFrame(() => {
-              isAnimatingZoom.current = false;
-            });
-          } catch (syncErr) {
-            isAnimatingZoom.current = false;
-          }
+          setCommittedScale(targetScale);
+          isAnimatingZoom.current = false;
         }
       });
-
     } catch (err) {
       isAnimatingZoom.current = false;
     }
@@ -523,6 +483,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
       }
 
+      lastPanTime.current = Date.now();
       gestureMode.current = GestureMode.Idle;
     } catch (err) {
       console.error("[GestureCrash] Error in handlePanEnd:", err);
@@ -545,10 +506,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     if (isLandscape) {
       const timer = setTimeout(() => setShowControls(false), 3000);
       return () => clearTimeout(timer);
-    } else {
-      setShowControls(true);
     }
-  }, [isLandscape, pageIndex]);
+  }, [isLandscape]);
 
   useEffect(() => {
     async function loadPDF() {
@@ -984,6 +943,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={(e) => {
+          // Prevent controls flickering by ignoring clicks if we just finished a pan
+          if (Date.now() - lastPanTime.current < 150) return;
+
           // If text is selected, check if we should ignore the click
           const selection = window.getSelection();
           if (selection && selection.toString().trim().length > 0) {
@@ -1190,7 +1152,6 @@ const ReaderSheet = React.memo(function ReaderSheet({
   panY: any,
   isCurrent: boolean
 }) {
-  console.log(`[HOOK TRACE] ReaderSheet render index: ${index}`);
   const distance = useTransform(virtualPage, (v: number) => index - v);
   
   // Calculate display width in pixels (BASE SIZE at scale 1.0)
@@ -1330,7 +1291,6 @@ const SpreadPage = React.memo(function SpreadPage({ pdf, pageNumber, numPages, w
   panY: any,
   containerDimensions: { width: number, height: number }
 }) {
-  console.log(`[HOOK TRACE] SpreadPage render page: ${pageNumber}`);
   const isOutOfBounds = pageNumber > numPages;
   
   const content = isOutOfBounds ? (
