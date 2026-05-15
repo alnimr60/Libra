@@ -78,13 +78,12 @@ body {
   user-select: text !important;
   -webkit-user-select: text !important;
   pointer-events: auto !important;
-  z-index: 5;
+  z-index: 50;
   line-height: normal;
-  padding-top: 2px;
 }
 
 .textLayer span {
-  color: rgba(0, 0, 0, 0.005);
+  color: rgba(0, 0, 0, 0.01);
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -97,7 +96,7 @@ body {
 }
 
 .textLayer ::selection {
-  background: rgba(249, 115, 22, 0.4);
+  background: rgba(249, 115, 22, 0.6);
 }
 
 canvas {
