@@ -72,16 +72,21 @@ body {
 }
 
 /* PDF Text Layer Selection Styling */
+.textLayer,
+.textLayer * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 .textLayer {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  pointer-events: none;
+  z-index: 50;
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
   touch-action: pan-y pinch-zoom;
-  user-select: text;
-  -webkit-user-select: text;
-  pointer-events: none;
 }
 
 .textLayer span {
@@ -93,18 +98,40 @@ body {
   pointer-events: auto;
   user-select: text !important;
   -webkit-user-select: text !important;
+  
+  padding-inline: 0.01em;
+  margin-inline: -0.01em;
+  
   box-sizing: border-box;
 }
 
-/* Selection Color: Red/Orange */
-.textLayer ::selection {
+/* Selection Color: Red/Orange for Desktop */
+.textLayer span::selection {
   background: rgba(255, 120, 0, 0.45) !important;
 }
-.textLayer ::-moz-selection {
+.textLayer span::-moz-selection {
   background: rgba(255, 120, 0, 0.45) !important;
 }
-.textLayer ::-webkit-selection {
-  background: rgba(255, 120, 0, 0.45) !important;
+
+.textLayer {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Continuous hit areas */
+.textLine {
+  display: block;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: none;
+}
+
+.textLayer span {
+  user-select: text;
+  -webkit-user-select: text;
+  display: inline;
+  white-space: pre;
+  line-height: 1;
 }
 
 /* Custom scrollbar for desktop */

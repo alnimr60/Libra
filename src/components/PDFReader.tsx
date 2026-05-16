@@ -1371,17 +1371,39 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
       if (isMounted) {
         setPageSize({ width: viewport.width, height: viewport.height });
         
-            // Render Text Layer
-            if (textLayerDivRef.current) {
-              textLayerDivRef.current.innerHTML = '';
-              const fitScale = width / viewport.width;
-              const textViewport = page.getViewport({ scale: fitScale });
-              page.getTextContent().then(content => {
-                if (!isMounted || !textLayerDivRef.current) return;
-                textLayerDivRef.current.style.setProperty('--scale-factor', textViewport.scale.toString());
-                pdfjs.renderTextLayer({ textContentSource: content, container: textLayerDivRef.current, viewport: textViewport, textDivs: [] });
-              });
-            }
+        // Render Text Layer
+        if (textLayerDivRef.current) {
+          textLayerDivRef.current.innerHTML = '';
+          const fitScale = width / viewport.width;
+          const textViewport = page.getViewport({ scale: fitScale });
+          page.getTextContent().then(content => {
+            if (!isMounted || !textLayerDivRef.current) return;
+            textLayerDivRef.current.style.setProperty('--scale-factor', textViewport.scale.toString());
+            pdfjs.renderTextLayer({ textContentSource: content, container: textLayerDivRef.current, viewport: textViewport, textDivs: [] });
+            
+            // Post-process: Wrap lines into textLine hit-test regions
+            const textLayer = textLayerDivRef.current;
+            const spans = Array.from(textLayer.querySelectorAll('span'));
+            const lineGroups = new Map<number, HTMLElement[]>();
+            
+            spans.forEach(span => {
+              const top = (span as HTMLElement).offsetTop;
+              // Group with 2px tolerance
+              const key = Math.round(top / 2) * 2;
+              if (!lineGroups.has(key)) lineGroups.set(key, []);
+              lineGroups.get(key)?.push(span as HTMLElement);
+            });
+            
+            lineGroups.forEach(spansInLine => {
+              const wrapper = document.createElement('div');
+              wrapper.className = 'textLine';
+              // Insert wrapper before first span
+              spansInLine[0].parentNode!.insertBefore(wrapper, spansInLine[0]);
+              // Move all spans into the wrapper
+              spansInLine.forEach(span => wrapper.appendChild(span));
+            });
+          });
+        }
       }
     });
     return () => { isMounted = false; };
