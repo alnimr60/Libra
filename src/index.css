@@ -89,6 +89,38 @@ body {
   touch-action: pan-y pinch-zoom;
 }
 
+/* selection color override for Safari contenteditable hack */
+.textLayer[contenteditable="true"] {
+  outline: none !important;
+  caret-color: rgb(255, 120, 0) !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Force native selection to be invisible so only our custom orange highlight shows */
+::selection {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: inherit !important;
+}
+
+::-moz-selection {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: inherit !important;
+}
+
+@supports (-webkit-touch-callout: none) {
+  /* Ultra-aggressive transparent selection for iOS Safari */
+  .textLayer[contenteditable="true"] ::selection,
+  .textLayer[contenteditable="true"] *::selection,
+  .textLayer span::selection {
+    background: transparent !important;
+    background-color: rgba(0, 0, 0, 0) !important;
+    color: inherit !important;
+    -webkit-text-fill-color: inherit !important;
+  }
+}
+
 .textLayer span {
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
@@ -98,24 +130,10 @@ body {
   pointer-events: auto;
   user-select: text !important;
   -webkit-user-select: text !important;
-  
-  padding-inline: 0.01em;
-  margin-inline: -0.01em;
-  
   box-sizing: border-box;
-}
-
-/* Selection Color: Red/Orange for Desktop */
-.textLayer span::selection {
-  background: rgba(255, 120, 0, 0.45) !important;
-}
-.textLayer span::-moz-selection {
-  background: rgba(255, 120, 0, 0.45) !important;
-}
-
-.textLayer {
-  user-select: text;
-  -webkit-user-select: text;
+  display: inline;
+  line-height: 1;
+  z-index: 1;
 }
 
 /* Continuous hit areas */
@@ -126,12 +144,29 @@ body {
   -webkit-touch-callout: none;
 }
 
-.textLayer span {
-  user-select: text;
-  -webkit-user-select: text;
-  display: inline;
-  white-space: pre;
-  line-height: 1;
+/* Custom Selection Highlight Style (used by JS) */
+.selection-highlights {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.selection-highlights div {
+  background: rgba(249, 115, 22, 0.45) !important; /* Tailwind Orange 500 equivalent */
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 1px;
+}
+
+[dir="rtl"] .selection-highlights div {
+  background: rgba(255, 120, 0, 0.45) !important;
+}
+
+/* Desktop Fallback for non-iOS */
+@media (hover: hover) {
+  ::selection {
+    background: rgba(255, 120, 0, 0.45) !important;
+  }
 }
 
 /* Custom scrollbar for desktop */
