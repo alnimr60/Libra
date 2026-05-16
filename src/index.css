@@ -160,7 +160,12 @@ body {
   background: rgba(255, 120, 0, 0.45) !important;
 }
 
-/* Desktop uses the same JS-driven highlights — no native ::selection color needed */
+/* Desktop: use native ::selection for reliable highlighting (JS highlights are skipped on hover devices) */
+@media (hover: hover) {
+  ::selection {
+    background: rgba(255, 120, 0, 0.45) !important;
+  }
+}
 
 /* Custom scrollbar for desktop */
 .custom-scrollbar::-webkit-scrollbar {
