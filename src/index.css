@@ -76,63 +76,35 @@ body {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  user-select: text !important;
-  -webkit-user-select: text !important;
-  pointer-events: auto !important;
-  z-index: 50;
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
-}
-
-.textLayer ::selection {
-  background: transparent !important;
-  color: transparent !important;
-}
-
-.textLayer ::-moz-selection {
-  background: transparent !important;
-  color: transparent !important;
-}
-
-.textLayer br {
-  display: none !important;
+  touch-action: pan-y pinch-zoom;
+  user-select: text;
+  -webkit-user-select: text;
+  pointer-events: none;
 }
 
 .textLayer span {
-  color: rgba(0,0,0,0.01) !important;
-  -webkit-text-fill-color: rgba(0,0,0,0.01) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
   position: absolute;
   white-space: pre;
   cursor: text;
-  transform-origin: 0% 0%;
+  pointer-events: auto;
   user-select: text !important;
   -webkit-user-select: text !important;
-  display: inline-block;
-  line-height: 1.3; /* Adjusted line height */
-  min-height: 1em;
-  padding: 0.15em 0;
-  margin: -0.15em 0;
+  box-sizing: border-box;
 }
 
-/* 
-  Fill the dead space gap after each span so that dragging past the end 
-  of a line doesn't snap selection backwards on iOS Safari 
-*/
-.textLayer span::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 100%;
-  width: 100vw;
-  background: transparent;
-  pointer-events: auto;
-  user-select: none;
+/* Selection Color: Red/Orange */
+.textLayer ::selection {
+  background: rgba(255, 120, 0, 0.45) !important;
 }
-
-
-canvas {
-  pointer-events: none;
+.textLayer ::-moz-selection {
+  background: rgba(255, 120, 0, 0.45) !important;
+}
+.textLayer ::-webkit-selection {
+  background: rgba(255, 120, 0, 0.45) !important;
 }
 
 /* Custom scrollbar for desktop */
