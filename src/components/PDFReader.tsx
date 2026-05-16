@@ -159,6 +159,32 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   };
   
+  const isSelectionActiveRef = useRef(false);
+
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    const handleGlobalSelection = () => {
+      const sel = window.getSelection();
+      const isActive = sel && sel.type === 'Range' && !sel.isCollapsed && sel.rangeCount > 0;
+      
+      clearTimeout(timeout);
+      
+      if (!isActive) {
+        timeout = setTimeout(() => {
+          isSelectionActiveRef.current = false;
+        }, 100);
+      } else {
+        isSelectionActiveRef.current = true;
+      }
+    };
+    
+    document.addEventListener('selectionchange', handleGlobalSelection);
+    return () => {
+      clearTimeout(timeout);
+      document.removeEventListener('selectionchange', handleGlobalSelection);
+    };
+  }, []);
+
   const baseWidth = React.useMemo(() => {
     if (readerDimensions.width === 0) return 300; // Fallback
     if (viewMode === 'double') {
@@ -324,6 +350,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePanStart = (e: any, info: any) => {
     try {
+      if (isSelectionActiveRef.current) return;
       // If we are already in a specific mode, don't re-evaluate
       if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
       
@@ -609,6 +636,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (isSelectionActiveRef.current) return;
     if (e.touches.length === 2 && !isAnimatingZoom.current) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
@@ -1363,6 +1391,146 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
     return { width: width || 1, height: (width || 1) * 1.414 };
   });
   const textLayerDivRef = useRef<HTMLDivElement>(null);
+  const [selectionRects, setSelectionRects] = useState<{x: number, y: number, w: number, h: number}[]>([]);
+
+  useEffect(() => {
+    let animationFrame: number;
+    let selectionDirty = false;
+    let lastStableRects: { x: number, y: number, w: number, h: number }[] = [];
+    let pendingRects: { x: number, y: number, w: number, h: number }[] | null = null;
+    let pendingFrames = 0;
+
+    const handleSelection = () => {
+      selectionDirty = true;
+    };
+
+    const isSimilar = (a: any[], b: any[]) => {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (
+          Math.abs(a[i].x - b[i].x) > 2 || 
+          Math.abs(a[i].y - b[i].y) > 2 || 
+          Math.abs(a[i].w - b[i].w) > 2 || 
+          Math.abs(a[i].h - b[i].h) > 2
+        ) return false;
+      }
+      return true;
+    };
+
+    const loop = () => {
+      animationFrame = requestAnimationFrame(loop);
+      
+      if (!selectionDirty && !pendingRects) return;
+      selectionDirty = false;
+
+      const layer = textLayerDivRef.current;
+      const selection = window.getSelection();
+      const isActive = selection && selection.type === 'Range' && !selection.isCollapsed && selection.rangeCount > 0;
+      
+      if (!isActive || !layer) {
+        lastStableRects = [];
+        pendingRects = null;
+        setSelectionRects(prev => prev.length > 0 ? [] : prev);
+        return;
+      }
+
+      const layerRect = layer.getBoundingClientRect();
+      const scaleX = layerRect.width / layer.offsetWidth || 1;
+      const scaleY = layerRect.height / layer.offsetHeight || 1;
+      const rawRects: { x: number, y: number, w: number, h: number }[] = [];
+
+      for (let i = 0; i < selection.rangeCount; i++) {
+        const range = selection.getRangeAt(i);
+        const rects = range.getClientRects();
+        for (let j = 0; j < rects.length; j++) {
+          const rect = rects[j];
+          if (
+            rect.right <= layerRect.left + 1 ||
+            rect.left >= layerRect.right - 1 ||
+            rect.bottom <= layerRect.top + 1 ||
+            rect.top >= layerRect.bottom - 1
+          ) continue;
+
+          const clampX = Math.max(rect.left, layerRect.left);
+          const clampY = Math.max(rect.top, layerRect.top);
+          const clampR = Math.min(rect.right, layerRect.right);
+          const clampB = Math.min(rect.bottom, layerRect.bottom);
+
+          if (clampR > clampX && clampB > clampY) {
+            rawRects.push({
+              x: Math.round((clampX - layerRect.left) / scaleX),
+              y: Math.round((clampY - layerRect.top) / scaleY),
+              w: Math.round((clampR - clampX) / scaleX),
+              h: Math.round((clampB - clampY) / scaleY)
+            });
+          }
+        }
+      }
+
+      const mergedRects: { x: number, y: number, w: number, h: number }[] = [];
+      // Sort rawRects by y, then by x to ensure proper merging order
+      rawRects.sort((a, b) => {
+        if (Math.abs(a.y - b.y) > 5) return a.y - b.y;
+        return a.x - b.x;
+      });
+
+      for (const rect of rawRects) {
+        if (mergedRects.length === 0) {
+          mergedRects.push({ ...rect });
+          continue;
+        }
+        
+        const last = mergedRects[mergedRects.length - 1];
+        const yOverlap = Math.max(0, Math.min(rect.y + rect.h, last.y + last.h) - Math.max(rect.y, last.y));
+        
+        if (yOverlap > Math.min(rect.h, last.h) * 0.5) {
+          const nx = Math.min(rect.x, last.x);
+          const ny = Math.min(rect.y, last.y);
+          const nr = Math.max(rect.x + rect.w, last.x + last.w);
+          const nb = Math.max(rect.y + rect.h, last.y + last.h);
+          last.x = nx;
+          last.y = ny;
+          last.w = nr - nx;
+          last.h = nb - ny;
+        } else {
+          mergedRects.push({ ...rect });
+        }
+      }
+
+      if (isSimilar(lastStableRects, mergedRects)) {
+        pendingRects = null;
+        return;
+      }
+
+      // Hysteresis: if we drop lines or jump backward, give it a few frames to recover
+      const isSuspicious = mergedRects.length < lastStableRects.length && mergedRects.length > 0;
+      if (isSuspicious) {
+        if (!pendingRects) {
+          pendingRects = mergedRects;
+          pendingFrames = 0;
+          return;
+        }
+        pendingFrames++;
+        if (pendingFrames < 8) {
+          return;
+        }
+      }
+
+      lastStableRects = mergedRects;
+      pendingRects = null;
+      setSelectionRects(mergedRects);
+    };
+
+    document.addEventListener('selectionchange', handleSelection);
+    window.addEventListener('resize', handleSelection);
+    animationFrame = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      document.removeEventListener('selectionchange', handleSelection);
+      window.removeEventListener('resize', handleSelection);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -1416,6 +1584,24 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
         ref={textLayerDivRef} 
         className="textLayer absolute inset-0 z-[60] pointer-events-auto select-text cursor-text"
       />
+      <div 
+        className="selection-overlay-layer absolute inset-0 w-full h-full z-[55] pointer-events-none opacity-30 mix-blend-multiply dark:mix-blend-screen"
+        style={{ contain: 'strict', willChange: 'auto' }}
+      >
+        {selectionRects.map((r, i) => (
+          <div 
+            key={i} 
+            className="absolute bg-[#f97316]"
+            style={{
+              left: r.x,
+              top: r.y,
+              width: r.w,
+              height: r.h,
+              transition: 'none'
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 });

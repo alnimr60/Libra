@@ -72,32 +72,6 @@ body {
 }
 
 /* PDF Text Layer Selection Styling */
-::selection {
-  background-color: #f97316 !important;
-  background: #f97316 !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
-}
-
-::-moz-selection {
-  background-color: #f97316 !important;
-  background: #f97316 !important;
-  color: #ffffff !important;
-}
-
-*::selection {
-  background-color: #f97316 !important;
-  background: #f97316 !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
-}
-
-*::-moz-selection {
-  background-color: #f97316 !important;
-  background: #f97316 !important;
-  color: #ffffff !important;
-}
-
 .textLayer {
   position: absolute;
   inset: 0;
@@ -107,13 +81,26 @@ body {
   pointer-events: auto !important;
   z-index: 50;
   line-height: normal;
-  /* iOS fix for selection color inheritance */
-  -webkit-tap-highlight-color: rgba(249, 115, 22, 0.3);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.textLayer ::selection {
+  background: transparent !important;
+  color: transparent !important;
+}
+
+.textLayer ::-moz-selection {
+  background: transparent !important;
+  color: transparent !important;
+}
+
+.textLayer br {
+  display: none !important;
 }
 
 .textLayer span {
-  color: rgba(249, 115, 22, 0.001) !important;
-  -webkit-text-fill-color: rgba(249, 115, 22, 0.001) !important;
+  color: rgba(0,0,0,0.01) !important;
+  -webkit-text-fill-color: rgba(0,0,0,0.01) !important;
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -121,19 +108,28 @@ body {
   user-select: text !important;
   -webkit-user-select: text !important;
   display: inline-block;
-  line-height: normal;
+  line-height: 1.3; /* Adjusted line height */
   min-height: 1em;
+  padding: 0.15em 0;
+  margin: -0.15em 0;
 }
 
-.textLayer span::selection,
-.textLayer span *::selection,
-.textLayer *::selection,
-::selection {
-  background-color: #f97316 !important;
-  background: #f97316 !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+/* 
+  Fill the dead space gap after each span so that dragging past the end 
+  of a line doesn't snap selection backwards on iOS Safari 
+*/
+.textLayer span::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 100vw;
+  background: transparent;
+  pointer-events: auto;
+  user-select: none;
 }
+
 
 canvas {
   pointer-events: none;
