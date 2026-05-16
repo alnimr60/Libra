@@ -64,9 +64,19 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
 
   // Base render (1x scale, drawn once when page loads)
   useEffect(() => {
+    let isActive = true;
     if (!pdfPage || !baseCanvasRef.current || !isVisible) return;
     
     const drawBase = async () => {
+      if (baseRenderTask.current) {
+        try { 
+          baseRenderTask.current.cancel(); 
+          await baseRenderTask.current.promise;
+        } catch (_) { /* ignore */ }
+      }
+
+      if (!isActive) return;
+
       const canvas = baseCanvasRef.current;
       if (!canvas) return;
       
@@ -96,13 +106,20 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
       try {
         await baseRenderTask.current.promise;
       } catch (err: any) {
-        if (err.name !== 'RenderingCancelledException') {
-          console.error('[PDFTileEngine] Base render error:', err);
+        if (err.name !== 'RenderingCancelledException' && !err.message?.includes('cancelled')) {
+          console.error('[PDFTileEngine] Base render error:', err.message || err);
         }
       }
     };
     
     drawBase();
+
+    return () => {
+      isActive = false;
+      if (baseRenderTask.current) {
+        try { baseRenderTask.current.cancel(); } catch (_) { /* ignore */ }
+      }
+    };
   }, [pdfPage, width, height, isVisible]);
 
   // High-resolution render (zoomed in viewport)
@@ -139,11 +156,15 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
     const physicalHeight = Math.ceil(visHeight * dpr);
 
     if (currentRenderTask.current) {
-      try { currentRenderTask.current.cancel(); } catch (_) { }
-      currentRenderTask.current = null;
+      try { 
+        currentRenderTask.current.cancel(); 
+        await currentRenderTask.current.promise;
+      } catch (_) { }
     }
 
     const myGeneration = ++renderGeneration.current;
+    if (renderGeneration.current !== myGeneration) return;
+
     const offscreen = getOffscreen(physicalWidth, physicalHeight);
     const ctx = offscreen.getContext('2d', { alpha: false });
     if (!ctx) return;
@@ -194,8 +215,8 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
         canvas.style.opacity = '1';
       }
     } catch (err: any) {
-      if (err.name !== 'RenderingCancelledException') {
-        console.error('[PDFTileEngine] Render error:', err);
+      if (err.name !== 'RenderingCancelledException' && !err.message?.includes('cancelled')) {
+        console.error('[PDFTileEngine] High-res render error:', err.message || err);
       }
     }
   }, [isVisible, pdfPage, committedScale, panX, panY, getOffscreen]);

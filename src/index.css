@@ -72,15 +72,30 @@ body {
 }
 
 /* PDF Text Layer Selection Styling */
+::selection {
+  background-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+::-moz-selection {
+  background-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+}
+
 *::selection {
-  background-color: rgba(249, 115, 22, 0.45) !important;
-  background: rgba(249, 115, 22, 0.45) !important;
-  -webkit-tap-highlight-color: rgba(249, 115, 22, 0.2) !important;
+  background-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 *::-moz-selection {
-  background-color: rgba(249, 115, 22, 0.45) !important;
-  background: rgba(249, 115, 22, 0.45) !important;
+  background-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
 }
 
 .textLayer {
@@ -92,11 +107,13 @@ body {
   pointer-events: auto !important;
   z-index: 50;
   line-height: normal;
+  /* iOS fix for selection color inheritance */
+  -webkit-tap-highlight-color: rgba(249, 115, 22, 0.3);
 }
 
 .textLayer span {
-  color: rgba(0, 0, 0, 0.001) !important;
-  -webkit-text-fill-color: rgba(0, 0, 0, 0.001) !important;
+  color: rgba(249, 115, 22, 0.001) !important;
+  -webkit-text-fill-color: rgba(249, 115, 22, 0.001) !important;
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -110,17 +127,12 @@ body {
 
 .textLayer span::selection,
 .textLayer span *::selection,
-.textLayer ::selection {
+.textLayer *::selection,
+::selection {
   background-color: #f97316 !important;
-  background-color: rgba(249, 115, 22, 0.6) !important;
-  color: rgba(255, 255, 255, 0.001) !important;
-}
-
-.textLayer span::-moz-selection,
-.textLayer span *::-moz-selection,
-.textLayer ::-moz-selection {
-  background-color: rgba(249, 115, 22, 0.6) !important;
-  color: rgba(255, 255, 255, 0.001) !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 canvas {

@@ -855,10 +855,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             animate={{ y: 0 }}
             exit={{ y: -120 }}
             transition={{ type: "tween", ease: "easeOut", duration: 0.2 }}
-            style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
+            style={{ 
+              paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px`,
+              willChange: "transform",
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
+              transform: "translateZ(0)",
+              WebkitTransform: "translateZ(0)"
+            }}
             dir={direction === 'rtl' ? "rtl" : "ltr"}
             className={cn(
-              "fixed top-0 left-0 right-0 flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-950/90 backdrop-blur-2xl z-[310] select-none",
+              "fixed top-0 left-0 right-0 flex items-center justify-between gap-4 text-white/70 border-b border-white/5 bg-zinc-950 z-[310] select-none",
               isLandscape ? "p-2 px-6 pb-2" : "p-4 pb-4"
             )}
           >
@@ -1090,8 +1097,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             exit={{ y: 120 }}
             transition={{ type: "tween", ease: "easeOut", duration: 0.2 }}
             dir={direction === 'rtl' ? "rtl" : "ltr"}
-            style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
-            className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-zinc-950/90 backdrop-blur-2xl shadow-2xl border-t border-white/5 z-[310] select-none"
+            style={{ 
+              paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px`,
+              willChange: "transform",
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
+              transform: "translateZ(0)",
+              WebkitTransform: "translateZ(0)"
+            }}
+            className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-zinc-950 shadow-2xl border-t border-white/5 z-[310] select-none"
           >
             <div className="max-w-2xl mx-auto flex items-center gap-6">
               <div className="flex-1 h-1.5 bg-white/10 rounded-full relative overflow-hidden">
