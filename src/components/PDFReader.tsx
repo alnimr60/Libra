@@ -854,7 +854,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             initial={{ y: -120 }}
             animate={{ y: 0 }}
             exit={{ y: -120 }}
-            transition={{ type: "spring", stiffness: 400, damping: 35 }}
+            transition={{ type: "tween", ease: "easeOut", duration: 0.2 }}
             style={{ paddingTop: `${insets.top + (isLandscape ? 8 : 16)}px` }}
             dir={direction === 'rtl' ? "rtl" : "ltr"}
             className={cn(
@@ -1088,7 +1088,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             initial={{ y: 120 }}
             animate={{ y: 0 }}
             exit={{ y: 120 }}
-            transition={{ type: "spring", stiffness: 400, damping: 35 }}
+            transition={{ type: "tween", ease: "easeOut", duration: 0.2 }}
             dir={direction === 'rtl' ? "rtl" : "ltr"}
             style={{ paddingBottom: `${insets.bottom + (isLandscape ? 8 : 16)}px` }}
             className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-zinc-950/90 backdrop-blur-2xl shadow-2xl border-t border-white/5 z-[310] select-none"
