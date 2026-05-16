@@ -57,6 +57,87 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   }, [committedScale, liveScale, panX, panY]);
 
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      
+      // Clear previous highlights globally
+      const allHighlightContainers = document.querySelectorAll('.selection-highlights');
+      allHighlightContainers.forEach(container => {
+        container.innerHTML = '';
+      });
+
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+
+      const currentScale = liveScale.get() || 1;
+      const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
+      const fragmentMap = new Map<Element, DocumentFragment>();
+
+      for (let i = 0; i < selection.rangeCount; i++) {
+        const range = selection.getRangeAt(i);
+        const rects = range.getClientRects();
+
+        for (let j = 0; j < rects.length; j++) {
+          const rect = rects[j];
+          if (rect.width < 0.5 || rect.height < 0.5) continue;
+
+          // Find the textLayer that contains this rect
+          const centerX = rect.left + rect.width / 2;
+          const centerY = rect.top + rect.height / 2;
+
+          const tl = allTextLayers.find(layer => {
+            const lRect = layer.getBoundingClientRect();
+            return centerX >= lRect.left && centerX <= lRect.right &&
+                   centerY >= lRect.top && centerY <= lRect.bottom;
+          });
+
+          if (tl) {
+            let frag = fragmentMap.get(tl);
+            if (!frag) {
+              frag = document.createDocumentFragment();
+              fragmentMap.set(tl, frag);
+            }
+
+            const tlRect = tl.getBoundingClientRect();
+            const div = document.createElement('div');
+            
+            // Calculate unscaled coordinates so highlights stay pinned during zoom
+            Object.assign(div.style, {
+              position: 'absolute',
+              left: `${(rect.left - tlRect.left) / currentScale}px`,
+              top: `${(rect.top - tlRect.top) / currentScale}px`,
+              width: `${rect.width / currentScale}px`,
+              height: `${rect.height / currentScale}px`,
+              pointerEvents: 'none'
+            });
+            frag.appendChild(div);
+          }
+        }
+      }
+
+      // Batch append highlights to their respective layers
+      fragmentMap.forEach((frag, tl) => {
+        let highlightContainer = tl.querySelector('.selection-highlights') as HTMLElement;
+        if (!highlightContainer) {
+          highlightContainer = document.createElement('div');
+          highlightContainer.className = 'selection-highlights';
+          Object.assign(highlightContainer.style, {
+            position: 'absolute',
+            inset: '0',
+            pointerEvents: 'none',
+            zIndex: '0',
+            backgroundColor: 'transparent'
+          });
+          tl.appendChild(highlightContainer);
+        }
+        highlightContainer.appendChild(frag);
+      });
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, []);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>(book.readingDirection || 'ltr');
@@ -1383,6 +1464,10 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             
             // Post-process: Wrap lines into textLine hit-test regions
             const textLayer = textLayerDivRef.current;
+            textLayer.setAttribute('contenteditable', 'true');
+            textLayer.setAttribute('spellcheck', 'false');
+            textLayer.setAttribute('inputmode', 'none');
+            
             const spans = Array.from(textLayer.querySelectorAll('span'));
             const lineGroups = new Map<number, HTMLElement[]>();
             
