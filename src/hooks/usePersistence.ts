@@ -141,6 +141,10 @@ export function usePersistence() {
     });
   };
 
+  const importData = (data: AppData) => {
+    setData(data);
+  };
+
   return {
     books: data.books,
     settings: data.settings,
@@ -154,5 +158,6 @@ export function usePersistence() {
     updateGoal,
     deleteGoal,
     logReading,
+    importData,
   };
 }

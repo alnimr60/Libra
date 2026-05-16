@@ -121,7 +121,7 @@ export default function App() {
   const { 
     books, settings, goals, readingLogs, 
     addBook, updateBook, deleteBook, setSettings,
-    addGoal, updateGoal, deleteGoal, logReading 
+    addGoal, updateGoal, deleteGoal, logReading, importData
   } = usePersistence();
   const insets = useSafeArea();
   const isRTL = settings.language === 'ar';
@@ -222,7 +222,14 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               className="h-full"
             >
-              <Settings settings={settings} setSettings={setSettings} />
+              <Settings 
+                books={books}
+                settings={settings} 
+                goals={goals}
+                readingLogs={readingLogs}
+                setSettings={setSettings} 
+                importData={importData}
+              />
             </motion.div>
           )}
         </AnimatePresence>
