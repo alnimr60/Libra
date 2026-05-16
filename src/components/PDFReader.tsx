@@ -30,6 +30,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const gestureMode = useRef<GestureMode>(GestureMode.Idle);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartInfo = useRef({ x: 0, y: 0, time: 0 });
+  const touchStartOnTextLayer = useRef(false);
   const isPinching = useRef(false);
   const isPanning = useRef(false);
   const isAnimatingZoom = useRef(false);
@@ -68,6 +69,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       });
 
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+
+      // On desktop (hover devices), native ::selection handles the highlight — skip JS highlights
+      if (window.matchMedia('(hover: hover)').matches) return;
 
       const currentScale = liveScale.get() || 1;
       const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
@@ -349,6 +353,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       // Clear any existing long press timer
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
+      // Track if this gesture started on the text layer
+      touchStartOnTextLayer.current = !!target.closest('.textLayer');
+
       touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
 
       // Handle Double Tap Zoom (takes priority over everything)
@@ -366,18 +373,21 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
       }
 
-      // If there's an active text selection, check if user is interacting with it
+      // Handle active text selection
       const selection = window.getSelection();
       const hasActiveSelection = selection && !selection.isCollapsed && selection.toString().trim().length > 0;
       
       if (hasActiveSelection) {
-        const isInTextLayer = target.closest('.textLayer');
-        if (isInTextLayer) {
-          // User is adjusting selection handles or tapping selected text — let browser handle it
+        if (e.pointerType === 'touch' && touchStartOnTextLayer.current) {
+          // Touch on text with active selection: allow handle adjustment
           gestureMode.current = GestureMode.SelectingText;
           return;
         }
-        // Touching outside text layer: don't clear selection, allow zoom/pan to proceed
+        if (!touchStartOnTextLayer.current) {
+          // Touched outside text area: clear selection so gestures work normally
+          window.getSelection()?.removeAllRanges();
+        }
+        // Mouse on text with active selection: fall through (allows shift-click extension)
       }
 
       // Long press detection for text
@@ -470,8 +480,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         const hasTextSelected = selection && selection.type === 'Range' && selection.toString().trim().length > 0;
         const velocityX = Math.abs(info.velocity.x);
         
-        // If there's an active text selection and it's not a fast swipe, lock into SelectingText
-        if (hasTextSelected && velocityX < 300) {
+        // If there's an active text selection AND the gesture started on text, lock into SelectingText
+        if (hasTextSelected && velocityX < 300 && touchStartOnTextLayer.current) {
           gestureMode.current = GestureMode.SelectingText;
           return;
         }
@@ -1064,9 +1074,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           // Prevent controls flickering by ignoring clicks if we just finished a pan
           if (Date.now() - lastPanTime.current < 150) return;
 
-          // If text is selected, don't toggle controls or change pages
+          // If text is selected, clear it on tap and don't do anything else
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+            selection.removeAllRanges();
             return;
           }
 
