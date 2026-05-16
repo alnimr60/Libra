@@ -71,7 +71,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       const currentScale = liveScale.get() || 1;
       const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
-      const fragmentMap = new Map<Element, DocumentFragment>();
+      
+      // Collect rects per textLayer for merging
+      const layerRectsMap = new Map<Element, Array<{ left: number, top: number, right: number, bottom: number }>>();
 
       for (let i = 0; i < selection.rangeCount; i++) {
         const range = selection.getRangeAt(i);
@@ -81,7 +83,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           const rect = rects[j];
           if (rect.width < 0.5 || rect.height < 0.5) continue;
 
-          // Find the textLayer that contains this rect
           const centerX = rect.left + rect.width / 2;
           const centerY = rect.top + rect.height / 2;
 
@@ -92,31 +93,50 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           });
 
           if (tl) {
-            let frag = fragmentMap.get(tl);
-            if (!frag) {
-              frag = document.createDocumentFragment();
-              fragmentMap.set(tl, frag);
-            }
-
+            if (!layerRectsMap.has(tl)) layerRectsMap.set(tl, []);
             const tlRect = tl.getBoundingClientRect();
-            const div = document.createElement('div');
-            
-            // Calculate unscaled coordinates so highlights stay pinned during zoom
-            Object.assign(div.style, {
-              position: 'absolute',
-              left: `${(rect.left - tlRect.left) / currentScale}px`,
-              top: `${(rect.top - tlRect.top) / currentScale}px`,
-              width: `${rect.width / currentScale}px`,
-              height: `${rect.height / currentScale}px`,
-              pointerEvents: 'none'
+            layerRectsMap.get(tl)!.push({
+              left: (rect.left - tlRect.left) / currentScale,
+              top: (rect.top - tlRect.top) / currentScale,
+              right: (rect.right - tlRect.left) / currentScale,
+              bottom: (rect.bottom - tlRect.top) / currentScale
             });
-            frag.appendChild(div);
           }
         }
       }
 
-      // Batch append highlights to their respective layers
-      fragmentMap.forEach((frag, tl) => {
+      // Merge overlapping rects per layer, then create highlight divs
+      layerRectsMap.forEach((rects, tl) => {
+        // Sort by vertical position then horizontal
+        rects.sort((a, b) => a.top - b.top || a.left - b.left);
+        
+        // Merge rects on the same line (within 3px vertical tolerance)
+        const merged: typeof rects = [{ ...rects[0] }];
+        for (let i = 1; i < rects.length; i++) {
+          const cur = rects[i];
+          const last = merged[merged.length - 1];
+          if (Math.abs(cur.top - last.top) < 3 && cur.left <= last.right + 1) {
+            last.right = Math.max(last.right, cur.right);
+            last.bottom = Math.max(last.bottom, cur.bottom);
+          } else {
+            merged.push({ ...cur });
+          }
+        }
+
+        const frag = document.createDocumentFragment();
+        for (const r of merged) {
+          const div = document.createElement('div');
+          Object.assign(div.style, {
+            position: 'absolute',
+            left: `${r.left}px`,
+            top: `${r.top}px`,
+            width: `${r.right - r.left}px`,
+            height: `${r.bottom - r.top}px`,
+            pointerEvents: 'none'
+          });
+          frag.appendChild(div);
+        }
+
         let highlightContainer = tl.querySelector('.selection-highlights') as HTMLElement;
         if (!highlightContainer) {
           highlightContainer = document.createElement('div');
@@ -328,21 +348,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       
       // Clear any existing long press timer
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
-      
-      // Reset selection if not already in selection mode
-      if (gestureMode.current !== GestureMode.SelectingText) {
-        window.getSelection()?.removeAllRanges(); // Clear selection on new tap so it doesn't leak into new drag gestures
-      }
 
       touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
 
-      // Handle Double Tap Zoom
+      // Handle Double Tap Zoom (takes priority over everything)
       const now = Date.now();
       const dx = e.clientX - lastTapInfo.current.x;
       const dy = e.clientY - lastTapInfo.current.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (now - lastTapInfo.current.time < 300 && dist < 15) {
+        window.getSelection()?.removeAllRanges();
         handleDoubleTapZoom(e.clientX, e.clientY);
         lastTapInfo.current = { time: 0, x: 0, y: 0 };
         return;
@@ -350,14 +366,26 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
       }
 
+      // If there's an active text selection, check if user is interacting with it
+      const selection = window.getSelection();
+      const hasActiveSelection = selection && !selection.isCollapsed && selection.toString().trim().length > 0;
+      
+      if (hasActiveSelection) {
+        const isInTextLayer = target.closest('.textLayer');
+        if (isInTextLayer) {
+          // User is adjusting selection handles or tapping selected text — let browser handle it
+          gestureMode.current = GestureMode.SelectingText;
+          return;
+        }
+        // Touching outside text layer: don't clear selection, allow zoom/pan to proceed
+      }
+
       // Long press detection for text
       const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
       if (isText) {
         longPressTimer.current = setTimeout(() => {
           if (gestureMode.current === GestureMode.Idle) {
-            console.log("[PDFReader] Entering SelectingText mode via long press");
             gestureMode.current = GestureMode.SelectingText;
-            // Trigger a small vibration if possible
             if (navigator.vibrate) navigator.vibrate(50);
           }
         }, 500);
@@ -478,13 +506,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         panX.set(clampedX);
         panY.set(clampedY);
       } else if (gestureMode.current === GestureMode.SwipingPages) {
-        // Clear text selection to prevent blue highlights while swiping page
-        const selection = window.getSelection();
-        if (selection && selection.type === 'Range') {
-          selection.removeAllRanges();
-        }
-
-        // SWIPE MODE
+        // SWIPE MODE (selection is preserved — it will naturally become irrelevant on page change)
         const scrollWidth = window.innerWidth;
         const progress = info.offset.x / scrollWidth;
         
@@ -1042,17 +1064,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           // Prevent controls flickering by ignoring clicks if we just finished a pan
           if (Date.now() - lastPanTime.current < 150) return;
 
-          // If text is selected, check if we should ignore the click
+          // If text is selected, don't toggle controls or change pages
           const selection = window.getSelection();
-          if (selection && selection.toString().trim().length > 0) {
-            console.log('Selection exists, but checking if it was a real click');
-            // If it's a very short selection or just a click, we might want to clear it
-            // But for now, let's allow the click to togggle controls if it's a simple tap
-            // and the selection didn't change significantly.
-            // Actually, let's just NOT return here, instead let selection coexist.
+          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+            return;
           }
-
-          console.log('onClick triggered on readerContainer. showControls:', showControls);
 
           // If controls are shown, clicking hides them. If hidden, clicking might show them OR turn page.
           if (!showControls) {
@@ -1060,11 +1076,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             const x = e.clientX - rect.left;
             const width = rect.width;
             if (x < width * 0.25) {
-              // Clicked left quarter
               handlePageChange(direction === 'ltr' ? pageIndex - 1 : pageIndex + 1);
               return;
             } else if (x > width * 0.75) {
-              // Clicked right quarter
               handlePageChange(direction === 'ltr' ? pageIndex + 1 : pageIndex - 1);
               return;
             }

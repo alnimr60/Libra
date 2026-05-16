@@ -89,10 +89,10 @@ body {
   touch-action: pan-y pinch-zoom;
 }
 
-/* selection color override for Safari contenteditable hack */
+/* Hide caret and outline for contenteditable text layer hack */
 .textLayer[contenteditable="true"] {
   outline: none !important;
-  caret-color: rgb(255, 120, 0) !important;
+  caret-color: transparent !important;
   -webkit-tap-highlight-color: transparent !important;
 }
 
@@ -136,12 +136,11 @@ body {
   z-index: 1;
 }
 
-/* Continuous hit areas */
+/* Continuous hit areas — allow touch callout so copy/paste menu works on iOS */
 .textLine {
   display: block;
   user-select: text;
   -webkit-user-select: text;
-  -webkit-touch-callout: none;
 }
 
 /* Custom Selection Highlight Style (used by JS) */
@@ -151,8 +150,7 @@ body {
 }
 
 .selection-highlights div {
-  background: rgba(249, 115, 22, 0.45) !important; /* Tailwind Orange 500 equivalent */
-  mix-blend-mode: multiply;
+  background: rgba(249, 115, 22, 0.45) !important;
   pointer-events: none;
   z-index: 0;
   border-radius: 1px;
@@ -162,12 +160,7 @@ body {
   background: rgba(255, 120, 0, 0.45) !important;
 }
 
-/* Desktop Fallback for non-iOS */
-@media (hover: hover) {
-  ::selection {
-    background: rgba(255, 120, 0, 0.45) !important;
-  }
-}
+/* Desktop uses the same JS-driven highlights — no native ::selection color needed */
 
 /* Custom scrollbar for desktop */
 .custom-scrollbar::-webkit-scrollbar {
