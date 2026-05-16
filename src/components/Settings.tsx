@@ -1,20 +1,52 @@
-import React from 'react';
-import { AppSettings } from '../types';
+import React, { useRef } from 'react';
+import { AppSettings, Book, ReadingGoal, ReadingLog, AppData } from '../types';
 import { motion } from 'motion/react';
-import { Moon, Sun, Bell, Clock, Info, ChevronRight, Monitor, Layout, RotateCw, Globe } from 'lucide-react';
+import { Moon, Sun, Bell, Info, ChevronRight, Monitor, Layout, RotateCw, Globe, Upload, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSafeArea } from './SafeAreaProvider';
 import { translations } from '../translations';
 
 interface SettingsProps {
+  books: Book[];
   settings: AppSettings;
+  goals: ReadingGoal[];
+  readingLogs: ReadingLog[];
   setSettings: (settings: Partial<AppSettings>) => void;
+  importData: (data: AppData) => void;
 }
 
-export default function Settings({ settings, setSettings }: SettingsProps) {
+export default function Settings({ books, settings, goals, readingLogs, setSettings, importData }: SettingsProps) {
   const insets = useSafeArea();
   const t = translations[settings.language];
   const isRTL = settings.language === 'ar';
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const exportData = () => {
+    const data: AppData = { books, settings, goals, readingLogs };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'reader-data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        importData(data);
+        alert(isRTL ? "تم استيراد البيانات بنجاح" : "Data imported successfully");
+      } catch (e) {
+        alert(isRTL ? "فشل استيراد البيانات" : "Failed to import data");
+      }
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div 
@@ -51,6 +83,28 @@ export default function Settings({ settings, setSettings }: SettingsProps) {
           </div>
         </section>
 
+        {/* Data Management Section */}
+        <section className="space-y-6">
+          <SectionHeader title={isRTL ? "البيانات" : "Data Management"} isRTL={isRTL} />
+          <div className="bg-white dark:bg-zinc-900 rounded-[2rem] p-3 border border-zinc-200 dark:border-zinc-800 space-y-1 shadow-sm">
+            <SettingRow 
+              icon={<Download className="w-4 h-4" />}
+              label={isRTL ? "تصدير البيانات" : "Export Data"}
+              isActive={false}
+              onClick={exportData}
+              isRTL={isRTL}
+            />
+            <SettingRow 
+              icon={<Upload className="w-4 h-4" />}
+              label={isRTL ? "استيراد البيانات" : "Import Data"}
+              isActive={false}
+              onClick={() => fileInputRef.current?.click()}
+              isRTL={isRTL}
+            />
+            <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".json" />
+          </div>
+        </section>
+        
         {/* Appearance Section */}
         <section className="space-y-6">
           <SectionHeader title={t.appearance} isRTL={isRTL} />
