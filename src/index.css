@@ -138,13 +138,7 @@ body {
   z-index: 1;
 }
 
-/* Continuous hit areas — allow touch callout so copy/paste menu works on iOS */
-.textLine {
-  display: block;
-  user-select: text;
-  -webkit-user-select: text;
-  touch-action: text !important;
-}
+
 
 /* Custom scrollbar for desktop */
 .custom-scrollbar::-webkit-scrollbar {
