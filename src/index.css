@@ -82,6 +82,12 @@ body {
   -webkit-user-select: text !important;
 }
 
+.pdf-line {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  pointer-events: none !important;
+}
+
 .textLayer {
   position: absolute;
   inset: 0;
