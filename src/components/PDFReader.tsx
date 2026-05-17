@@ -75,12 +75,34 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
       allTextLayers.forEach(tl => {
         const spans = Array.from(tl.querySelectorAll('span'));
-        // Find which spans are inside the selection range by checking if their child Text node is selected.
-        // Leaf Text nodes have no layout blocks, so they bypass WebKit's layout-sibling selection bugs completely!
+        // Find start and end spans using closest element parsing
+        const getClosestSpan = (node: Node, isStart: boolean): HTMLElement | null => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            return node.parentElement?.closest('span') || null;
+          }
+          const element = node as HTMLElement;
+          if (element.tagName.toLowerCase() === 'span') return element;
+          
+          const childSpans = Array.from(element.querySelectorAll('span'));
+          if (childSpans.length > 0) {
+            return isStart ? childSpans[0] : childSpans[childSpans.length - 1];
+          }
+          return element.closest('span');
+        };
+
+        const startSpan = getClosestSpan(range.startContainer, true);
+        const endSpan = getClosestSpan(range.endContainer, false);
+
+        if (!startSpan || !endSpan) return;
+
+        // Filter spans strictly situated between startSpan and endSpan in DOM order
         const selectedSpans = spans.filter(span => {
-          const textNode = span.firstChild;
-          if (!textNode) return false;
-          return selection.containsNode(textNode, true);
+          if (span === startSpan || span === endSpan) return true;
+          
+          const isAfterStart = (startSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+          const isBeforeEnd = (endSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+          
+          return isAfterStart && isBeforeEnd;
         });
         
         if (selectedSpans.length === 0) return;
