@@ -273,6 +273,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
       }
 
+      // Prevent Safari from natively collapsing selection on touch start when panning/zooming on the background
+      const selection = window.getSelection();
+      const hasActiveSelection = selection && !selection.isCollapsed && selection.toString().trim().length > 0;
+      
+      if (hasActiveSelection && e.pointerType === 'touch' && !isText) {
+        e.preventDefault();
+      }
+
       // On PC (mouse): if we click on text, lock into SelectingText to allow native selection
       if (e.pointerType === 'mouse' && isText) {
         gestureMode.current = GestureMode.SelectingText;

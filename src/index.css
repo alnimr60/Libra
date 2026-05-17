@@ -113,6 +113,8 @@ body {
   pointer-events: auto;
   user-select: text !important;
   -webkit-user-select: text !important;
+  touch-action: text !important; /* Enable native selection gestures, bypass container touch-action: none */
+  -webkit-tap-highlight-color: transparent !important; /* Prevent orange/gray caret tap highlights */
   box-sizing: border-box;
   display: inline;
   line-height: 1;
@@ -124,6 +126,7 @@ body {
   display: block;
   user-select: text;
   -webkit-user-select: text;
+  touch-action: text !important;
 }
 
 /* Custom scrollbar for desktop */
