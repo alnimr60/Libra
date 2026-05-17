@@ -6,3 +6,4 @@ coverage/
 *.log
 .env*
 !.env.example
+Libra_Source_Clean.zip
