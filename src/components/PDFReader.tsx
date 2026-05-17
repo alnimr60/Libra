@@ -81,8 +81,51 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       if (!activeTextLayer) return;
 
       const spans = Array.from(activeTextLayer.querySelectorAll('span'));
-      // Leverage native browser C++ intersection engine for perfect word selection mapping
-      const selectedSpans = spans.filter(span => range.intersectsNode(span));
+      
+      // Resolve start and end spans strictly inside the active text layer, respecting DOM Range boundaries
+      const getClosestSpan = (node: Node, offset: number, isStart: boolean): HTMLElement | null => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return node.parentElement?.closest('span') || null;
+        }
+        
+        const element = node as HTMLElement;
+        if (element.tagName.toLowerCase() === 'span') return element;
+        
+        const childNodes = element.childNodes;
+        if (childNodes.length > 0) {
+          const targetIndex = isStart ? offset : offset - 1;
+          const index = Math.max(0, Math.min(targetIndex, childNodes.length - 1));
+          const targetNode = childNodes[index];
+          
+          if (targetNode instanceof HTMLElement && targetNode.tagName.toLowerCase() === 'span') {
+            return targetNode;
+          }
+          if (targetNode.nodeType === Node.TEXT_NODE) {
+            return targetNode.parentElement?.closest('span') || null;
+          }
+          if (targetNode instanceof HTMLElement) {
+            const childSpan = targetNode.querySelector('span');
+            if (childSpan) return childSpan;
+          }
+        }
+        
+        return element.closest('span');
+      };
+
+      const startSpan = getClosestSpan(range.startContainer, range.startOffset, true);
+      const endSpan = getClosestSpan(range.endContainer, range.endOffset, false);
+
+      if (!startSpan || !endSpan) return;
+
+      // Filter only spans inside the selected boundaries in strict DOM order
+      const selectedSpans = spans.filter(span => {
+        if (span === startSpan || span === endSpan) return true;
+        
+        const isAfterStart = (startSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+        const isBeforeEnd = (endSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+        
+        return isAfterStart && isBeforeEnd;
+      });
       
       if (selectedSpans.length === 0) return;
       
