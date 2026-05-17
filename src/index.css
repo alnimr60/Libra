@@ -89,14 +89,16 @@ body {
   touch-action: none !important;
 }
 
-/* Premium native orange text selection across all devices and platforms */
+/* Make native browser selection completely transparent across all devices and platforms */
 ::selection {
-  background: rgba(249, 115, 22, 0.35) !important; /* Premium semi-transparent orange */
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
   color: inherit !important;
 }
 
 ::-moz-selection {
-  background: rgba(249, 115, 22, 0.35) !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
   color: inherit !important;
 }
 
@@ -105,8 +107,8 @@ body {
 }
 
 .textLayer span {
-  color: rgba(0, 0, 0, 0.001) !important;
-  -webkit-text-fill-color: rgba(0, 0, 0, 0.001) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
   position: absolute;
   white-space: pre;
   cursor: text;
