@@ -72,88 +72,50 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
 
-      const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
-      allTextLayers.forEach(tl => {
-        const spans = Array.from(tl.querySelectorAll('span'));
-        
-        // Resolve closest span while respecting DOM Range boundary node/offset specs
-        const getClosestSpan = (node: Node, offset: number, isStart: boolean): HTMLElement | null => {
-          if (node.nodeType === Node.TEXT_NODE) {
-            return node.parentElement?.closest('span') || null;
-          }
-          
-          const element = node as HTMLElement;
-          if (element.tagName.toLowerCase() === 'span') return element;
-          
-          const childNodes = element.childNodes;
-          if (childNodes.length > 0) {
-            const targetIndex = isStart ? offset : offset - 1;
-            const index = Math.max(0, Math.min(targetIndex, childNodes.length - 1));
-            const targetNode = childNodes[index];
-            
-            if (targetNode instanceof HTMLElement && targetNode.tagName.toLowerCase() === 'span') {
-              return targetNode;
-            }
-            if (targetNode.nodeType === Node.TEXT_NODE) {
-              return targetNode.parentElement?.closest('span') || null;
-            }
-            if (targetNode instanceof HTMLElement) {
-              const childSpan = targetNode.querySelector('span');
-              if (childSpan) return childSpan;
-            }
-          }
-          
-          return element.closest('span');
-        };
+      // Find the active text layer containing the selection
+      const commonAncestor = range.commonAncestorContainer;
+      const activeTextLayer = commonAncestor.nodeType === Node.ELEMENT_NODE 
+        ? (commonAncestor as HTMLElement).closest('.textLayer')
+        : commonAncestor.parentElement?.closest('.textLayer');
 
-        const startSpan = getClosestSpan(range.startContainer, range.startOffset, true);
-        const endSpan = getClosestSpan(range.endContainer, range.endOffset, false);
+      if (!activeTextLayer) return;
 
-        if (!startSpan || !endSpan) return;
-
-        // Filter only spans inside the selected boundaries in strict DOM order
-        const selectedSpans = spans.filter(span => {
-          if (span === startSpan || span === endSpan) return true;
-          
-          const isAfterStart = (startSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-          const isBeforeEnd = (endSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
-          
-          return isAfterStart && isBeforeEnd;
+      const spans = Array.from(activeTextLayer.querySelectorAll('span'));
+      // Leverage native browser C++ intersection engine for perfect word selection mapping
+      const selectedSpans = spans.filter(span => range.intersectsNode(span));
+      
+      if (selectedSpans.length === 0) return;
+      
+      let highlightContainer = activeTextLayer.parentElement?.querySelector('.selection-highlights') as HTMLElement;
+      if (!highlightContainer && activeTextLayer.parentElement) {
+        highlightContainer = document.createElement('div');
+        highlightContainer.className = 'selection-highlights';
+        Object.assign(highlightContainer.style, {
+          position: 'absolute',
+          inset: '0',
+          pointerEvents: 'none',
+          zIndex: '45' // Position between canvas and textLayer
         });
-        
-        if (selectedSpans.length === 0) return;
-        
-        let highlightContainer = tl.parentElement?.querySelector('.selection-highlights') as HTMLElement;
-        if (!highlightContainer && tl.parentElement) {
-          highlightContainer = document.createElement('div');
-          highlightContainer.className = 'selection-highlights';
-          Object.assign(highlightContainer.style, {
-            position: 'absolute',
-            inset: '0',
-            pointerEvents: 'none',
-            zIndex: '45' // Position between canvas and textLayer
-          });
-          tl.parentNode?.insertBefore(highlightContainer, tl);
-        }
-        
-        const frag = document.createDocumentFragment();
-        selectedSpans.forEach(span => {
-          const div = document.createElement('div');
-          Object.assign(div.style, {
-            position: 'absolute',
-            left: `${span.offsetLeft}px`,
-            top: `${span.offsetTop}px`,
-            width: `${span.offsetWidth}px`,
-            height: `${span.offsetHeight}px`,
-            backgroundColor: 'rgba(249, 115, 22, 0.35)', // Premium orange selection color
-            pointerEvents: 'none',
-            borderRadius: '2px'
-          });
-          frag.appendChild(div);
+        activeTextLayer.parentNode?.insertBefore(highlightContainer, activeTextLayer);
+      }
+      
+      const frag = document.createDocumentFragment();
+      selectedSpans.forEach(span => {
+        const div = document.createElement('div');
+        Object.assign(div.style, {
+          position: 'absolute',
+          left: `${span.offsetLeft}px`,
+          top: `${span.offsetTop}px`,
+          width: `${span.offsetWidth}px`,
+          height: `${span.offsetHeight}px`,
+          backgroundColor: 'rgba(249, 115, 22, 0.35)', // Premium orange selection color
+          pointerEvents: 'none',
+          borderRadius: '2px'
         });
-        
-        highlightContainer.appendChild(frag);
+        frag.appendChild(div);
       });
+      
+      highlightContainer.appendChild(frag);
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
