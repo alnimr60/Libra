@@ -86,7 +86,7 @@ body {
   z-index: 50;
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
-  touch-action: pan-y pinch-zoom;
+  touch-action: none !important;
 }
 
 /* Premium native orange text selection across all devices and platforms */

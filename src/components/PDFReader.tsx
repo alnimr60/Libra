@@ -34,6 +34,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const isPinching = useRef(false);
   const isPanning = useRef(false);
   const isAnimatingZoom = useRef(false);
+  const isDoubleTapZooming = useRef(false);
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const insets = useSafeArea();
@@ -263,6 +264,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       if (now - lastTapInfo.current.time < 300 && dist < 15) {
         e.preventDefault(); // Stop native double-tap word selection or browser zoom
+        isDoubleTapZooming.current = true;
         window.getSelection()?.removeAllRanges();
         handleDoubleTapZoom(e.clientX, e.clientY);
         lastTapInfo.current = { time: 0, x: 0, y: 0 };
@@ -946,18 +948,23 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={(e) => {
+          // If we just finished a double-tap zoom, consume the click events and return
+          if (isDoubleTapZooming.current) {
+            isDoubleTapZooming.current = false;
+            return;
+          }
+
           // Prevent controls flickering by ignoring clicks if we just finished a pan
           if (Date.now() - lastPanTime.current < 150) return;
 
-          // If text is selected, clear it ONLY on a genuine quick tap/click
+          // If text is selected, clear it ONLY on a genuine quick tap/click (dist < 5 means no drag occurred)
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
             const dx = e.clientX - touchStartInfo.current.x;
             const dy = e.clientY - touchStartInfo.current.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const elapsed = Date.now() - touchStartInfo.current.time;
 
-            if (dist < 5 && elapsed < 300) {
+            if (dist < 5) {
               selection.removeAllRanges();
               return;
             }
