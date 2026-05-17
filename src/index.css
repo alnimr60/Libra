@@ -91,30 +91,31 @@ body {
   opacity: 1 !important; /* Keep full opacity so iOS Safari enables native Copy/Paste context menu */
 }
 
-/* Make native browser selection completely transparent across all devices and platforms */
+/* Make native browser selection our premium orange color across all devices and platforms */
 ::selection {
-  background: transparent !important;
-  background-color: rgba(0, 0, 0, 0) !important;
-  color: inherit !important;
+  background: rgba(249, 115, 22, 0.35) !important;
+  background-color: rgba(249, 115, 22, 0.35) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
 }
 
 ::-moz-selection {
-  background: transparent !important;
-  background-color: rgba(0, 0, 0, 0) !important;
-  color: inherit !important;
+  background: rgba(249, 115, 22, 0.35) !important;
+  background-color: rgba(249, 115, 22, 0.35) !important;
+  color: transparent !important;
 }
 
-/* Explicit targeted overrides for text layer spans to force iOS Safari's native blue overlay to be 100% invisible */
+/* Explicit targeted overrides for text layer spans to force iOS Safari to draw our orange selection background natively */
 .textLayer span::selection {
-  background: transparent !important;
-  background-color: rgba(0, 0, 0, 0) !important;
+  background: rgba(249, 115, 22, 0.35) !important;
+  background-color: rgba(249, 115, 22, 0.35) !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
 }
 
 .textLayer *::selection {
-  background: transparent !important;
-  background-color: rgba(0, 0, 0, 0) !important;
+  background: rgba(249, 115, 22, 0.35) !important;
+  background-color: rgba(249, 115, 22, 0.35) !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
 }
