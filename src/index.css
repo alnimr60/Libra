@@ -87,7 +87,8 @@ body {
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
   touch-action: none !important;
-  opacity: 0.0001 !important; /* Hide native WebKit blue selection mask completely */
+  mix-blend-mode: multiply !important; /* Mathematically hides solid white text spans completely on the page */
+  opacity: 1 !important; /* Keep full opacity so iOS Safari enables native Copy/Paste context menu */
 }
 
 /* Make native browser selection completely transparent across all devices and platforms */
@@ -123,8 +124,8 @@ body {
 }
 
 .textLayer span {
-  color: #000 !important; /* Revert to solid black so Safari treats text as fully visible, allowing custom CSS ::selection */
-  -webkit-text-fill-color: #000 !important;
+  color: #ffffff !important; /* Solid white text for perfect multiply blend mode visibility bypass */
+  -webkit-text-fill-color: #ffffff !important;
   position: absolute;
   white-space: pre;
   cursor: text;
