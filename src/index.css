@@ -87,6 +87,7 @@ body {
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
   touch-action: none !important;
+  opacity: 0.0001 !important; /* Hide native WebKit blue selection mask completely */
 }
 
 /* Make native browser selection completely transparent across all devices and platforms */
@@ -122,8 +123,8 @@ body {
 }
 
 .textLayer span {
-  color: rgba(0, 0, 0, 0.001) !important;
-  -webkit-text-fill-color: rgba(0, 0, 0, 0.001) !important;
+  color: #000 !important; /* Revert to solid black so Safari treats text as fully visible, allowing custom CSS ::selection */
+  -webkit-text-fill-color: #000 !important;
   position: absolute;
   white-space: pre;
   cursor: text;

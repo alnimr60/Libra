@@ -107,17 +107,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         
         if (selectedSpans.length === 0) return;
         
-        let highlightContainer = tl.querySelector('.selection-highlights') as HTMLElement;
-        if (!highlightContainer) {
+        let highlightContainer = tl.parentElement?.querySelector('.selection-highlights') as HTMLElement;
+        if (!highlightContainer && tl.parentElement) {
           highlightContainer = document.createElement('div');
           highlightContainer.className = 'selection-highlights';
           Object.assign(highlightContainer.style, {
             position: 'absolute',
             inset: '0',
             pointerEvents: 'none',
-            zIndex: '0'
+            zIndex: '45' // Position between canvas and textLayer (z-index 60)
           });
-          tl.appendChild(highlightContainer);
+          tl.parentNode?.insertBefore(highlightContainer, tl);
         }
         
         const frag = document.createDocumentFragment();
