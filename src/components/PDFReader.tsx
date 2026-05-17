@@ -1492,6 +1492,7 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
       />
       <div 
         ref={textLayerDivRef} 
+        dir={direction}
         className={cn(
           "textLayer absolute inset-0 z-[60] select-text",
           direction === 'rtl' ? "rtl" : "ltr"
