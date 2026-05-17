@@ -75,21 +75,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
       allTextLayers.forEach(tl => {
         const spans = Array.from(tl.querySelectorAll('span'));
-        const selectionRects = Array.from(range.getClientRects());
-        
-        // Find which spans visually overlap with the selection rects
+        // Find which spans are inside the selection range by checking if their child Text node is selected.
+        // Leaf Text nodes have no layout blocks, so they bypass WebKit's layout-sibling selection bugs completely!
         const selectedSpans = spans.filter(span => {
-          const spanRect = span.getBoundingClientRect();
-          if (spanRect.width === 0 || spanRect.height === 0) return false;
-          
-          return selectionRects.some(selRect => {
-            return (
-              spanRect.left < selRect.right - 1 &&
-              spanRect.right > selRect.left + 1 &&
-              spanRect.top < selRect.bottom - 1 &&
-              spanRect.bottom > selRect.top + 1
-            );
-          });
+          const textNode = span.firstChild;
+          if (!textNode) return false;
+          return selection.containsNode(textNode, true);
         });
         
         if (selectedSpans.length === 0) return;
