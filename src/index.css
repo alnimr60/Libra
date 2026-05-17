@@ -95,29 +95,29 @@ body {
 ::selection {
   background: rgba(249, 115, 22, 0.35) !important;
   background-color: rgba(249, 115, 22, 0.35) !important;
-  color: transparent !important;
-  -webkit-text-fill-color: transparent !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 ::-moz-selection {
   background: rgba(249, 115, 22, 0.35) !important;
   background-color: rgba(249, 115, 22, 0.35) !important;
-  color: transparent !important;
+  color: #ffffff !important;
 }
 
 /* Explicit targeted overrides for text layer spans to force iOS Safari to draw our orange selection background natively */
 .textLayer span::selection {
   background: rgba(249, 115, 22, 0.35) !important;
   background-color: rgba(249, 115, 22, 0.35) !important;
-  color: transparent !important;
-  -webkit-text-fill-color: transparent !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .textLayer *::selection {
   background: rgba(249, 115, 22, 0.35) !important;
   background-color: rgba(249, 115, 22, 0.35) !important;
-  color: transparent !important;
-  -webkit-text-fill-color: transparent !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .textLayer {
