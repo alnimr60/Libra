@@ -1471,11 +1471,59 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
           page.getTextContent().then(content => {
             if (!isMounted || !textLayerDivRef.current) return;
             textLayerDivRef.current.style.setProperty('--scale-factor', textViewport.scale.toString());
-            pdfjs.renderTextLayer({ textContentSource: content, container: textLayerDivRef.current, viewport: textViewport, textDivs: [] });
+            const renderTask = pdfjs.renderTextLayer({ 
+              textContentSource: content, 
+              container: textLayerDivRef.current, 
+              viewport: textViewport, 
+              textDivs: [] 
+            });
             
-            // Standard flat text layer rendering without any block wrappers
-            // This prevents WebKit from snapping selection ranges to whole line blocks
-            const textLayer = textLayerDivRef.current;
+            renderTask.promise.then(() => {
+              if (!isMounted || !textLayerDivRef.current) return;
+              
+              const spans = Array.from(textLayerDivRef.current.querySelectorAll('span'));
+              if (spans.length > 0) {
+                const linesMap = new Map<number, HTMLSpanElement[]>();
+                spans.forEach(span => {
+                  const top = span.offsetTop;
+                  let foundKey = Array.from(linesMap.keys()).find(k => Math.abs(k - top) < 5);
+                  if (foundKey === undefined) {
+                    foundKey = top;
+                    linesMap.set(foundKey, []);
+                  }
+                  linesMap.get(foundKey)!.push(span);
+                });
+
+                Array.from(linesMap.entries()).forEach(([top, lineSpans]) => {
+                  const lineDiv = document.createElement('div');
+                  lineDiv.className = 'pdf-line';
+                  
+                  const maxH = Math.max(...lineSpans.map(s => s.offsetHeight)) || 20;
+                  
+                  Object.assign(lineDiv.style, {
+                    position: 'absolute',
+                    left: '0',
+                    right: '0',
+                    top: `${top}px`,
+                    height: `${maxH}px`,
+                    width: '100%',
+                    pointerEvents: 'none',
+                    display: 'block'
+                  });
+
+                  lineSpans.forEach(span => {
+                    const relativeTop = span.offsetTop - top;
+                    span.style.top = `${relativeTop}px`;
+                    span.style.pointerEvents = 'auto';
+                    lineDiv.appendChild(span);
+                  });
+
+                  textLayerDivRef.current?.appendChild(lineDiv);
+                });
+              }
+            }).catch(err => {
+              console.error("[TextLayerError] Render task failed:", err);
+            });
           });
         }
       }
