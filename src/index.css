@@ -102,6 +102,21 @@ body {
   color: inherit !important;
 }
 
+/* Explicit targeted overrides for text layer spans to force iOS Safari's native blue overlay to be 100% invisible */
+.textLayer span::selection {
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.textLayer *::selection {
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
 .textLayer {
   outline: none !important;
 }
