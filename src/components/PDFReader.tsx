@@ -408,6 +408,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePanStart = (e: any, info: any) => {
     try {
+      // If the touch was initiated on the text layer, or if any active selection range exists on the page,
+      // completely bypass gesture handlers to prevent Framer Motion from aborting WebKit selection mid-drag.
+      const selection = window.getSelection();
+      const hasActiveSelection = selection && !selection.isCollapsed && selection.toString().trim().length > 0;
+      if (touchStartOnTextLayer.current || hasActiveSelection) {
+        gestureMode.current = GestureMode.SelectingText;
+        return;
+      }
+
       // If we are already in a specific mode, don't re-evaluate
       if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
       
@@ -426,6 +435,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePanMove = (_: any, info: any) => {
     try {
+      // If selection is active, let WebKit handle events with zero touch gesture interference
+      const selection = window.getSelection();
+      const hasActiveSelection = selection && !selection.isCollapsed && selection.toString().trim().length > 0;
+      if (touchStartOnTextLayer.current || hasActiveSelection) {
+        gestureMode.current = GestureMode.SelectingText;
+        return;
+      }
+
       // If in SelectingText, browsers handle everything natively
       if (gestureMode.current === GestureMode.SelectingText || isAnimatingZoom.current) return;
 
@@ -488,6 +505,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePanEnd = (_: any, info: any) => {
     try {
+      touchStartOnTextLayer.current = false;
       isPanning.current = false;
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
