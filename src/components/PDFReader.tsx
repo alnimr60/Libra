@@ -58,109 +58,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   }, [committedScale, liveScale, panX, panY]);
 
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const selection = window.getSelection();
-      
-      // Clear previous highlights globally
-      const allHighlightContainers = document.querySelectorAll('.selection-highlights');
-      allHighlightContainers.forEach(container => {
-        container.innerHTML = '';
-      });
 
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-
-      // On desktop (hover devices), native ::selection handles the highlight — skip JS highlights
-      if (window.matchMedia('(hover: hover)').matches) return;
-
-      const currentScale = liveScale.get() || 1;
-      const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
-      
-      // Collect rects per textLayer for merging
-      const layerRectsMap = new Map<Element, Array<{ left: number, top: number, right: number, bottom: number }>>();
-
-      for (let i = 0; i < selection.rangeCount; i++) {
-        const range = selection.getRangeAt(i);
-        const rects = range.getClientRects();
-
-        for (let j = 0; j < rects.length; j++) {
-          const rect = rects[j];
-          if (rect.width < 0.5 || rect.height < 0.5) continue;
-
-          const centerX = rect.left + rect.width / 2;
-          const centerY = rect.top + rect.height / 2;
-
-          const tl = allTextLayers.find(layer => {
-            const lRect = layer.getBoundingClientRect();
-            return centerX >= lRect.left && centerX <= lRect.right &&
-                   centerY >= lRect.top && centerY <= lRect.bottom;
-          });
-
-          if (tl) {
-            if (!layerRectsMap.has(tl)) layerRectsMap.set(tl, []);
-            const tlRect = tl.getBoundingClientRect();
-            layerRectsMap.get(tl)!.push({
-              left: (rect.left - tlRect.left) / currentScale,
-              top: (rect.top - tlRect.top) / currentScale,
-              right: (rect.right - tlRect.left) / currentScale,
-              bottom: (rect.bottom - tlRect.top) / currentScale
-            });
-          }
-        }
-      }
-
-      // Merge overlapping rects per layer, then create highlight divs
-      layerRectsMap.forEach((rects, tl) => {
-        // Sort by vertical position then horizontal
-        rects.sort((a, b) => a.top - b.top || a.left - b.left);
-        
-        // Merge rects on the same line (within 3px vertical tolerance)
-        const merged: typeof rects = [{ ...rects[0] }];
-        for (let i = 1; i < rects.length; i++) {
-          const cur = rects[i];
-          const last = merged[merged.length - 1];
-          if (Math.abs(cur.top - last.top) < 3 && cur.left <= last.right + 1) {
-            last.right = Math.max(last.right, cur.right);
-            last.bottom = Math.max(last.bottom, cur.bottom);
-          } else {
-            merged.push({ ...cur });
-          }
-        }
-
-        const frag = document.createDocumentFragment();
-        for (const r of merged) {
-          const div = document.createElement('div');
-          Object.assign(div.style, {
-            position: 'absolute',
-            left: `${r.left}px`,
-            top: `${r.top}px`,
-            width: `${r.right - r.left}px`,
-            height: `${r.bottom - r.top}px`,
-            pointerEvents: 'none'
-          });
-          frag.appendChild(div);
-        }
-
-        let highlightContainer = tl.querySelector('.selection-highlights') as HTMLElement;
-        if (!highlightContainer) {
-          highlightContainer = document.createElement('div');
-          highlightContainer.className = 'selection-highlights';
-          Object.assign(highlightContainer.style, {
-            position: 'absolute',
-            inset: '0',
-            pointerEvents: 'none',
-            zIndex: '0',
-            backgroundColor: 'transparent'
-          });
-          tl.appendChild(highlightContainer);
-        }
-        highlightContainer.appendChild(frag);
-      });
-    };
-
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, []);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -353,9 +251,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       // Clear any existing long press timer
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
-      // Track if this gesture started on the text layer
-      touchStartOnTextLayer.current = !!target.closest('.textLayer');
-
+      const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
+      touchStartOnTextLayer.current = !!isText;
       touchStartInfo.current = { x: e.clientX, y: e.clientY, time: Date.now() };
 
       // Handle Double Tap Zoom (takes priority over everything)
@@ -365,6 +262,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (now - lastTapInfo.current.time < 300 && dist < 15) {
+        e.preventDefault(); // Stop native double-tap word selection or browser zoom
         window.getSelection()?.removeAllRanges();
         handleDoubleTapZoom(e.clientX, e.clientY);
         lastTapInfo.current = { time: 0, x: 0, y: 0 };
@@ -373,26 +271,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
       }
 
-      // Handle active text selection
-      const selection = window.getSelection();
-      const hasActiveSelection = selection && !selection.isCollapsed && selection.toString().trim().length > 0;
-      
-      if (hasActiveSelection) {
-        if (e.pointerType === 'touch' && touchStartOnTextLayer.current) {
-          // Touch on text with active selection: allow handle adjustment
-          gestureMode.current = GestureMode.SelectingText;
-          return;
-        }
-        if (!touchStartOnTextLayer.current) {
-          // Touched outside text area: clear selection so gestures work normally
-          window.getSelection()?.removeAllRanges();
-        }
-        // Mouse on text with active selection: fall through (allows shift-click extension)
+      // On PC (mouse): if we click on text, lock into SelectingText to allow native selection
+      if (e.pointerType === 'mouse' && isText) {
+        gestureMode.current = GestureMode.SelectingText;
+        return;
       }
 
-      // Long press detection for text
-      const isText = target.tagName.toLowerCase() === 'span' || target.closest('.textLayer span');
-      if (isText) {
+      // On Mobile (touch): long press on a word initiates text selection
+      if (e.pointerType === 'touch' && isText) {
         longPressTimer.current = setTimeout(() => {
           if (gestureMode.current === GestureMode.Idle) {
             gestureMode.current = GestureMode.SelectingText;
@@ -461,7 +347,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePanMove = (_: any, info: any) => {
     try {
-      // If in SelectingText, browsers handle everything
+      // If in SelectingText, browsers handle everything natively
       if (gestureMode.current === GestureMode.SelectingText || isAnimatingZoom.current) return;
 
       // Movement threshold check to cancel long press
@@ -475,17 +361,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       // Determine mode if still Idle
       if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
-        // Evaluate if user is trying to select text natively
-        const selection = window.getSelection();
-        const hasTextSelected = selection && selection.type === 'Range' && selection.toString().trim().length > 0;
-        const velocityX = Math.abs(info.velocity.x);
-        
-        // If there's an active text selection AND the gesture started on text, lock into SelectingText
-        if (hasTextSelected && velocityX < 300 && touchStartOnTextLayer.current) {
-          gestureMode.current = GestureMode.SelectingText;
-          return;
-        }
-
         if (currentScaleValue > 1.05) {
           gestureMode.current = GestureMode.PanningZoomedPage;
         } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
@@ -1074,10 +949,19 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           // Prevent controls flickering by ignoring clicks if we just finished a pan
           if (Date.now() - lastPanTime.current < 150) return;
 
-          // If text is selected, clear it on tap and don't do anything else
+          // If text is selected, clear it ONLY on a genuine quick tap/click
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
-            selection.removeAllRanges();
+            const dx = e.clientX - touchStartInfo.current.x;
+            const dy = e.clientY - touchStartInfo.current.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const elapsed = Date.now() - touchStartInfo.current.time;
+
+            if (dist < 5 && elapsed < 300) {
+              selection.removeAllRanges();
+              return;
+            }
+            // Keep selection active if it was a drag
             return;
           }
 
@@ -1489,9 +1373,6 @@ const PDFPage: React.FC<PDFPageProps> = React.memo(({ pageNumber, pdf, width, re
             
             // Post-process: Wrap lines into textLine hit-test regions
             const textLayer = textLayerDivRef.current;
-            textLayer.setAttribute('contenteditable', 'true');
-            textLayer.setAttribute('spellcheck', 'false');
-            textLayer.setAttribute('inputmode', 'none');
             
             const spans = Array.from(textLayer.querySelectorAll('span'));
             const lineGroups = new Map<number, HTMLElement[]>();
