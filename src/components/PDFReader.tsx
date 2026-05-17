@@ -75,18 +75,21 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
       allTextLayers.forEach(tl => {
         const spans = Array.from(tl.querySelectorAll('span'));
-        // Find which spans are inside the selection range using mathematically precise Range boundary check
+        const selectionRects = Array.from(range.getClientRects());
+        
+        // Find which spans visually overlap with the selection rects
         const selectedSpans = spans.filter(span => {
-          try {
-            const spanRange = document.createRange();
-            spanRange.selectNodeContents(span);
+          const spanRect = span.getBoundingClientRect();
+          if (spanRect.width === 0 || spanRect.height === 0) return false;
+          
+          return selectionRects.some(selRect => {
             return (
-              range.compareBoundaryPoints(Range.END_TO_START, spanRange) < 0 &&
-              range.compareBoundaryPoints(Range.START_TO_END, spanRange) > 0
+              spanRect.left < selRect.right - 1 &&
+              spanRect.right > selRect.left + 1 &&
+              spanRect.top < selRect.bottom - 1 &&
+              spanRect.bottom > selRect.top + 1
             );
-          } catch (e) {
-            return false;
-          }
+          });
         });
         
         if (selectedSpans.length === 0) return;
