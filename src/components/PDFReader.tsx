@@ -59,6 +59,64 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     }
   }, [committedScale, liveScale, panX, panY]);
 
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      
+      // Clear all previous highlight containers
+      const allHighlightContainers = document.querySelectorAll('.selection-highlights');
+      allHighlightContainers.forEach(container => {
+        container.innerHTML = '';
+      });
+
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+
+      const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
+      allTextLayers.forEach(tl => {
+        const spans = Array.from(tl.querySelectorAll('span'));
+        // Find which spans are inside the selection range using native containsNode
+        const selectedSpans = spans.filter(span => selection.containsNode(span, true));
+        
+        if (selectedSpans.length === 0) return;
+        
+        let highlightContainer = tl.querySelector('.selection-highlights') as HTMLElement;
+        if (!highlightContainer) {
+          highlightContainer = document.createElement('div');
+          highlightContainer.className = 'selection-highlights';
+          Object.assign(highlightContainer.style, {
+            position: 'absolute',
+            inset: '0',
+            pointerEvents: 'none',
+            zIndex: '0'
+          });
+          tl.appendChild(highlightContainer);
+        }
+        
+        const frag = document.createDocumentFragment();
+        selectedSpans.forEach(span => {
+          const div = document.createElement('div');
+          Object.assign(div.style, {
+            position: 'absolute',
+            left: `${span.offsetLeft}px`,
+            top: `${span.offsetTop}px`,
+            width: `${span.offsetWidth}px`,
+            height: `${span.offsetHeight}px`,
+            backgroundColor: 'rgba(249, 115, 22, 0.35)', // Semi-transparent orange highlight
+            pointerEvents: 'none',
+            borderRadius: '2px'
+          });
+          frag.appendChild(div);
+        });
+        
+        highlightContainer.appendChild(frag);
+      });
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, []);
+
 
 
   const [isLoading, setIsLoading] = useState(true);
