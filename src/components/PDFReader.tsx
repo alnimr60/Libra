@@ -440,16 +440,8 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       // Determine mode if still Idle
       if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
-        const isHorizontal = Math.abs(info.offset.x) > Math.abs(info.offset.y) * 2;
-        
-        // Allow swiping pages even when zoomed in slightly, if the gesture is clearly horizontal
-        // This addresses the user request: "i think its better if i can swipe at certain zoom"
-        if (currentScaleValue > 1.02) {
-          if (currentScaleValue < 1.7 && isHorizontal) {
-            gestureMode.current = GestureMode.SwipingPages;
-          } else {
-            gestureMode.current = GestureMode.PanningZoomedPage;
-          }
+        if (currentScaleValue > 1.05) {
+          gestureMode.current = GestureMode.PanningZoomedPage;
         } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
           gestureMode.current = GestureMode.SwipingPages;
         }
@@ -664,10 +656,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     
     setPageIndex(safeIndex);
     
-    // Reset panning smoothly when switching pages, so the new page starts centered
-    animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-    animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
-
     if (typeof window !== 'undefined' && 'vibrate' in navigator && !isJump) {
       navigator.vibrate(10);
     }
