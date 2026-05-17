@@ -82,7 +82,7 @@ body {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  pointer-events: none;
+  pointer-events: auto !important; /* Enable pointer-events so WebKit selection hit-tester retains focus inside empty spaces */
   z-index: 50;
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
