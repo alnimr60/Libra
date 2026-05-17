@@ -87,37 +87,35 @@ body {
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
   touch-action: none !important;
-  mix-blend-mode: multiply !important; /* Mathematically hides solid white text spans completely on the page */
-  opacity: 1 !important; /* Keep full opacity so iOS Safari enables native Copy/Paste context menu */
+  opacity: 0.051 !important; /* Above 0.05 threshold to show native Copy menu, but renders the blue selection background at 5% opacity (invisible) */
 }
 
-/* Make native browser selection our premium orange color across all devices and platforms */
+/* Make native browser selection completely transparent across all devices and platforms */
 ::selection {
-  background: rgba(249, 115, 22, 0.35) !important;
-  background-color: rgba(249, 115, 22, 0.35) !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: inherit !important;
 }
 
 ::-moz-selection {
-  background: rgba(249, 115, 22, 0.35) !important;
-  background-color: rgba(249, 115, 22, 0.35) !important;
-  color: #ffffff !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: inherit !important;
 }
 
-/* Explicit targeted overrides for text layer spans to force iOS Safari to draw our orange selection background natively */
+/* Explicit targeted overrides for text layer spans to force native selection overlay to be 100% invisible */
 .textLayer span::selection {
-  background: rgba(249, 115, 22, 0.35) !important;
-  background-color: rgba(249, 115, 22, 0.35) !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
 }
 
 .textLayer *::selection {
-  background: rgba(249, 115, 22, 0.35) !important;
-  background-color: rgba(249, 115, 22, 0.35) !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
 }
 
 .textLayer {
@@ -125,8 +123,8 @@ body {
 }
 
 .textLayer span {
-  color: #ffffff !important; /* Solid white text for perfect multiply blend mode visibility bypass */
-  -webkit-text-fill-color: #ffffff !important;
+  color: #000000 !important; /* Keep solid black color at 5.1% opacity for native handles and copy recognition */
+  -webkit-text-fill-color: #000000 !important;
   position: absolute;
   white-space: pre;
   cursor: text;
