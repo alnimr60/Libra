@@ -80,55 +80,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       if (!activeTextLayer) return;
 
-      const spans = Array.from(activeTextLayer.querySelectorAll('span'));
-      
-      // Resolve start and end spans strictly inside the active text layer, respecting DOM Range boundaries
-      const getClosestSpan = (node: Node, offset: number, isStart: boolean): HTMLElement | null => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          return node.parentElement?.closest('span') || null;
-        }
-        
-        const element = node as HTMLElement;
-        if (element.tagName.toLowerCase() === 'span') return element;
-        
-        const childNodes = element.childNodes;
-        if (childNodes.length > 0) {
-          const targetIndex = isStart ? offset : offset - 1;
-          const index = Math.max(0, Math.min(targetIndex, childNodes.length - 1));
-          const targetNode = childNodes[index];
-          
-          if (targetNode instanceof HTMLElement && targetNode.tagName.toLowerCase() === 'span') {
-            return targetNode;
-          }
-          if (targetNode.nodeType === Node.TEXT_NODE) {
-            return targetNode.parentElement?.closest('span') || null;
-          }
-          if (targetNode instanceof HTMLElement) {
-            const childSpan = targetNode.querySelector('span');
-            if (childSpan) return childSpan;
-          }
-        }
-        
-        return element.closest('span');
-      };
+      // Calculate dynamic scale factor using client rects to perfectly align coordinates under any zoom level
+      const layerRect = activeTextLayer.getBoundingClientRect();
+      const scale = layerRect.width / (activeTextLayer as HTMLElement).offsetWidth || 1;
 
-      const startSpan = getClosestSpan(range.startContainer, range.startOffset, true);
-      const endSpan = getClosestSpan(range.endContainer, range.endOffset, false);
+      // Retrieve exact native character-level client rects from the browser engine
+      const clientRects = Array.from(range.getClientRects());
+      if (clientRects.length === 0) return;
 
-      if (!startSpan || !endSpan) return;
-
-      // Filter only spans inside the selected boundaries in strict DOM order
-      const selectedSpans = spans.filter(span => {
-        if (span === startSpan || span === endSpan) return true;
-        
-        const isAfterStart = (startSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-        const isBeforeEnd = (endSpan.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
-        
-        return isAfterStart && isBeforeEnd;
-      });
-      
-      if (selectedSpans.length === 0) return;
-      
       let highlightContainer = activeTextLayer.parentElement?.querySelector('.selection-highlights') as HTMLElement;
       if (!highlightContainer && activeTextLayer.parentElement) {
         highlightContainer = document.createElement('div');
@@ -141,23 +100,26 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         });
         activeTextLayer.parentNode?.insertBefore(highlightContainer, activeTextLayer);
       }
-      
+
+      // Draw the pixel-perfect orange highlight overlays
       const frag = document.createDocumentFragment();
-      selectedSpans.forEach(span => {
+      clientRects.forEach(rect => {
+        if (rect.width === 0 || rect.height === 0) return;
+        
         const div = document.createElement('div');
         Object.assign(div.style, {
           position: 'absolute',
-          left: `${span.offsetLeft}px`,
-          top: `${span.offsetTop}px`,
-          width: `${span.offsetWidth}px`,
-          height: `${span.offsetHeight}px`,
+          left: `${(rect.left - layerRect.left) / scale}px`,
+          top: `${(rect.top - layerRect.top) / scale}px`,
+          width: `${rect.width / scale}px`,
+          height: `${rect.height / scale}px`,
           backgroundColor: 'rgba(249, 115, 22, 0.35)', // Premium orange selection color
           pointerEvents: 'none',
           borderRadius: '2px'
         });
         frag.appendChild(div);
       });
-      
+
       highlightContainer.appendChild(frag);
     };
 
