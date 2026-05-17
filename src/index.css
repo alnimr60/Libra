@@ -105,8 +105,8 @@ body {
 }
 
 .textLayer span {
-  color: transparent !important;
-  -webkit-text-fill-color: transparent !important;
+  color: rgba(0, 0, 0, 0.001) !important;
+  -webkit-text-fill-color: rgba(0, 0, 0, 0.001) !important;
   position: absolute;
   white-space: pre;
   cursor: text;
