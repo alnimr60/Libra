@@ -71,12 +71,13 @@ body {
   @apply antialiased transition-colors duration-200;
 }
 
+/* PDF Text Layer Selection Styling */
 .textLayer {
   user-select: none !important;
   -webkit-user-select: none !important;
 }
 
-.textLayer span {
+.textLayer * {
   user-select: text !important;
   -webkit-user-select: text !important;
 }
