@@ -75,8 +75,19 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const allTextLayers = Array.from(document.querySelectorAll('.textLayer'));
       allTextLayers.forEach(tl => {
         const spans = Array.from(tl.querySelectorAll('span'));
-        // Find which spans are inside the selection range using native containsNode
-        const selectedSpans = spans.filter(span => selection.containsNode(span, true));
+        // Find which spans are inside the selection range using mathematically precise Range boundary check
+        const selectedSpans = spans.filter(span => {
+          try {
+            const spanRange = document.createRange();
+            spanRange.selectNodeContents(span);
+            return (
+              range.compareBoundaryPoints(Range.END_TO_START, spanRange) < 0 &&
+              range.compareBoundaryPoints(Range.START_TO_END, spanRange) > 0
+            );
+          } catch (e) {
+            return false;
+          }
+        });
         
         if (selectedSpans.length === 0) return;
         
