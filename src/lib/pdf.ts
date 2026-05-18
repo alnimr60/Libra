@@ -65,13 +65,19 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
 
 export function detectDirectionFromText(text: string): 'ltr' | 'rtl' {
   if (!text) return 'ltr';
-  const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
-  const latinRegex = /[a-zA-Z]/g;
-  const arabicMatch = text.match(arabicRegex);
-  const latinMatch = text.match(latinRegex);
-  const arabicCount = arabicMatch ? arabicMatch.length : 0;
-  const latinCount = latinMatch ? latinMatch.length : 0;
-  return arabicCount > latinCount ? 'rtl' : 'ltr';
+  // Include Arabic, Hebrew, Syriac, Thaana, N'Ko, and other RTL ranges
+  const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
+  
+  // Include Latin, Cyrillic (Russian), Devanagari (Hindi), CJK (Chinese/Japanese/Korean), etc
+  const ltrRegex = /[a-zA-Z\u0400-\u04FF\u0900-\u097F\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/g;
+  
+  const rtlMatch = text.match(rtlRegex);
+  const ltrMatch = text.match(ltrRegex);
+  
+  const rtlCount = rtlMatch ? rtlMatch.length : 0;
+  const ltrCount = ltrMatch ? ltrMatch.length : 0;
+  
+  return rtlCount > ltrCount ? 'rtl' : 'ltr';
 }
 
 export async function samplePDFText(pdf: pdfjs.PDFDocumentProxy): Promise<string> {

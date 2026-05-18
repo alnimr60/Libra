@@ -124,7 +124,7 @@ export default function App() {
     addGoal, updateGoal, deleteGoal, logReading, importData
   } = usePersistence();
   const insets = useSafeArea();
-  const isRTL = settings.language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(settings.language);
   const t = translations[settings.language];
 
   // Prevent browser viewport pinch zoom and gestures

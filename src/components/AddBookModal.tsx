@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Book, ReadingStatus } from '../types';
+import { Book, ReadingStatus, LanguageCode } from '../types';
+
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Upload, CheckCircle, Loader2, Calendar as CalendarIcon, Tag, Book as BookIcon, Image as ImageIcon } from 'lucide-react';
 import { extractPDFMetadata, extractPDFSampleText, detectDirectionFromText } from '../lib/pdf';
@@ -12,11 +13,11 @@ interface AddBookModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (book: Book) => void;
-  language?: 'en' | 'ar';
+  language?: LanguageCode;
 }
 
 export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }: AddBookModalProps) {
-  const isRTL = language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(language);
   const t = translations[language];
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,45 +36,87 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.type !== 'application/pdf') {
-       alert('Please upload a PDF file.');
-       return;
-    }
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setIsLoading(true);
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const metadata = await extractPDFMetadata(file); 
-      
-      const fileId = `pdf_${crypto.randomUUID()}`;
-      await set(fileId, arrayBuffer);
+      if (files.length === 1) {
+        const file = files[0];
+        if (file.type !== 'application/pdf') {
+          alert('Please upload a PDF file.');
+          return;
+        }
 
-      // Auto-detect language via sampled text
-      let sampleText = '';
-      try {
-        sampleText = await extractPDFSampleText(file);
-      } catch (e) {
-        console.warn("Failed to sample text for language detection", e);
+        const arrayBuffer = await file.arrayBuffer();
+        const metadata = await extractPDFMetadata(file); 
+        
+        const fileId = `pdf_${crypto.randomUUID()}`;
+        await set(fileId, arrayBuffer);
+
+        // Auto-detect language via sampled text
+        let sampleText = '';
+        try {
+          sampleText = await extractPDFSampleText(file);
+        } catch (e) {
+          console.warn("Failed to sample text for language detection", e);
+        }
+        const direction = detectDirectionFromText(sampleText);
+
+        setFormData(prev => ({
+          ...prev,
+          title: file.name.replace('.pdf', ''),
+          totalPages: metadata.pageCount,
+          coverUrl: metadata.coverUrl,
+          fileDataId: fileId,
+          readingDirection: direction,
+          directionDetected: !!sampleText,
+          status: 'To-Be-Read'
+        }));
+        setStep(2);
+      } else {
+        for (const file of Array.from(files)) {
+          if (file.type !== 'application/pdf') {
+            console.warn(`Skipping non-PDF file: ${file.name}`);
+            continue;
+          }
+
+          const arrayBuffer = await file.arrayBuffer();
+          const metadata = await extractPDFMetadata(file); 
+          
+          const fileId = `pdf_${crypto.randomUUID()}`;
+          await set(fileId, arrayBuffer);
+
+          // Auto-detect language via sampled text
+          let sampleText = '';
+          try {
+            sampleText = await extractPDFSampleText(file);
+          } catch (e) {
+            console.warn("Failed to sample text for language detection", e);
+          }
+          const direction = detectDirectionFromText(sampleText);
+
+          const newBook: Book = {
+            id: crypto.randomUUID(),
+            title: file.name.replace('.pdf', ''),
+            author: '',
+            totalPages: metadata.pageCount,
+            currentPage: 0,
+            status: 'To-Be-Read',
+            tags: [],
+            readingDirection: direction,
+            directionDetected: !!sampleText,
+            coverUrl: metadata.coverUrl,
+            fileDataId: fileId,
+            addedAt: new Date().toISOString(),
+          };
+          onAdd(newBook);
+        }
+        onClose();
       }
-      const direction = detectDirectionFromText(sampleText);
-
-      setFormData(prev => ({
-        ...prev,
-        title: prev.title || file.name.replace('.pdf', ''),
-        totalPages: metadata.pageCount,
-        coverUrl: metadata.coverUrl,
-        fileDataId: fileId,
-        readingDirection: direction,
-        directionDetected: !!sampleText
-      }));
-      setStep(2);
     } catch (error) {
-      console.error('Failed to parse PDF:', error);
-      alert('Error reading PDF. You can still enter details manually.');
-      setStep(2);
+      console.error('Failed to parse PDFs:', error);
+      alert('Error reading some PDF files.');
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +196,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
       >
         <div className="px-8 py-6 flex justify-between items-center border-b border-black/5 dark:border-white/5" dir={isRTL ? "rtl" : "ltr"}>
           <h2 className={cn("text-xl font-serif", isRTL ? "font-bold" : "font-medium")}>
-            {isRTL ? "إضافة إلى المكتبة" : "Add to Library"}
+            {t.addToLibrary}
           </h2>
           <button onClick={onClose} className={cn("p-2 opacity-50 hover:opacity-100", isRTL ? "-ml-2" : "-mr-2")}>
             <X className="w-6 h-6" />
@@ -172,7 +215,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
               >
                 <div className="text-center space-y-2">
                   <p className={cn("text-sm opacity-60", isRTL && "font-bold")}>
-                    {isRTL ? "ارفع ملف PDF أو أدخل البيانات يدوياً" : "Upload your PDF or manual details"}
+                    {t.uploadPDF}
                   </p>
                 </div>
 
@@ -180,7 +223,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   onClick={() => fileInputRef.current?.click()}
                   className="aspect-video border-2 border-dashed border-black/10 dark:border-white/10 rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group"
                 >
-                  <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileChange} />
+                  <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" multiple onChange={handleFileChange} />
                   {isLoading ? (
                     <Loader2 className="w-12 h-12 animate-spin opacity-40" />
                   ) : (
@@ -189,7 +232,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                         <Upload className="w-8 h-8" />
                       </div>
                       <span className={cn("text-sm font-medium", isRTL && "font-bold")}>
-                        {isRTL ? "اسحب الملف هنا أو تصفح" : "Drop PDF here or Browse"}
+                        {t.dropPDF}
                       </span>
                     </>
                   )}
@@ -201,7 +244,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   </div>
                   <div className={cn("relative flex justify-center text-xs uppercase tracking-widest opacity-30", isRTL && "tracking-normal")}>
                     <span className="bg-white dark:bg-[#1A1614] px-4">
-                      {isRTL ? "أو ابدأ يدوياً" : "Or start manually"}
+                      {t.orStartManually}
                     </span>
                   </div>
                 </div>
@@ -210,7 +253,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   onClick={() => setStep(2)}
                   className={cn("w-full py-4 text-sm font-medium bg-black/5 dark:bg-white/5 rounded-2xl hover:bg-black/10 transition-colors", isRTL && "font-bold")}
                 >
-                  {isRTL ? "إدخال يدوي" : "Enter manual details"}
+                  {t.enterManual}
                 </button>
               </motion.div>
             )}
@@ -235,7 +278,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center opacity-20">
                          <BookIcon className="w-10 h-10" />
-                         <span className="text-[8px] mt-1 font-bold">ADD COVER</span>
+                         <span className="text-[8px] mt-1 font-bold">{t.addCover}</span>
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -245,18 +288,18 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   <div className="flex-1 space-y-4">
                     <InputGroup 
                       icon={<BookIcon className="w-4 h-4" />}
-                      label={isRTL ? "عنوان المجلد" : "Book Title"}
+                      label={t.bookTitle}
                       value={formData.title}
                       onChange={(val) => setFormData(p => ({ ...p, title: val }))}
-                      placeholder={isRTL ? "مثال: مقدمة ابن خلدون" : "The Great Gatsby"}
+                      placeholder={t.searchPlaceholder}
                       isRTL={isRTL}
                     />
                     <InputGroup 
                       icon={<Tag className="w-4 h-4" />}
-                      label={isRTL ? "المؤلف" : "Author"}
+                      label={t.author}
                       value={formData.author}
                       onChange={(val) => setFormData(p => ({ ...p, author: val }))}
-                      placeholder={isRTL ? "مثال: ابن خلدون" : "F. Scott Fitzgerald"}
+                      placeholder={t.unknownAuthor}
                       isRTL={isRTL}
                     />
                   </div>
@@ -264,7 +307,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
 
                 <div className="grid grid-cols-2 gap-4">
                   <InputGroup 
-                    label={isRTL ? "عدد الصفحات" : "Total Pages"}
+                    label={t.totalPages}
                     type="number"
                     value={formData.totalPages}
                     onChange={(val) => setFormData(p => ({ ...p, totalPages: parseInt(val) || 0 }))}
@@ -272,23 +315,23 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   />
                   <div className="space-y-1.5 text-right">
                     <label className={cn("text-[10px] uppercase tracking-widest opacity-40 font-semibold", isRTL ? "mr-1" : "ml-1")}>
-                      {isRTL ? "الحالة" : "Status"}
+                      {t.status}
                     </label>
                     <select 
                       value={formData.status}
                       onChange={(e) => setFormData(p => ({ ...p, status: e.target.value as ReadingStatus }))}
                       className="w-full px-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl text-sm focus:outline-none"
                     >
-                      <option value="To-Be-Read">{isRTL ? 'قائمة القراءة' : 'To-Be-Read'}</option>
-                      <option value="Currently Reading">{isRTL ? 'أقرأه الآن' : 'Reading'}</option>
-                      <option value="Finished">{isRTL ? 'مكتمل' : 'Finished'}</option>
+                      <option value="To-Be-Read">{t.toBeRead}</option>
+                      <option value="Currently Reading">{t.currentlyReading}</option>
+                      <option value="Finished">{t.finished}</option>
                     </select>
                   </div>
                 </div>
 
                 <InputGroup 
                   icon={<CalendarIcon className="w-4 h-4" />}
-                  label={isRTL ? "الموعد النهائي" : "Deadline"}
+                  label={t.deadline}
                   type="date"
                   value={formData.deadline}
                   onChange={(val) => setFormData(p => ({ ...p, deadline: val }))}
@@ -297,7 +340,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
 
                 <div className="space-y-1.5 text-right">
                   <label className={cn("text-[10px] uppercase tracking-widest opacity-40 font-semibold", isRTL ? "mr-1" : "ml-1")}>
-                     {isRTL ? "الوسوم" : "Tags"}
+                     {t.tags}
                   </label>
                   <div className="flex gap-2 mb-2 flex-wrap">
                     {formData.tags?.map(t => (
@@ -312,7 +355,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   <div className="flex gap-2">
                     <input 
                       type="text"
-                      placeholder={isRTL ? "أضف وسم (مثال: رواية)" : "Add tag (e.g. Fantasy)"}
+                      placeholder={t.addTag}
                       value={tagInput}
                       onChange={(e) => setTagInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
@@ -329,13 +372,13 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                     onClick={() => setStep(1)}
                     className={cn("flex-1 py-4 text-sm font-medium border border-black/10 dark:border-white/10 rounded-2xl", isRTL && "font-bold")}
                   >
-                    {isRTL ? "رجوع" : "Back"}
+                    {t.back}
                   </button>
                   <button 
                     onClick={handleSubmit}
                     className={cn("flex-[2] py-4 text-sm font-medium bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-2xl shadow-xl hover:scale-[1.02] transition-transform", isRTL && "font-bold")}
                   >
-                    {isRTL ? "إتمام وإضافة الكتاب" : "Finish & Add Book"}
+                    {t.finishAndAdd}
                   </button>
                 </div>
               </motion.div>
