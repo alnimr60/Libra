@@ -1,0 +1,155 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
+@import "tailwindcss";
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide,
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@theme {
+  --font-sans: "Tajawal", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Tajawal", ui-serif, "Georgia", serif;
+  --font-mono: "Tajawal", ui-monospace, SFMono-Regular, monospace;
+}
+
+@variant dark (&:is(.dark, .dark *));
+
+@layer base {
+  :root {
+    /* Standard Safe Area variables for browsers that support them */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+    accent-color: #f97316;
+  }
+
+  /* Support for mobile overflow-scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@layer base {
+  [dir="rtl"] *:not(.textLayer *), 
+  [dir="rtl"]:not(.textLayer) {
+    letter-spacing: 0 !important;
+    word-spacing: 0.1em;
+    font-feature-settings: "kern" 1, "liga" 1;
+    line-height: 1.6;
+  }
+
+  [dir="rtl"] .font-bold {
+    font-weight: 800 !important;
+  }
+}
+
+@utility pt-safe {
+  padding-top: var(--msp-top);
+}
+
+@utility pb-safe {
+  padding-bottom: var(--msp-bottom);
+}
+
+@utility mt-safe {
+  margin-top: var(--msp-top);
+}
+
+@utility mb-safe {
+  margin-bottom: var(--msp-bottom);
+}
+
+body {
+  @apply antialiased transition-colors duration-200;
+}
+
+.textLayer {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.textLayer span {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: auto !important; /* Enable pointer-events so WebKit selection hit-tester retains focus inside empty spaces */
+  z-index: 50;
+  line-height: normal;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none !important;
+  opacity: 0.051 !important; /* Above 0.05 threshold to show native Copy menu, but renders the blue selection background at 5% opacity (invisible) */
+}
+
+/* Make native browser selection orange across the app */
+::selection {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+}
+
+::-moz-selection {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+}
+
+/* For the PDF text layer specifically, we keep it transparent because we draw a pixel-perfect overlay behind the text in PDFReader.tsx */
+.textLayer span::selection {
+  background: transparent !important;
+}
+
+.textLayer *::selection {
+  background: transparent !important;
+}
+
+.textLayer {
+  outline: none !important;
+}
+
+.textLayer span {
+  color: #000000 !important; /* Keep solid black color at 5.1% opacity for native handles and copy recognition */
+  -webkit-text-fill-color: #000000 !important;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  pointer-events: auto;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  touch-action: text !important; /* Enable native selection gestures, bypass container touch-action: none */
+  -webkit-tap-highlight-color: transparent !important; /* Prevent orange/gray caret tap highlights */
+  box-sizing: border-box;
+  display: inline;
+  line-height: 1;
+  z-index: 1;
+}
+
+
+
+/* Custom scrollbar for desktop */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(155, 155, 155, 0.2);
+  border-radius: 20px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(155, 155, 155, 0.4);
+}
