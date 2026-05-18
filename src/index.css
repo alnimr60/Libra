@@ -71,9 +71,12 @@ body {
   @apply antialiased transition-colors duration-200;
 }
 
-/* PDF Text Layer Selection Styling */
-.textLayer,
-.textLayer * {
+.textLayer {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.textLayer span {
   user-select: text !important;
   -webkit-user-select: text !important;
 }
@@ -81,12 +84,12 @@ body {
 .textLayer {
   position: absolute;
   inset: 0;
-  overflow: visible; /* Prevent selection clipping at container boundaries */
+  overflow: hidden;
   pointer-events: auto !important; /* Enable pointer-events so WebKit selection hit-tester retains focus inside empty spaces */
   z-index: 50;
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
-  touch-action: text !important; /* Enable native selection gestures over empty spaces, preventing touch cancellations */
+  touch-action: none !important;
   opacity: 0.051 !important; /* Above 0.05 threshold to show native Copy menu, but renders the blue selection background at 5% opacity (invisible) */
 }
 
