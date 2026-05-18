@@ -1,0 +1,60 @@
+export const translations = {
+  en: {
+    dashboard: "Library",
+    today: "Today",
+    goals: "Reading Echoes",
+    addGoal: "Add Echo",
+    settings: "Settings",
+    appearance: "Vibe",
+    darkMode: "Dark Mode",
+    system: "System",
+    dashboardStyle: "Library Path",
+    linear: "The Reader's Path",
+    circular: "The Infinite Shelf",
+    notifications: "Echoes",
+    language: "Language",
+    english: "English",
+    arabic: "العربية",
+    units: "Pages",
+    logReading: "Record Progress",
+    bookProgress: "Journey Status",
+    completed: "Finished",
+    continue: "Continue Reading",
+    quotes: [
+      "Continuity is the secret to mastery.",
+      "A book is a dream that you hold in your hand.",
+      "Reading is a conversation. All books talk. But a good book listens as well.",
+      "A room without books is like a body without a soul.",
+      "The more that you read, the more things you will know."
+    ]
+  },
+  ar: {
+    dashboard: "المكتبة",
+    today: "اليوم",
+    goals: "أصداء القراءة",
+    addGoal: "إضافة صدى",
+    settings: "الإعدادات",
+    appearance: "الأجواء",
+    darkMode: "الوضع الليلي",
+    system: "تلقائي",
+    dashboardStyle: "مسار المكتبة",
+    linear: "درب القارئ",
+    circular: "الرف اللامتناهي",
+    notifications: "التنبيهات",
+    language: "اللغة",
+    english: "English",
+    arabic: "العربية",
+    units: "صفحة",
+    logReading: "تسجيل التقدم",
+    bookProgress: "حالة الرحلة",
+    completed: "مكتمل",
+    continue: "واصل القراءة",
+    quotes: [
+      "الاستمرارية هي سر الإتقان.",
+      "الكتاب هو حلم تمسكه بيديك.",
+      "القراءة حوار. كل الكتب تتحدث، لكن الكتاب الجيد يصغي أيضاً.",
+      "بيت بلا كتب كجسد بلا روح.",
+      "كلما قرأت أكثر، عرفت أكثر."
+    ]
+  }
+};

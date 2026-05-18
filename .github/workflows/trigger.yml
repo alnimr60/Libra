@@ -1,0 +1,60 @@
+name: Build iOS IPA (Fortress Mode)
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🛡️ Restore Fortress Infrastructure
+        run: |
+          # Pull native files from fortress branch
+          git fetch origin fortress
+          git checkout origin/fortress -- ios justfile capacitor.config.ts
+
+      - name: 📦 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 📦 Inject Dependencies & Install
+        run: |
+          # Re-inject capacitor in case AI Studio deleted it from package.json
+          npm install @capacitor/core @capacitor/ios @capacitor/cli
+          npm install
+          brew install just
+
+      - name: 🏗️ Build App
+        run: |
+          just archive
+          just export-unsigned
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: build/ipa/*.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔄 Sync Game Logic back to Fortress
+        run: |
+          git config user.name "Fortress Guardian"
+          git config user.email "actions@github.com"
+          git fetch origin fortress
+          git checkout -f fortress
+          # Specifically pull game files from main
+          git checkout main -- src index.html tsconfig.json vite.config.ts package.json .github/workflows/trigger.yml
+          git add .
+          git commit -m "🚀 Sync latest game code to Fortress" || echo "No changes"
+          git push origin fortress

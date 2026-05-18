@@ -97,12 +97,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           inset: '0',
           pointerEvents: 'none',
           zIndex: '45', // Position between canvas and textLayer
-          opacity: '0.45', // Balanced opacity for vibrancy without obscuring text
+          opacity: '0.35' // Unified opacity on composite layer prevents overlapping blending artifacts
         });
         activeTextLayer.parentNode?.insertBefore(highlightContainer, activeTextLayer);
       }
 
-      // Draw the pixel-perfect orange selection overlays
+      // Draw the pixel-perfect orange highlight overlays
       const frag = document.createDocumentFragment();
       clientRects.forEach(rect => {
         if (rect.width === 0 || rect.height === 0) return;
@@ -114,9 +114,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
           top: `${(rect.top - layerRect.top) / scale}px`,
           width: `${rect.width / scale}px`,
           height: `${rect.height / scale}px`,
-          backgroundColor: '#f97316', // Solid brand orange
+          backgroundColor: 'rgb(249, 115, 22)', // Solid opaque orange color to merge overlapping boundaries cleanly
           pointerEvents: 'none',
-          borderRadius: '1.5px'
+          borderRadius: '2px'
         });
         frag.appendChild(div);
       });

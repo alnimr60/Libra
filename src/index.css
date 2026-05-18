@@ -93,24 +93,32 @@ body {
   opacity: 0.051 !important; /* Above 0.05 threshold to show native Copy menu, but renders the blue selection background at 5% opacity (invisible) */
 }
 
-/* Make native browser selection orange across the app */
+/* Make native browser selection completely transparent across all devices and platforms */
 ::selection {
-  background-color: #f97316 !important;
-  color: #ffffff !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: inherit !important;
 }
 
 ::-moz-selection {
-  background-color: #f97316 !important;
-  color: #ffffff !important;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: inherit !important;
 }
 
-/* For the PDF text layer specifically, we keep it transparent because we draw a pixel-perfect overlay behind the text in PDFReader.tsx */
+/* Explicit targeted overrides for text layer spans to force native selection overlay to be 100% invisible */
 .textLayer span::selection {
   background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
 }
 
 .textLayer *::selection {
   background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
 }
 
 .textLayer {
