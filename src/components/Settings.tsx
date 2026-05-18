@@ -18,7 +18,7 @@ interface SettingsProps {
 export default function Settings({ books, settings, goals, readingLogs, setSettings, importData }: SettingsProps) {
   const insets = useSafeArea();
   const t = translations[settings.language];
-  const isRTL = settings.language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(settings.language);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const exportData = () => {
@@ -40,9 +40,9 @@ export default function Settings({ books, settings, goals, readingLogs, setSetti
       try {
         const data = JSON.parse(event.target?.result as string);
         importData(data);
-        alert(isRTL ? "تم استيراد البيانات بنجاح" : "Data imported successfully");
+        alert(t.importSuccess);
       } catch (e) {
-        alert(isRTL ? "فشل استيراد البيانات" : "Failed to import data");
+        alert(t.importError);
       }
     };
     reader.readAsText(file);
@@ -56,9 +56,6 @@ export default function Settings({ books, settings, goals, readingLogs, setSetti
     >
       <div className="mb-10">
         <h1 className={cn("text-4xl font-serif tracking-tight", isRTL ? "font-bold" : "font-medium")}>{t.settings}</h1>
-        <p className={cn("text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.3em] mt-2", isRTL && "font-bold")}>
-          {isRTL ? "تخصيص عالمك" : "CONFIGURE YOUR UNIVERSE"}
-        </p>
       </div>
 
       <div className="flex-1 space-y-10 overflow-y-auto no-scrollbar pb-10">
@@ -66,37 +63,48 @@ export default function Settings({ books, settings, goals, readingLogs, setSetti
         <section className="space-y-6">
           <SectionHeader title={t.language} isRTL={isRTL} />
           <div className="bg-white dark:bg-zinc-900 rounded-[2rem] p-3 border border-zinc-200 dark:border-zinc-800 space-y-1 shadow-sm">
-            <SettingRow 
-              icon={<Globe className="w-4 h-4" />}
-              label="English"
-              isActive={settings.language === 'en'}
-              onClick={() => setSettings({ language: 'en' })}
-              isRTL={isRTL}
-            />
-            <SettingRow 
-              icon={<Globe className="w-4 h-4" />}
-              label="العربية"
-              isActive={settings.language === 'ar'}
-              onClick={() => setSettings({ language: 'ar' })}
-              isRTL={isRTL}
-            />
+            {[
+              { id: 'bn', label: 'বাংলা' },
+              { id: 'zh', label: '中文' },
+              { id: 'de', label: 'Deutsch' },
+              { id: 'en', label: 'English' },
+              { id: 'fr', label: 'Français' },
+              { id: 'hi', label: 'हिन्दी' },
+              { id: 'id', label: 'Bahasa Indonesia' },
+              { id: 'ja', label: '日本語' },
+              { id: 'mr', label: 'मराठी' },
+              { id: 'ng', label: 'Nigerian Pidgin' },
+              { id: 'pt', label: 'Português' },
+              { id: 'ru', label: 'Русский' },
+              { id: 'ar', label: 'العربية' },
+              { id: 'ur', label: 'اردو' }
+            ].sort((a, b) => a.label.localeCompare(b.label)).map((lang) => (
+              <SettingRow 
+                key={lang.id}
+                icon={<Globe className="w-4 h-4" />}
+                label={lang.label}
+                isActive={settings.language === lang.id}
+                onClick={() => setSettings({ language: lang.id as any })}
+                isRTL={isRTL}
+              />
+            ))}
           </div>
         </section>
 
         {/* Data Management Section */}
         <section className="space-y-6">
-          <SectionHeader title={isRTL ? "البيانات" : "Data Management"} isRTL={isRTL} />
+          <SectionHeader title={t.dataManagement} isRTL={isRTL} />
           <div className="bg-white dark:bg-zinc-900 rounded-[2rem] p-3 border border-zinc-200 dark:border-zinc-800 space-y-1 shadow-sm">
             <SettingRow 
               icon={<Download className="w-4 h-4" />}
-              label={isRTL ? "تصدير البيانات" : "Export Data"}
+              label={t.exportData}
               isActive={false}
               onClick={exportData}
               isRTL={isRTL}
             />
             <SettingRow 
               icon={<Upload className="w-4 h-4" />}
-              label={isRTL ? "استيراد البيانات" : "Import Data"}
+              label={t.importData}
               isActive={false}
               onClick={() => fileInputRef.current?.click()}
               isRTL={isRTL}
@@ -111,14 +119,14 @@ export default function Settings({ books, settings, goals, readingLogs, setSetti
           <div className="bg-white dark:bg-zinc-900 rounded-[2rem] p-3 border border-zinc-200 dark:border-zinc-800 space-y-1 shadow-sm">
             <SettingRow 
               icon={<Sun className="w-4 h-4" />}
-              label={settings.language === 'ar' ? "نهاري" : "Solar"}
+              label={t.light}
               isActive={settings.theme === 'light'}
               onClick={() => setSettings({ theme: 'light' })}
               isRTL={isRTL}
             />
             <SettingRow 
               icon={<Moon className="w-4 h-4" />}
-              label={settings.language === 'ar' ? "ليلي" : "Lunar"}
+              label={t.dark}
               isActive={settings.theme === 'dark'}
               onClick={() => setSettings({ theme: 'dark' })}
               isRTL={isRTL}
@@ -164,9 +172,9 @@ export default function Settings({ books, settings, goals, readingLogs, setSetti
                       <Bell className="w-5 h-5" />
                    </div>
                    <div>
-                      <h4 className={cn("text-sm font-serif", isRTL ? "font-bold" : "font-medium")}>{isRTL ? "أمنيات يومية" : "Daily Nudges"}</h4>
+                      <h4 className={cn("text-sm font-serif", isRTL ? "font-bold" : "font-medium")}>{t.dailyNotifications}</h4>
                       <p className={cn("text-[10px] font-mono text-zinc-400 uppercase tracking-widest leading-loose", isRTL && "font-bold tracking-normal")}>
-                        {isRTL ? "تذكير بالاستمرارية" : "Continuity reminders"}
+                        {t.continuityReminders}
                       </p>
                    </div>
                 </div>
@@ -188,15 +196,15 @@ export default function Settings({ books, settings, goals, readingLogs, setSetti
 
         {/* Info Section */}
         <section className="space-y-6">
-          <SectionHeader title={isRTL ? "معلومات" : "Archive"} isRTL={isRTL} />
+          <SectionHeader title={t.about} isRTL={isRTL} />
           <div className="bg-white dark:bg-zinc-900 rounded-[2rem] p-3 border border-zinc-200 dark:border-zinc-800 space-y-1 shadow-sm">
-             <InfoRow icon={<Info className="w-4 h-4" />} label={isRTL ? "الإصدار" : "Volume Version"} value="2.1.0-editorial" isRTL={isRTL} />
+             <InfoRow icon={<Info className="w-4 h-4" />} label={t.version} value="2.1.0" isRTL={isRTL} />
           </div>
         </section>
 
         <footer className="text-center space-y-2 opacity-20 pb-10">
           <p className="text-[8px] font-mono uppercase tracking-[0.4em]">
-            {isRTL ? "صمم بعناية" : "Designed with Intention"}
+            {t.madeWithCare}
           </p>
         </footer>
       </div>

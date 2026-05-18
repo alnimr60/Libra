@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, useMotionValue, useTransform, useSpring, animate, AnimatePresence } from 'motion/react';
-import { Book } from '../types';
+import { Book, LanguageCode } from '../types';
 import { cn } from '../lib/utils';
 
 interface BookCarouselProps {
@@ -10,11 +10,11 @@ interface BookCarouselProps {
   onChange: (index: number) => void;
   onOpen?: (book: Book) => void;
   style?: 'linear' | 'circular';
-  language?: 'en' | 'ar';
+  language?: LanguageCode;
 }
 
 export default function BookCarousel({ books, selectedIndex, onChange, onOpen, style = 'linear', language = 'en' }: BookCarouselProps) {
-  const isRTL = language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(language);
   const [width, setWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);

@@ -44,13 +44,15 @@ export interface ReadingGoal {
   createdAt: string;
 }
 
+export type LanguageCode = 'en' | 'ar' | 'zh' | 'hi' | 'fr' | 'ru' | 'de' | 'ja' | 'bn' | 'pt' | 'ur' | 'id' | 'ng' | 'mr';
+
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   notificationsEnabled: boolean;
   notificationFrequency: 'once' | 'twice' | 'custom';
   customNotificationTimes: string[]; // ['09:00', '18:00', ...]
   dashboardStyle: 'linear' | 'circular';
-  language: 'en' | 'ar';
+  language: LanguageCode;
 }
 
 export interface AppData {

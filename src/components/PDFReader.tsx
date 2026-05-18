@@ -440,9 +440,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
       // Determine mode if still Idle
       if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
-        if (currentScaleValue > 1.05) {
+        const isHorizontal = Math.abs(info.offset.x) > Math.abs(info.offset.y) * 1.5;
+        if (currentScaleValue > 1.2 || (!isHorizontal && currentScaleValue > 1.05)) {
           gestureMode.current = GestureMode.PanningZoomedPage;
-        } else if (Math.abs(info.offset.x) > Math.abs(info.offset.y)) {
+        } else {
           gestureMode.current = GestureMode.SwipingPages;
         }
         isDraggingRef.current = true;
@@ -469,6 +470,18 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
         panX.set(clampedX);
         panY.set(clampedY);
+
+        // Overscroll logic to swipe page while zoomed in
+        if (Math.abs(nextX) > hMargin + 0.5) {
+          const overscrollDist = nextX - clampedX;
+          const scrollWidth = window.innerWidth;
+          const progressDelta = overscrollDist / scrollWidth;
+          if (direction === 'rtl') {
+            virtualPage.set(virtualPage.get() + progressDelta * 1.5);
+          } else {
+            virtualPage.set(virtualPage.get() - progressDelta * 1.5);
+          }
+        }
       } else if (gestureMode.current === GestureMode.SwipingPages) {
         // SWIPE MODE (selection is preserved — it will naturally become irrelevant on page change)
         const scrollWidth = window.innerWidth;
@@ -503,9 +516,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       if (mode === GestureMode.PanningZoomedPage) {
         isDraggingRef.current = false;
         const currentScaleValue = liveScale.get();
-        // INERTIAL PANNING
-        const velocityX = info.velocity.x;
-        const velocityY = info.velocity.y;
         
         const aspect = 1.414;
         const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
@@ -516,6 +526,42 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         
         const hMargin = Math.max(0, (zoomedWidth - viewportWidth) / 2);
         const vMargin = Math.max(0, (zoomedHeight - viewportHeight) / 2);
+
+        // Check for page swipe from edge overscroll
+        const vp = virtualPage.get();
+        const overscrollAmt = Math.abs(vp - pageIndex);
+        
+        if (overscrollAmt > 0) {
+            const velocityX = info.velocity.x;
+            const isIntentionalSwipe = overscrollAmt > 0.25 || (overscrollAmt > 0.05 && Math.abs(velocityX) > 800);
+            
+            if (isIntentionalSwipe) {
+                let nextIndex = pageIndex;
+                if (vp > pageIndex + 0.25 || (velocityX < -800 && direction === 'ltr' && vp > pageIndex + 0.05) || (velocityX > 800 && direction === 'rtl' && vp > pageIndex + 0.05)) {
+                    nextIndex = pageIndex + 1;
+                } else if (vp < pageIndex - 0.25 || (velocityX > 800 && direction === 'ltr' && vp < pageIndex - 0.05) || (velocityX < -800 && direction === 'rtl' && vp < pageIndex - 0.05)) {
+                    nextIndex = pageIndex - 1;
+                }
+                
+                if (nextIndex !== pageIndex) {
+                    handlePageChange(Math.max(0, Math.min(nextIndex, totalSheets - 1)));
+                    animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+                    animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+                    lastPanTime.current = Date.now();
+                    gestureMode.current = GestureMode.Idle;
+                    return;
+                }
+            }
+        }
+        
+        // Snap virtual page back if overscroll wasn't enough to flip
+        if (vp !== pageIndex) {
+            animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
+        }
+
+        // INERTIAL PANNING
+        const velocityX = info.velocity.x;
+        const velocityY = info.velocity.y;
 
         animate(panX, panX.get() + velocityX * 0.1, {
           type: 'spring',
@@ -865,7 +911,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                     <div className="py-12 text-center">
                       <BookmarkIcon className="w-12 h-12 text-white/10 mx-auto mb-4" />
                       <p className="text-xs text-white/20 font-mono uppercase tracking-widest leading-relaxed">
-                        No bookmarks found<br/>in this volume.
+                        No bookmarks found<br/>in this book.
                       </p>
                     </div>
                   ) : (

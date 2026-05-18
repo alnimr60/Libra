@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Book, ReadingGoal, ReadingLog, GoalFrequency } from '../types';
+import { createPortal } from 'react-dom';
+import { Book, ReadingGoal, ReadingLog, GoalFrequency, LanguageCode } from '../types';
 import BookCarousel from './BookCarousel';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculatePagesPerDay, getDaysRemaining, cn, getPagesReadToday, getPagesReadThisWeek } from '../lib/utils';
@@ -14,7 +15,7 @@ interface DashboardProps {
   goals: ReadingGoal[];
   readingLogs: ReadingLog[];
   dashboardStyle: 'linear' | 'circular';
-  language: 'en' | 'ar';
+  language: LanguageCode;
   onAddGoal: (goal: ReadingGoal) => void;
   onDeleteGoal: (id: string) => void;
   logReading: (pages: number) => void;
@@ -38,7 +39,7 @@ export default function Dashboard({
   const [isAddGoalModalOpen, setIsAddGoalModalOpen] = useState(false);
   const insets = useSafeArea();
 
-  const isRTL = language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(language);
   const t = translations[language];
 
   // Pick a random quote on each "open/mount" of the dashboard
@@ -75,10 +76,10 @@ export default function Dashboard({
         </div>
         <div>
           <h2 className={cn("text-2xl font-serif mb-3", isRTL ? "font-bold" : "font-medium")}>
-            {isRTL ? "مكتبتك في انتظارك" : "Your library is waiting"}
+            {t.libraryWaiting}
           </h2>
           <p className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
-            {isRTL ? "أضف كتاباً لبدء المتابعة" : "Add a book to start tracking"}
+            {t.addBookToStart}
           </p>
         </div>
       </div>
@@ -161,14 +162,14 @@ export default function Dashboard({
               {/* Stats Grid */}
               <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
                 <StatCard 
-                  label={t.dashboard} 
-                  value={`${ppd} ${t.units}/${isRTL ? "يوم" : "day"}`} 
-                  icon={<Clock className="w-3 h-3" />} 
+                   label={t.dashboard} 
+                   value={`${ppd} ${t.units}/${t.day}`} 
+                   icon={<Clock className="w-3 h-3" />} 
                 />
                 <StatCard 
-                  label={isRTL ? "متبقى" : "Left"} 
-                  value={`${daysLeft} ${isRTL ? "أيام" : "days"}`} 
-                  icon={<Calendar className="w-3 h-3" />} 
+                   label={t.left} 
+                   value={`${daysLeft} ${t.days}`} 
+                   icon={<Calendar className="w-3 h-3" />} 
                 />
               </div>
 
@@ -200,7 +201,7 @@ export default function Dashboard({
                   {(!goals || goals.length === 0) ? (
                     <div className="p-6 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center">
                       <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-                        {isRTL ? "لا توجد أهداف نشطة" : "No active goals"}
+                        {t.noActiveGoals}
                       </p>
                     </div>
                   ) : (
@@ -230,11 +231,12 @@ export default function Dashboard({
       />
 
       {/* Progress Update Modal */}
-      <AnimatePresence>
-        {isUpdateModalOpen && currentBook && (
-          <>
-            <motion.div 
-              initial={{ opacity: 0 }}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {isUpdateModalOpen && currentBook && (
+            <>
+              <motion.div 
+                initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsUpdateModalOpen(false)}
@@ -254,7 +256,7 @@ export default function Dashboard({
                <div className="mb-10 space-y-4">
                 <div className="flex justify-between items-baseline mb-2">
                    <h3 className="text-2xl font-serif font-medium">
-                    {isRTL ? "تحديث القراءة" : "Update Reading"}
+                    {t.updateReading}
                    </h3>
                    <span className="text-4xl font-serif text-orange-500">{tempPage}</span>
                 </div>
@@ -269,8 +271,8 @@ export default function Dashboard({
                     className="w-full h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full appearance-none accent-zinc-900 dark:accent-zinc-50 cursor-pointer"
                   />
                   <div className="flex justify-between mt-4 text-[8px] font-mono uppercase tracking-[0.2em] text-zinc-400">
-                    <span>{isRTL ? "البداية" : "Start"}</span>
-                    <span>{isRTL ? "النهاية" : "End"} ({currentBook.totalPages})</span>
+                    <span>{t.start}</span>
+                    <span>{t.end} ({currentBook.totalPages})</span>
                   </div>
                 </div>
               </div>
@@ -280,19 +282,21 @@ export default function Dashboard({
                   onClick={() => setTempPage(Math.min(currentBook.currentPage + ppd, currentBook.totalPages))}
                   className="py-5 px-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono uppercase tracking-widest active:scale-95 transition-transform"
                 >
-                  {isRTL ? "الهدف" : "Goal"} (+{ppd})
+                  {t.goal} (+{ppd})
                 </button>
                 <button 
                   onClick={() => handleUpdateProgress(tempPage)}
                   className="py-5 px-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
                 >
-                  {isRTL ? "إتمام" : "Complete"}
+                  {t.complete}
                 </button>
               </div>
             </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+            </>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }
@@ -313,12 +317,13 @@ interface GoalCardProps {
   goal: ReadingGoal;
   readingLogs: ReadingLog[];
   onDelete: () => void;
-  language: 'en' | 'ar';
+  language: LanguageCode;
   key?: React.Key;
 }
 
 function GoalCard({ goal, readingLogs, onDelete, language }: GoalCardProps) {
-  const isRTL = language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(language);
+  const t = translations[language];
   const progress = goal.frequency === 'daily' 
     ? getPagesReadToday(readingLogs) 
     : getPagesReadThisWeek(readingLogs);
@@ -332,12 +337,10 @@ function GoalCard({ goal, readingLogs, onDelete, language }: GoalCardProps) {
           <div className="flex items-center gap-2 mb-1">
             <Target className="w-3 h-3 text-orange-500" />
             <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-              {isRTL 
-                ? (goal.frequency === 'daily' ? "هدف يومي" : "هدف أسبوعي") 
-                : `${goal.frequency} goal`}
+              {goal.frequency === 'daily' ? t.dailyGoal : t.weeklyGoal}
             </span>
           </div>
-          <div className="text-xl font-serif font-medium">{goal.target} {isRTL ? "صفحة" : "Pages"}</div>
+          <div className="text-xl font-serif font-medium">{goal.target} {t.units}</div>
         </div>
         <button 
           onClick={onDelete}
@@ -349,7 +352,7 @@ function GoalCard({ goal, readingLogs, onDelete, language }: GoalCardProps) {
 
       <div className="space-y-2">
         <div className="flex justify-between items-baseline text-[10px] font-mono uppercase tracking-widest">
-          <span className="text-zinc-400">{isRTL ? "التقدم" : "Progress"}</span>
+          <span className="text-zinc-400">{t.progress}</span>
           <span className="text-zinc-900 dark:text-zinc-50 font-bold">{progress} / {goal.target}</span>
         </div>
         <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden relative">
@@ -368,10 +371,11 @@ function GoalCard({ goal, readingLogs, onDelete, language }: GoalCardProps) {
   );
 }
 
-function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, onClose: () => void, onAdd: (goal: ReadingGoal) => void, language: 'en' | 'ar' }) {
+function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, onClose: () => void, onAdd: (goal: ReadingGoal) => void, language: LanguageCode }) {
   const [target, setTarget] = useState(10);
   const [frequency, setFrequency] = useState<GoalFrequency>('daily');
-  const isRTL = language === 'ar';
+  const isRTL = ['ar', 'ur'].includes(language);
+  const t = translations[language];
 
   const handleSubmit = () => {
     onAdd({
@@ -383,7 +387,9 @@ function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, o
     onClose();
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -402,13 +408,13 @@ function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, o
             dir={isRTL ? "rtl" : "ltr"}
           >
             <h3 className={cn("text-2xl font-serif mb-8", isRTL ? "font-bold" : "font-medium")}>
-              {isRTL ? "هدف جديد" : "New Goal"}
+              {t.newGoal}
             </h3>
             
             <div className="space-y-8 mb-10">
               <div>
                 <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">
-                  {isRTL ? "عدد الصفحات المستهدف" : "Target Pages"}
+                  {t.targetPages}
                 </label>
                 <div className="flex items-center justify-center gap-6">
                   <button 
@@ -425,7 +431,7 @@ function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, o
 
               <div>
                 <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 mb-4 block">
-                  {isRTL ? "التكرار" : "Frequency"}
+                  {t.frequency}
                 </label>
                 <div className="flex gap-2">
                   {(['daily', 'weekly'] as const).map(f => (
@@ -439,7 +445,7 @@ function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, o
                           : "border-zinc-200 dark:border-zinc-800 text-zinc-400"
                       )}
                     >
-                      {isRTL ? (f === 'daily' ? "يومي" : "أسبوعي") : f}
+                      {f === 'daily' ? t.daily : t.weekly}
                     </button>
                   ))}
                 </div>
@@ -451,18 +457,19 @@ function AddGoalModal({ isOpen, onClose, onAdd, language }: { isOpen: boolean, o
                 onClick={onClose}
                 className="flex-1 py-4 text-[10px] font-mono uppercase tracking-widest text-zinc-400"
               >
-                {isRTL ? "إلغاء" : "Cancel"}
+                {t.cancel}
               </button>
               <button 
                 onClick={handleSubmit}
                 className="flex-[2] py-4 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-zinc-50 dark:text-zinc-900 text-[10px] font-mono uppercase tracking-widest shadow-xl active:scale-95 transition-transform"
               >
-                {isRTL ? "حفظ الهدف" : "Set Goal"}
+                {t.setGoal}
               </button>
             </div>
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
