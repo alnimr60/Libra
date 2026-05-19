@@ -42,6 +42,18 @@ export default function Dashboard({
   const isRTL = ['ar', 'ur'].includes(language);
   const t = translations[language];
 
+  // Lock body scroll when modals are open
+  React.useEffect(() => {
+    if (isUpdateModalOpen || isAddGoalModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isUpdateModalOpen, isAddGoalModalOpen]);
+
   // Pick a random quote on each "open/mount" of the dashboard
   const randomQuote = useMemo(() => {
     const q = t.quotes;
@@ -247,7 +259,7 @@ export default function Dashboard({
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 z-[510] w-full bg-white dark:bg-zinc-900 rounded-t-[2.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]"
+              className="fixed bottom-0 left-0 right-0 z-[510] w-full bg-white dark:bg-zinc-900 rounded-t-[2.5rem] p-10 shadow-2xl overflow-y-auto no-scrollbar max-h-[90vh]"
               style={{ paddingBottom: `${Math.max(insets.bottom, 16) + 32}px` }}
               dir={isRTL ? "rtl" : "ltr"}
             >

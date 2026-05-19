@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Book, ReadingStatus, LanguageCode } from '../types';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -32,8 +32,20 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
     readingDirection: 'ltr',
   });
   const [tagInput, setTagInput] = useState('');
+  const [dailyPages, setDailyPages] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -145,6 +157,23 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
     }
   };
 
+  const calculateDailyPagesNeeded = (deadline: string, current: number, total: number) => {
+    if (!deadline || total <= current) return 0;
+    const target = new Date(deadline);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? Math.ceil((total - current) / diffDays) : (total - current);
+  };
+
+  const calculateDeadlineFromDaily = (daily: number, current: number, total: number) => {
+    if (daily <= 0 || total <= current) return '';
+    const daysNeeded = Math.ceil((total - current) / daily);
+    const target = new Date();
+    target.setDate(target.getDate() + daysNeeded);
+    return target.toISOString().split('T')[0];
+  };
+
   const handleSubmit = () => {
     if (!formData.title || !formData.totalPages) {
       alert('Please enter at least Title and Total Pages.');
@@ -188,22 +217,22 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-md p-6 pt-[calc(1.5rem+var(--msp-top))] pb-[calc(1.5rem+var(--msp-bottom))]">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 pt-[calc(1rem+var(--msp-top))] pb-[calc(1rem+var(--msp-bottom))]">
       <motion.div
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white dark:bg-[#1A1614] w-full max-w-lg rounded-[32px] overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-white dark:bg-[#1A1614] w-full max-w-lg rounded-[32px] overflow-hidden flex flex-col max-h-full"
       >
-        <div className="px-8 py-6 flex justify-between items-center border-b border-black/5 dark:border-white/5" dir={isRTL ? "rtl" : "ltr"}>
-          <h2 className={cn("text-xl font-serif", isRTL ? "font-bold" : "font-medium")}>
+        <div className="px-6 py-4 flex justify-between items-center border-b border-black/5 dark:border-white/5" dir={isRTL ? "rtl" : "ltr"}>
+          <h2 className={cn("text-lg font-serif", isRTL ? "font-bold" : "font-medium")}>
             {t.addToLibrary}
           </h2>
-          <button onClick={onClose} className={cn("p-2 opacity-50 hover:opacity-100", isRTL ? "-ml-2" : "-mr-2")}>
-            <X className="w-6 h-6" />
+          <button onClick={onClose} className={cn("p-1 opacity-50 hover:opacity-100", isRTL ? "-ml-1" : "-mr-1")}>
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-8 overflow-y-auto flex-1" dir={isRTL ? "rtl" : "ltr"}>
+        <div className="p-6 overflow-y-auto no-scrollbar flex-1" dir={isRTL ? "rtl" : "ltr"}>
           <AnimatePresence mode="wait">
             {step === 1 && (
               <motion.div
@@ -264,28 +293,28 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className="space-y-6"
+                className="space-y-4"
               >
                 {/* Visual Preview */}
-                <div className="flex gap-4 items-start">
+                <div className="flex gap-3 items-start">
                   <div 
                     onClick={() => coverInputRef.current?.click()}
-                    className="group relative w-24 h-32 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden shadow-md flex-shrink-0 cursor-pointer"
+                    className="group relative w-20 h-28 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden shadow-md flex-shrink-0 cursor-pointer"
                   >
                     <input type="file" ref={coverInputRef} className="hidden" accept="image/*" onChange={handleCoverChange} />
                     {formData.coverUrl ? (
                       <img src={formData.coverUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center opacity-20">
-                         <BookIcon className="w-10 h-10" />
-                         <span className="text-[8px] mt-1 font-bold">{t.addCover}</span>
+                      <div className="w-full h-full flex flex-col items-center justify-center opacity-20 text-center p-1">
+                         <BookIcon className="w-8 h-8" />
+                         <span className="text-[7px] mt-1 font-bold">{t.addCover}</span>
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <ImageIcon className="w-6 h-6 text-white" />
+                      <ImageIcon className="w-5 h-5 text-white" />
                     </div>
                   </div>
-                  <div className="flex-1 space-y-4">
+                  <div className="flex-1 space-y-3">
                     <InputGroup 
                       icon={<BookIcon className="w-4 h-4" />}
                       label={t.bookTitle}
@@ -305,12 +334,16 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <InputGroup 
                     label={t.totalPages}
                     type="number"
                     value={formData.totalPages}
-                    onChange={(val) => setFormData(p => ({ ...p, totalPages: parseInt(val) || 0 }))}
+                    onChange={(val) => {
+                      const num = parseInt(val) || 0;
+                      setFormData(p => ({ ...p, totalPages: num }));
+                      setDailyPages(calculateDailyPagesNeeded(formData.deadline || '', formData.currentPage || 0, num));
+                    }}
                     isRTL={isRTL}
                   />
                   <div className="space-y-1.5 text-right">
@@ -329,25 +362,42 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   </div>
                 </div>
 
-                <InputGroup 
-                  icon={<CalendarIcon className="w-4 h-4" />}
-                  label={t.deadline}
-                  type="date"
-                  value={formData.deadline}
-                  onChange={(val) => setFormData(p => ({ ...p, deadline: val }))}
-                  isRTL={isRTL}
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <InputGroup 
+                    icon={<CalendarIcon className="w-4 h-4" />}
+                    label={t.deadline}
+                    type="date"
+                    value={formData.deadline}
+                    onChange={(val) => {
+                      setFormData(p => ({ ...p, deadline: val }));
+                      setDailyPages(calculateDailyPagesNeeded(val, formData.currentPage || 0, formData.totalPages || 0));
+                    }}
+                    isRTL={isRTL}
+                  />
+                  <InputGroup 
+                    label={t.goal}
+                    type="number"
+                    value={dailyPages}
+                    placeholder={t.daily}
+                    onChange={(val) => {
+                      const num = parseInt(val) || 0;
+                      setDailyPages(num);
+                      setFormData(p => ({ ...p, deadline: calculateDeadlineFromDaily(num, formData.currentPage || 0, formData.totalPages || 0) }));
+                    }}
+                    isRTL={isRTL}
+                  />
+                </div>
 
-                <div className="space-y-1.5 text-right">
+                <div className="space-y-1 text-right">
                   <label className={cn("text-[10px] uppercase tracking-widest opacity-40 font-semibold", isRTL ? "mr-1" : "ml-1")}>
                      {t.tags}
                   </label>
-                  <div className="flex gap-2 mb-2 flex-wrap">
+                  <div className="flex gap-1.5 mb-1.5 flex-wrap">
                     {formData.tags?.map(t => (
-                      <span key={t} className="px-3 py-1 bg-black/5 dark:bg-white/5 rounded-lg text-xs flex items-center gap-1">
+                      <span key={t} className="px-2 py-0.5 bg-black/5 dark:bg-white/5 rounded-lg text-[10px] flex items-center gap-1">
                         {t}
                         <button onClick={() => setFormData(p => ({ ...p, tags: p.tags?.filter(tag => tag !== t) }))}>
-                          <X className="w-3 h-3 hover:text-red-400" />
+                          <X className="w-2.5 h-2.5 hover:text-red-400" />
                         </button>
                       </span>
                     ))}
@@ -359,24 +409,24 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                       value={tagInput}
                       onChange={(e) => setTagInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-                      className={cn("flex-1 px-4 py-2 bg-black/5 dark:bg-white/5 rounded-xl text-sm focus:outline-none", isRTL && "text-right")}
+                      className={cn("flex-1 px-3 py-2 bg-black/5 dark:bg-white/5 rounded-xl text-xs focus:outline-none", isRTL && "text-right")}
                     />
                     <button onClick={handleAddTag} className="p-2 bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-xl">
-                      <CheckCircle className="w-5 h-5" />
+                      <CheckCircle className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
+                <div className="flex gap-3 pt-2">
                   <button 
                     onClick={() => setStep(1)}
-                    className={cn("flex-1 py-4 text-sm font-medium border border-black/10 dark:border-white/10 rounded-2xl", isRTL && "font-bold")}
+                    className={cn("flex-1 py-3 text-xs font-medium border border-black/10 dark:border-white/10 rounded-2xl", isRTL && "font-bold")}
                   >
                     {t.back}
                   </button>
                   <button 
                     onClick={handleSubmit}
-                    className={cn("flex-[2] py-4 text-sm font-medium bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-2xl shadow-xl hover:scale-[1.02] transition-transform", isRTL && "font-bold")}
+                    className={cn("flex-[2] py-3 text-xs font-medium bg-black dark:bg-[#E0D8D0] text-white dark:text-black rounded-2xl shadow-xl hover:scale-[1.01] transition-transform", isRTL && "font-bold")}
                   >
                     {t.finishAndAdd}
                   </button>
