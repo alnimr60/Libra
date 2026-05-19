@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Book, ReadingStatus, AppSettings } from '../types';
 import { Search, Grid, List as ListIcon, Trash2, BookOpen, Clock, CheckCircle2, ChevronRight, X, Plus, Loader2 } from 'lucide-react';
@@ -23,10 +23,21 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '', currentPage: 0, totalPages: 0, deadline: '' });
+  const [editForm, setEditForm] = useState({ title: '', author: '', coverUrl: '', currentPage: 0, totalPages: 0, deadline: '', dailyPages: 0 });
   const insets = useSafeArea();
   const t = translations[settings.language];
   const isRTL = ['ar', 'ur'].includes(settings.language);
+
+  useEffect(() => {
+    if (selectedBookId) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [selectedBookId]);
 
   const filteredBooks = useMemo(() => {
     return allBooks.filter(book => {
@@ -46,8 +57,26 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
     [allBooks, selectedBookId]
   );
 
+  const calculateDailyPagesNeeded = (deadline: string, current: number, total: number) => {
+    if (!deadline || total <= current) return 0;
+    const target = new Date(deadline);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? Math.ceil((total - current) / diffDays) : (total - current);
+  };
+
+  const calculateDeadlineFromDaily = (daily: number, current: number, total: number) => {
+    if (daily <= 0 || total <= current) return '';
+    const daysNeeded = Math.ceil((total - current) / daily);
+    const target = new Date();
+    target.setDate(target.getDate() + daysNeeded);
+    return target.toISOString().split('T')[0];
+  };
+
   const startEditing = () => {
     if (selectedBook) {
+      const daily = calculateDailyPagesNeeded(selectedBook.deadline || '', selectedBook.currentPage, selectedBook.totalPages);
       setEditForm({
         title: selectedBook.title,
         author: selectedBook.author || '',
@@ -55,6 +84,7 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
         currentPage: selectedBook.currentPage || 0,
         totalPages: selectedBook.totalPages || 0,
         deadline: selectedBook.deadline || '',
+        dailyPages: daily
       });
       setIsEditing(true);
     }
@@ -224,13 +254,13 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-zinc-900 rounded-t-[2.5rem] z-[510] border-t border-zinc-200 dark:border-zinc-800 p-8 shadow-2xl overflow-y-auto max-h-[90vh]"
-              style={{ paddingBottom: `${Math.max(insets.bottom, 16) + 32}px` }}
+              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-zinc-900 rounded-t-[2.5rem] z-[510] border-t border-zinc-200 dark:border-zinc-800 p-6 sm:p-8 shadow-2xl overflow-y-auto no-scrollbar max-h-[90vh]"
+              style={{ paddingBottom: `${Math.max(insets.bottom, 16) + 16}px` }}
               dir={isRTL ? "rtl" : "ltr"}
             >
-              <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-8" />
+              <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto mb-6" />
               
-              <div className="flex gap-8 mb-8">
+              <div className="flex gap-6 mb-6">
                 <div 
                   onClick={() => {
                     if (!isEditing) {
@@ -268,29 +298,74 @@ export default function Library({ allBooks, updateBook, deleteBook, onOpenBook, 
                         onChange={(e) => setEditForm(prev => ({ ...prev, author: e.target.value }))}
                         className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
                       />
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          placeholder={t.currentPage}
-                          value={editForm.currentPage || ''}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, currentPage: parseInt(e.target.value) || 0 }))}
-                          className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
-                        />
-                        <span className="text-zinc-400 font-mono text-xs">/</span>
-                        <input
-                          type="number"
-                          placeholder={t.totalPages}
-                          value={editForm.totalPages || ''}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, totalPages: parseInt(e.target.value) || 0 }))}
-                          className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
-                        />
-                        <input
-                          type="date"
-                          placeholder={t.deadline}
-                          value={editForm.deadline}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, deadline: e.target.value }))}
-                          className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
-                        />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-mono uppercase tracking-widest text-zinc-400 block ml-1">{t.currentPage}</label>
+                          <input
+                            type="number"
+                            value={editForm.currentPage || ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setEditForm(prev => {
+                                const next = { ...prev, currentPage: val };
+                                next.dailyPages = calculateDailyPagesNeeded(next.deadline, next.currentPage, next.totalPages);
+                                return next;
+                              });
+                            }}
+                            className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-mono uppercase tracking-widest text-zinc-400 block ml-1">{t.totalPages}</label>
+                          <input
+                            type="number"
+                            value={editForm.totalPages || ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setEditForm(prev => {
+                                const next = { ...prev, totalPages: val };
+                                next.dailyPages = calculateDailyPagesNeeded(next.deadline, next.currentPage, next.totalPages);
+                                return next;
+                              });
+                            }}
+                            className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-mono uppercase tracking-widest text-zinc-400 block ml-1">{t.deadline}</label>
+                          <input
+                            type="date"
+                            value={editForm.deadline}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditForm(prev => ({
+                                ...prev,
+                                deadline: val,
+                                dailyPages: calculateDailyPagesNeeded(val, prev.currentPage, prev.totalPages)
+                              }));
+                            }}
+                            className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-mono uppercase tracking-widest text-zinc-400 block ml-1">{t.goal}</label>
+                          <input
+                            type="number"
+                            placeholder={t.daily}
+                            value={editForm.dailyPages || ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setEditForm(prev => ({
+                                ...prev,
+                                dailyPages: val,
+                                deadline: calculateDeadlineFromDaily(val, prev.currentPage, prev.totalPages)
+                              }));
+                            }}
+                            className={cn("w-full bg-zinc-100 dark:bg-zinc-800 px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-orange-500", isRTL && "text-right")}
+                          />
+                        </div>
                       </div>
                     </div>
                   ) : (
