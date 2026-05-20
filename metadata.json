@@ -1,6 +1,1 @@
-{
-  "name": "My Personal Library",
-  "description": "A refined, editorial-style library with immersive PDF reading, dynamic status tracking, and minimalist progress analytics.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
-}
+{"name":"My Personal Library","description":"A refined, editorial-style library with immersive PDF reading, dynamic status tracking, and minimalist progress analytics.","requestFramePermissions":[],"majorCapabilities":[]}

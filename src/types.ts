@@ -8,6 +8,7 @@ export type ReadingStatus = 'Currently Reading' | 'To-Be-Read' | 'Finished';
 export interface Bookmark {
   id: string;
   page: number;
+  cfi?: string;
   label?: string;
   createdAt: string;
 }
@@ -25,9 +26,11 @@ export interface Book {
   directionDetected?: boolean;
   coverUrl?: string; // Data URL or external link
   fileDataId?: string; // ID for IndexedDB storage
+  fileName?: string; // Original filename, usually includes extension (.epub, .pdf)
   bookmarks?: Bookmark[];
   addedAt: string; // ISO date string
   lastReadAt?: string; // ISO date string
+  currentCfi?: string; // For EPUB persistence
 }
 
 export interface ReadingLog {
