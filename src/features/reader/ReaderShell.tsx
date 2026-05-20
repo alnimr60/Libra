@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Settings, Type, Languages, Check, 
   Bookmark as BookmarkIcon, Trash2, Navigation,
@@ -55,26 +55,22 @@ export default function ReaderShell({
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
   const [navTab, setNavTab] = useState<'pages' | 'bookmarks'>('pages');
 
-  // Swipe gesture handling
-  const touchStart = useRef({ x: 0, y: 0 });
-  const swipeX = useMotionValue(0);
+  // Tap-zone conflict prevention refs
+  const tapStartPos = useRef({ x: 0, y: 0 });
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  const handleZoneTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    tapStartPos.current = { x: touch.clientX, y: touch.clientY };
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const deltaX = e.changedTouches[0].clientX - touchStart.current.x;
-    const deltaY = e.changedTouches[0].clientY - touchStart.current.y;
+  const handleZoneMouseDown = (e: React.MouseEvent) => {
+    tapStartPos.current = { x: e.clientX, y: e.clientY };
+  };
 
-    if (Math.abs(deltaX) > 50 && Math.abs(deltaY) < 100) {
-      if (deltaX > 0) {
-        // Swipe Right
-        direction === 'ltr' ? onPrev() : onNext();
-      } else {
-        // Swipe Left
-        direction === 'ltr' ? onNext() : onPrev();
-      }
+  const handleZoneClick = (e: React.MouseEvent, action: () => void) => {
+    const dist = Math.hypot(e.clientX - tapStartPos.current.x, e.clientY - tapStartPos.current.y);
+    if (dist < 10) {
+      action();
     }
   };
 
@@ -94,10 +90,9 @@ export default function ReaderShell({
     }
   };
 
-  const handleToggleControls = (e: React.MouseEvent) => {
-    // If clicking target is UI, don't toggle
+  const handleToggleControlsClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button, input, .hud-overlay')) return;
-    setShowControls(!showControls);
+    handleZoneClick(e, () => setShowControls(!showControls));
   };
 
   return (
@@ -108,9 +103,9 @@ export default function ReaderShell({
         theme === 'sepia' ? 'bg-[#f4ecd8] text-[#433422]' : 
         'bg-white text-zinc-900'
       )}
-      onClick={handleToggleControls}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
+      onTouchStart={handleZoneTouchStart}
+      onMouseDown={handleZoneMouseDown}
+      onClick={handleToggleControlsClick}
     >
       {/* Background layer */}
       <div className="absolute inset-0 z-0" />
@@ -123,9 +118,24 @@ export default function ReaderShell({
       {/* Interaction Zones (Overlays) */}
       {!disableInteractionZones && (
         <div className="absolute inset-0 z-20 pointer-events-none flex">
-          <div className="w-1/4 h-full pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onPrev(); }} />
-          <div className="flex-1 h-full pointer-events-auto" onClick={() => setShowControls(!showControls)} />
-          <div className="w-1/4 h-full pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onNext(); }} />
+          <div 
+            className="w-1/4 h-full pointer-events-auto cursor-pointer" 
+            onTouchStart={handleZoneTouchStart}
+            onMouseDown={handleZoneMouseDown}
+            onClick={(e) => { e.stopPropagation(); handleZoneClick(e, onPrev); }} 
+          />
+          <div 
+            className="flex-1 h-full pointer-events-auto" 
+            onTouchStart={handleZoneTouchStart}
+            onMouseDown={handleZoneMouseDown}
+            onClick={(e) => { e.stopPropagation(); handleZoneClick(e, () => setShowControls(!showControls)); }} 
+          />
+          <div 
+            className="w-1/4 h-full pointer-events-auto cursor-pointer" 
+            onTouchStart={handleZoneTouchStart}
+            onMouseDown={handleZoneMouseDown}
+            onClick={(e) => { e.stopPropagation(); handleZoneClick(e, onNext); }} 
+          />
         </div>
       )}
 

@@ -135,18 +135,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const smoothPage = useSpring(virtualPage, { stiffness: 450, damping: 45, mass: 0.8 });
 
   useEffect(() => {
-    console.log("[RTL_SPRING_SET_EFFECT]", {
-      pageIndex,
-      virtualPage: virtualPage.get(),
-    });
     animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
   }, [pageIndex, virtualPage]);
 
   const handlePageChange = (newIndex: number) => {
-    console.log("[RTL_SETTLE_TARGET]", {
-      targetPage: newIndex,
-      targetVirtualPage: newIndex,
-    });
     const totalSheets = viewMode === 'double' ? Math.ceil(numPages / 2) : numPages;
     const safeIndex = Math.max(0, Math.min(newIndex, totalSheets - 1));
     setPageIndex(safeIndex);
@@ -287,13 +279,6 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanEnd = (_: any, info: any) => {
-    console.log("[RTL_SETTLE_INPUT]", {
-      currentPage: pageIndex,
-      virtualPage: virtualPage.get(),
-      offsetX: info.offset.x,
-      velocityX: info.velocity.x,
-      direction,
-    });
     lastPanTime.current = Date.now();
 
     if (gestureMode.current === GestureMode.PanningZoomedPage) {
@@ -301,14 +286,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       animate(panX, target.x, { type: 'spring', stiffness: 120, damping: 28 });
       animate(panY, target.y, { type: 'spring', stiffness: 120, damping: 28 });
     } else if (gestureMode.current === GestureMode.SwipingPages) {
-      const threshold = Math.max(80, readerDimensions.width * 0.18);
-      const shouldTurn = Math.abs(info.offset.x) > threshold || Math.abs(info.velocity.x) > 500;
+      const width = Math.max(1, readerDimensions.width || window.innerWidth);
+      const projectedOffsetX = info.offset.x + info.velocity.x * 0.2;
+      const projectedProgress = projectedOffsetX / width;
+      const projectedVirtualPage = direction === 'rtl' ? pageIndex + projectedProgress : pageIndex - projectedProgress;
+
+      const shouldTurn = Math.abs(projectedVirtualPage - pageIndex) > 0.18;
       
       if (shouldTurn) {
-        const movedForward = virtualPage.get() > pageIndex;
+        const movedForward = projectedVirtualPage > pageIndex;
         handlePageChange(movedForward ? pageIndex + 1 : pageIndex - 1);
       } else {
-        console.log("[RTL_SPRING_SET_REVERT]", pageIndex);
         animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
       }
     }
@@ -397,7 +385,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 const ReaderSheet = React.memo(function ReaderSheet({ 
   index, pdf, numPages, viewMode, direction, virtualPage, liveScale, committedScale, containerDimensions, panX, panY, baseWidth 
 }: any) {
-  const distance = useTransform(virtualPage, (v: number) => index - v);
+  const distance = useTransform(virtualPage, (v: number) => direction === 'rtl' ? v - index : index - v);
   const x = useTransform(distance, (d: number) => 100 * d);
   const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
   const rotateY = useTransform(distance, (d: number) => d * (direction === 'rtl' ? -15 : 15));
