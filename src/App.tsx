@@ -9,13 +9,21 @@ import Dashboard from './components/Dashboard';
 import Library from './components/Library';
 import Settings from './components/Settings';
 import AddBookModal from './components/AddBookModal';
-import PDFReader from './components/PDFReader';
-import { Home, Library as LibraryIcon, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
+import PDFReader from './features/reader/pdf/PDFReader';
+import EPUBReader from './features/reader/epub/EPUBReader';
+import { ReaderProvider } from './features/reader/ReaderContext';
+import SearchScreen from './features/books/screens/SearchScreen';
+import { DownloadProvider } from './features/books/downloads/DownloadContext';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Home, Library as LibraryIcon, Settings as SettingsIcon, AlertCircle, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { useSafeArea } from './components/SafeAreaProvider';
 import { Book } from './types';
 import { translations } from './translations';
+
+// Setup React Query client
+const queryClient = new QueryClient();
 
 // Global error registry for debugging
 const getDebugContext = () => {
@@ -112,7 +120,7 @@ class PDFReaderErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBo
   }
 }
 
-type ActiveTab = 'home' | 'library' | 'settings';
+type ActiveTab = 'home' | 'discover' | 'library' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
@@ -159,44 +167,61 @@ export default function App() {
   };
 
   return (
-    <div 
-      className={cn(
-        "min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-200 flex flex-col",
-        activeBookId ? "overflow-visible" : "overflow-hidden"
-      )}
-      dir={isRTL ? "rtl" : "ltr"}
-    >
-      {/* Dynamic Background Atmosphere */}
-      <div className="fixed inset-0 pointer-events-none opacity-20 dark:opacity-40 overflow-hidden" aria-hidden="true">
-        <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full bg-orange-200/40 dark:bg-orange-900/20 blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-blue-200/40 dark:bg-zinc-900/40 blur-[120px]" />
-      </div>
+    <QueryClientProvider client={queryClient}>
+      <DownloadProvider onBookDownloaded={addBook}>
+        <ReaderProvider>
+          <div 
+            className={cn(
+              "min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-200 flex flex-col",
+              activeBookId ? "overflow-visible" : "overflow-hidden"
+            )}
+            dir={isRTL ? "rtl" : "ltr"}
+          >
+          {/* Dynamic Background Atmosphere */}
+          <div className="fixed inset-0 pointer-events-none opacity-20 dark:opacity-40 overflow-hidden" aria-hidden="true">
+            <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full bg-orange-200/40 dark:bg-orange-900/20 blur-[120px]" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-blue-200/40 dark:bg-zinc-900/40 blur-[120px]" />
+          </div>
 
-      <main className="flex-1 relative z-10 overflow-auto pb-24 no-scrollbar">
-        <AnimatePresence mode="wait">
-          {activeTab === 'home' && (
-            <motion.div
-              key="home"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="h-full"
-            >
-              <Dashboard 
-                books={currentBooks} 
-                updateBook={updateBook} 
-                onOpenBook={handleOpenBook}
-                goals={goals}
-                readingLogs={readingLogs}
-                dashboardStyle={settings.dashboardStyle}
-                language={settings.language}
-                onAddGoal={addGoal}
-                onDeleteGoal={deleteGoal}
-                logReading={logReading}
-              />
-            </motion.div>
-          )}
-          {activeTab === 'library' && (
+          <main className="flex-1 relative z-10 overflow-auto pb-24 no-scrollbar">
+            <AnimatePresence mode="wait">
+              {activeTab === 'home' && (
+                <motion.div
+                  key="home"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="h-full"
+                >
+                  <Dashboard 
+                    books={currentBooks} 
+                    updateBook={updateBook} 
+                    onOpenBook={handleOpenBook}
+                    goals={goals}
+                    readingLogs={readingLogs}
+                    dashboardStyle={settings.dashboardStyle}
+                    language={settings.language}
+                    onAddGoal={addGoal}
+                    onDeleteGoal={deleteGoal}
+                    logReading={logReading}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'discover' && (
+                <motion.div
+                  key="discover"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="h-full"
+                >
+                  <SearchScreen 
+                    isRTL={isRTL}
+                    t={t}
+                  />
+                </motion.div>
+              )}
+              {activeTab === 'library' && (
             <motion.div
               key="library"
               initial={{ opacity: 0, y: 10 }}
@@ -254,6 +279,12 @@ export default function App() {
           label={t.today}
         />
         <NavButton
+          active={activeTab === 'discover'}
+          onClick={() => setActiveTab('discover')}
+          icon={<Compass className="w-5 h-5 transition-transform duration-500 group-hover:scale-110" />}
+          label="Discover"
+        />
+        <NavButton
           active={activeTab === 'library'}
           onClick={() => setActiveTab('library')}
           icon={<LibraryIcon className="w-5 h-5 transition-transform duration-500 group-hover:scale-110" />}
@@ -271,31 +302,58 @@ export default function App() {
       <AnimatePresence mode="wait">
         {activeBook && (
           <PDFReaderErrorBoundary key={activeBook.id}>
-            <PDFReader 
-              book={activeBook}
-              initialPage={activeBook.currentPage}
-              updateBook={updateBook}
-              onPageChange={(page) => {
-                if (activeBook) {
-                  const diff = page - activeBook.currentPage;
-                  if (diff > 0) {
-                    logReading(diff);
+            {activeBook.fileName?.toLowerCase().endsWith('.epub') ? (
+              <EPUBReader
+                book={activeBook}
+                initialPage={activeBook.currentPage}
+                updateBook={updateBook}
+                onPageChange={(page, cfi) => {
+                  if (activeBook) {
+                    const diff = page - activeBook.currentPage;
+                    if (diff > 0) logReading(diff);
                   }
-                }
-                updateBook({
-                  ...activeBook!,
-                  currentPage: page,
-                  lastReadAt: new Date().toISOString(),
-                });
-              }}
-              onUpdateBookmarks={(bookmarks) => {
-                updateBook({
-                  ...activeBook,
-                  bookmarks,
-                });
-              }}
-              onClose={() => setActiveBookId(null)}
-            />
+                  updateBook({
+                    ...activeBook!,
+                    currentPage: page,
+                    currentCfi: cfi || activeBook!.currentCfi,
+                    lastReadAt: new Date().toISOString(),
+                  });
+                }}
+                onUpdateBookmarks={(bookmarks) => {
+                  updateBook({
+                    ...activeBook,
+                    bookmarks,
+                  });
+                }}
+                onClose={() => setActiveBookId(null)}
+              />
+            ) : (
+              <PDFReader 
+                book={activeBook}
+                initialPage={activeBook.currentPage}
+                updateBook={updateBook}
+                onPageChange={(page) => {
+                  if (activeBook) {
+                    const diff = page - activeBook.currentPage;
+                    if (diff > 0) {
+                      logReading(diff);
+                    }
+                  }
+                  updateBook({
+                    ...activeBook!,
+                    currentPage: page,
+                    lastReadAt: new Date().toISOString(),
+                  });
+                }}
+                onUpdateBookmarks={(bookmarks) => {
+                  updateBook({
+                    ...activeBook,
+                    bookmarks,
+                  });
+                }}
+                onClose={() => setActiveBookId(null)}
+              />
+            )}
           </PDFReaderErrorBoundary>
         )}
       </AnimatePresence>
@@ -306,7 +364,10 @@ export default function App() {
         onAdd={addBook}
         language={settings.language}
       />
-    </div>
+        </div>
+      </ReaderProvider>
+      </DownloadProvider>
+    </QueryClientProvider>
   );
 }
 
