@@ -273,9 +273,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       panX.set(next.x);
       panY.set(next.y);
     } else if (gestureMode.current === GestureMode.SwipingPages) {
-      const directionMultiplier = direction === 'rtl' ? -1 : 1;
-      const progress = (info.offset.x * directionMultiplier) / Math.max(1, readerDimensions.width || window.innerWidth);
-      virtualPage.set(pageIndex - progress);
+      const progress = info.offset.x / Math.max(1, readerDimensions.width || window.innerWidth);
+      const isRTLSwipe = direction === 'rtl' && viewMode === 'double';
+      virtualPage.set(isRTLSwipe ? pageIndex + progress : pageIndex - progress);
     }
   };
 
@@ -290,9 +290,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const threshold = Math.max(80, readerDimensions.width * 0.18);
       const shouldTurn = Math.abs(info.offset.x) > threshold || Math.abs(info.velocity.x) > 500;
       if (shouldTurn) {
-        const directionMultiplier = direction === 'rtl' ? -1 : 1;
-        const isForward = (info.offset.x * directionMultiplier) < 0 || (info.velocity.x * directionMultiplier) < 0;
-        handlePageChange(isForward ? pageIndex + 1 : pageIndex - 1);
+        const isRTLSwipe = direction === 'rtl' && viewMode === 'double';
+        const forward = isRTLSwipe ? info.offset.x > 0 : info.offset.x < 0;
+        handlePageChange(forward ? pageIndex + 1 : pageIndex - 1);
       } else {
         animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
       }
@@ -383,9 +383,10 @@ const ReaderSheet = React.memo(function ReaderSheet({
   index, pdf, numPages, viewMode, direction, virtualPage, liveScale, committedScale, containerDimensions, panX, panY, baseWidth 
 }: any) {
   const distance = useTransform(virtualPage, (v: number) => index - v);
-  const x = useTransform(distance, (d: number) => (direction === 'rtl' ? -100 : 100) * d);
+  const isRTLVisual = direction === 'rtl' && viewMode === 'double';
+  const x = useTransform(distance, (d: number) => (isRTLVisual ? -100 : 100) * d);
   const zIndex = useTransform(distance, (d: number) => 10 - Math.abs(Math.round(d)));
-  const rotateY = useTransform(distance, (d: number) => d * (direction === 'rtl' ? -15 : 15));
+  const rotateY = useTransform(distance, (d: number) => d * (isRTLVisual ? -15 : 15));
   const tScale = useTransform(distance, (d: number) => 1 - (Math.abs(d) * 0.1));
   const opacity = useTransform(distance, (d: number) => 1 - Math.abs(d));
 
