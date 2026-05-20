@@ -273,8 +273,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       panX.set(next.x);
       panY.set(next.y);
     } else if (gestureMode.current === GestureMode.SwipingPages) {
-      const progress = info.offset.x / Math.max(1, readerDimensions.width || window.innerWidth);
-      virtualPage.set(direction === 'rtl' ? pageIndex + progress : pageIndex - progress);
+      const directionMultiplier = direction === 'rtl' ? -1 : 1;
+      const progress = (info.offset.x * directionMultiplier) / Math.max(1, readerDimensions.width || window.innerWidth);
+      virtualPage.set(pageIndex - progress);
     }
   };
 
@@ -289,8 +290,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       const threshold = Math.max(80, readerDimensions.width * 0.18);
       const shouldTurn = Math.abs(info.offset.x) > threshold || Math.abs(info.velocity.x) > 500;
       if (shouldTurn) {
-        const forward = direction === 'ltr' ? info.offset.x < 0 : info.offset.x > 0;
-        handlePageChange(forward ? pageIndex + 1 : pageIndex - 1);
+        const directionMultiplier = direction === 'rtl' ? -1 : 1;
+        const isForward = (info.offset.x * directionMultiplier) < 0 || (info.velocity.x * directionMultiplier) < 0;
+        handlePageChange(isForward ? pageIndex + 1 : pageIndex - 1);
       } else {
         animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
       }
