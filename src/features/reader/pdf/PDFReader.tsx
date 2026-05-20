@@ -21,14 +21,21 @@ interface PDFReaderProps {
 
 enum GestureMode {
   Idle = 'Idle',
+  SwipingPages = 'SwipingPages',
+  PanningZoomedPage = 'PanningZoomedPage',
   PinchZooming = 'PinchZooming',
+  SelectingText = 'SelectingText',
 }
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
   const { direction, setDirection } = useReader();
   
   const gestureMode = useRef<GestureMode>(GestureMode.Idle);
+  const isDraggingRef = useRef(false);
   const isAnimatingZoom = useRef(false);
+  const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
+  const touchStartInfo = useRef({ x: 0, y: 0 });
+  const lastPanTime = useRef(0);
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
@@ -139,6 +146,77 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     onPageChange(Math.min(displayPage, numPages));
   };
 
+  const clampPan = (x: number, y: number, scaleValue = liveScale.get()) => {
+    const spreadWidth = baseWidth * (viewMode === 'double' ? 2 : 1);
+    const spreadHeight = baseWidth * 1.414;
+    const hMargin = Math.max(0, (spreadWidth * scaleValue - readerDimensions.width) / 2);
+    const vMargin = Math.max(0, (spreadHeight * scaleValue - readerDimensions.height) / 2);
+
+    return {
+      x: Math.max(-hMargin, Math.min(hMargin, x)),
+      y: Math.max(-vMargin, Math.min(vMargin, y)),
+    };
+  };
+
+  const handleDoubleTapZoom = (clientX: number, clientY: number) => {
+    if (!readerContainerRef.current || isAnimatingZoom.current) return;
+
+    isAnimatingZoom.current = true;
+    liveScale.stop();
+    panX.stop();
+    panY.stop();
+
+    const currentScale = liveScale.get();
+    const targetScale = currentScale <= 1.05 ? 2.5 : 1;
+    let targetPan = { x: 0, y: 0 };
+
+    if (targetScale > 1) {
+      const rect = readerContainerRef.current.getBoundingClientRect();
+      const tapX = clientX - rect.left;
+      const tapY = clientY - rect.top;
+      targetPan = clampPan(
+        (rect.width / 2 - tapX) * (targetScale / currentScale),
+        (rect.height / 2 - tapY) * (targetScale / currentScale),
+        targetScale
+      );
+    }
+
+    const config = { type: 'spring' as const, stiffness: 300, damping: 30 };
+    animate(liveScale, targetScale, config);
+    animate(panX, targetPan.x, config);
+    animate(panY, targetPan.y, {
+      ...config,
+      onComplete: () => {
+        setCommittedScale(targetScale);
+        isAnimatingZoom.current = false;
+      }
+    });
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input')) return;
+
+    const isText = !!target.closest('.textLayer span');
+    touchStartInfo.current = { x: e.clientX, y: e.clientY };
+
+    const now = Date.now();
+    const dx = e.clientX - lastTapInfo.current.x;
+    const dy = e.clientY - lastTapInfo.current.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (!isText && now - lastTapInfo.current.time < 300 && dist < 20) {
+      e.preventDefault();
+      window.getSelection()?.removeAllRanges();
+      handleDoubleTapZoom(e.clientX, e.clientY);
+      lastTapInfo.current = { time: 0, x: 0, y: 0 };
+      return;
+    }
+
+    lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
+    gestureMode.current = isText ? GestureMode.SelectingText : GestureMode.Idle;
+  };
+
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2 && !isAnimatingZoom.current) {
       gestureMode.current = GestureMode.PinchZooming;
@@ -160,6 +238,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (gestureMode.current === GestureMode.PinchZooming && e.touches.length === 2) {
+      e.preventDefault();
       const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
       const nextScale = Math.max(0.5, Math.min(6, pinchRef.current.initialScale * (dist / pinchRef.current.initialDist)));
       liveScale.set(nextScale);
@@ -168,6 +247,59 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       panX.set(p.x - (p.x - pinchRef.current.initialPanX) * sDelta);
       panY.set(p.y - (p.y - pinchRef.current.initialPanY) * sDelta);
     }
+  };
+
+  const handlePanStart = () => {
+    if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
+    panX.stop();
+    panY.stop();
+    liveScale.stop();
+  };
+
+  const handlePanMove = (_: any, info: any) => {
+    if (gestureMode.current === GestureMode.SelectingText || gestureMode.current === GestureMode.PinchZooming || isAnimatingZoom.current) return;
+
+    const moveDist = Math.hypot(info.offset.x, info.offset.y);
+    const currentScale = liveScale.get();
+
+    if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
+      const isHorizontal = Math.abs(info.offset.x) > Math.abs(info.offset.y);
+      gestureMode.current = currentScale > 1.05 ? GestureMode.PanningZoomedPage : (isHorizontal ? GestureMode.SwipingPages : GestureMode.Idle);
+      isDraggingRef.current = gestureMode.current !== GestureMode.Idle;
+    }
+
+    if (gestureMode.current === GestureMode.PanningZoomedPage) {
+      const next = clampPan(panX.get() + info.delta.x, panY.get() + info.delta.y, currentScale);
+      panX.set(next.x);
+      panY.set(next.y);
+    } else if (gestureMode.current === GestureMode.SwipingPages) {
+      const progress = info.offset.x / Math.max(1, readerDimensions.width || window.innerWidth);
+      virtualPage.set(direction === 'rtl' ? pageIndex + progress : pageIndex - progress);
+    }
+  };
+
+  const handlePanEnd = (_: any, info: any) => {
+    lastPanTime.current = Date.now();
+
+    if (gestureMode.current === GestureMode.PanningZoomedPage) {
+      const target = clampPan(panX.get() + info.velocity.x * 0.08, panY.get() + info.velocity.y * 0.08);
+      animate(panX, target.x, { type: 'spring', stiffness: 120, damping: 28 });
+      animate(panY, target.y, { type: 'spring', stiffness: 120, damping: 28 });
+    } else if (gestureMode.current === GestureMode.SwipingPages) {
+      const threshold = Math.max(80, readerDimensions.width * 0.18);
+      const shouldTurn = Math.abs(info.offset.x) > threshold || Math.abs(info.velocity.x) > 500;
+      if (shouldTurn) {
+        const forward = direction === 'ltr' ? info.offset.x < 0 : info.offset.x > 0;
+        handlePageChange(forward ? pageIndex + 1 : pageIndex - 1);
+      } else {
+        animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
+      }
+    }
+
+    if (gestureMode.current !== GestureMode.SelectingText) {
+      gestureMode.current = GestureMode.Idle;
+    }
+    isDraggingRef.current = false;
   };
 
   const totalSheets = viewMode === 'double' ? Math.ceil(numPages / 2) : numPages;
@@ -186,13 +318,25 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       onNext={() => handlePageChange(direction === 'ltr' ? pageIndex + 1 : pageIndex - 1)}
       onJumpToPage={(p) => handlePageChange(viewMode === 'double' ? Math.floor((p - 1) / 2) : p - 1)}
       title={book.title}
+      disableInteractionZones
     >
       <div 
         ref={readerContainerRef}
         className="w-full h-full relative"
+        style={{ touchAction: 'none' }}
+        onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={() => { gestureMode.current = GestureMode.Idle; setCommittedScale(liveScale.get()); }}
+        onClick={(e) => {
+          if (Date.now() - lastPanTime.current < 150) return;
+          const selection = window.getSelection();
+          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+            const dist = Math.hypot(e.clientX - touchStartInfo.current.x, e.clientY - touchStartInfo.current.y);
+            if (dist < 5) selection.removeAllRanges();
+            return;
+          }
+        }}
       >
         {isLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-orange-500/40">
@@ -200,7 +344,12 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
             <p className="font-mono text-[10px] tracking-widest uppercase">Initializing Engine</p>
           </div>
         ) : (
-          <motion.div className="w-full h-full relative">
+          <motion.div
+            className="w-full h-full relative"
+            onPanStart={handlePanStart}
+            onPan={handlePanMove}
+            onPanEnd={handlePanEnd}
+          >
             {Array.from({ length: 3 }, (_, i) => pageIndex - 1 + i).map(sheetIndex => {
               if (sheetIndex < 0 || sheetIndex >= totalSheets) return null;
               return (
@@ -249,38 +398,77 @@ const ReaderSheet = React.memo(function ReaderSheet({
       >
         {viewMode === 'double' ? (
           <>
-            <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} />
-            <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} />
+            {direction === 'rtl' ? (
+              <>
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+              </>
+            ) : (
+              <>
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+              </>
+            )}
           </>
         ) : (
-          <PDFPage pageNumber={index + 1} pdf={pdf} width={baseWidth} committedScale={committedScale} />
+          <PDFPage pageNumber={index + 1} pdf={pdf} width={baseWidth} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
         )}
       </motion.div>
     </motion.div>
   );
 });
 
-const SpreadPage = ({ pdf, pageNumber, width, numPages, committedScale }: any) => {
+const SpreadPage = ({ pdf, pageNumber, width, numPages, committedScale, direction, panX, panY }: any) => {
   if (pageNumber > numPages) return <div style={{ width, height: width * 1.414 }} className="bg-white/5" />;
-  return <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} committedScale={committedScale} />;
+  return <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />;
 };
 
-const PDFPage = ({ pageNumber, pdf, width, committedScale }: any) => {
+const PDFPage = ({ pageNumber, pdf, width, committedScale, direction, panX, panY }: any) => {
+  const [pageSize, setPageSize] = useState({ width: width || 1, height: (width || 1) * 1.414 });
+  const textLayerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    pdf.getPage(pageNumber).then(async (page: any) => {
+      if (!active) return;
+      const viewport = page.getViewport({ scale: 1 });
+      const fitScale = width / viewport.width;
+      const textViewport = page.getViewport({ scale: fitScale });
+      setPageSize({ width: viewport.width, height: viewport.height });
+
+      if (!textLayerRef.current) return;
+      textLayerRef.current.innerHTML = '';
+      textLayerRef.current.style.setProperty('--scale-factor', String(textViewport.scale));
+      const textContent = await page.getTextContent();
+      if (!active || !textLayerRef.current) return;
+      pdfjs.renderTextLayer({
+        textContentSource: textContent,
+        container: textLayerRef.current,
+        viewport: textViewport,
+        textDivs: [],
+      });
+    });
+    return () => { active = false; };
+  }, [pdf, pageNumber, width]);
+
+  const height = width * (pageSize.height / pageSize.width || 1.414);
+
   return (
-    <div className="bg-white flex-shrink-0" style={{ width, height: width * 1.414 }}>
+    <div className="bg-white flex-shrink-0 relative overflow-hidden" style={{ width, height }}>
       <PDFTileEngine 
         pageNumber={pageNumber} 
         pdf={pdf} 
         width={width} 
-        height={width * 1.414} 
+        height={height} 
         committedScale={committedScale}
         isVisible={true}
-        panX={useMotionValue(0)}
-        panY={useMotionValue(0)}
+        panX={panX}
+        panY={panY}
         liveScale={useMotionValue(1)}
-        dims={{ width, height: width * 1.414 }}
+        dims={{ width, height }}
         sheetRelX={0}
       />
+      <div ref={textLayerRef} dir={direction} className="textLayer absolute inset-0" />
     </div>
   );
 };

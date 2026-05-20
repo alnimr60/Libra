@@ -24,6 +24,7 @@ interface ReaderShellProps {
   onJumpToPage: (page: number) => void;
   onToggleNav?: () => void;
   title: string;
+  disableInteractionZones?: boolean;
 }
 
 export default function ReaderShell({
@@ -39,7 +40,8 @@ export default function ReaderShell({
   onNext,
   onJumpToPage,
   onToggleNav,
-  title
+  title,
+  disableInteractionZones = false
 }: ReaderShellProps) {
   const { 
     theme, setTheme, 
@@ -119,11 +121,13 @@ export default function ReaderShell({
       </div>
 
       {/* Interaction Zones (Overlays) */}
-      <div className="absolute inset-0 z-20 pointer-events-none flex">
-        <div className="w-1/4 h-full pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onPrev(); }} />
-        <div className="flex-1 h-full pointer-events-auto" onClick={() => setShowControls(!showControls)} />
-        <div className="w-1/4 h-full pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onNext(); }} />
-      </div>
+      {!disableInteractionZones && (
+        <div className="absolute inset-0 z-20 pointer-events-none flex">
+          <div className="w-1/4 h-full pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onPrev(); }} />
+          <div className="flex-1 h-full pointer-events-auto" onClick={() => setShowControls(!showControls)} />
+          <div className="w-1/4 h-full pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); onNext(); }} />
+        </div>
+      )}
 
       {/* Top HUD */}
       <AnimatePresence>

@@ -24,7 +24,7 @@ export class StandardEbooksProvider implements IBookProvider {
       title: id.split("/")[1].replace(/-/g, " "),
       author: id.split("/")[0].replace(/-/g, " "),
       formats: [
-        { type: "epub", downloadUrl: `https://standardebooks.org/ebooks/${id}/downloads/${id.replace(/\//g, "_")}.epub` }
+        { type: "epub", downloadUrl: `https://standardebooks.org/ebooks/${id}/downloads/${id.replace(/\//g, "_")}.epub?source=feed` }
       ],
       source: this.name,
       publicDomain: true,
@@ -46,11 +46,11 @@ export class StandardEbooksProvider implements IBookProvider {
         const idPath = idMatch[1].replace("https://standardebooks.org/ebooks/", "");
         
         let epubUrl = "";
-        const epubMatch = /<link href="([^"]+\.epub)"/.exec(entry);
+        const epubMatch = /<link href="([^"]+\.epub(?:\?[^"]*)?)"[^>]+type="application\/epub\+zip"/.exec(entry);
         if (epubMatch) {
-          epubUrl = "https://standardebooks.org" + epubMatch[1];
+          epubUrl = epubMatch[1].startsWith("http") ? epubMatch[1] : "https://standardebooks.org" + epubMatch[1];
         } else {
-           epubUrl = `https://standardebooks.org/ebooks/${idPath}/downloads/${idPath.replace(/\//g, "_")}.epub`;
+           epubUrl = `https://standardebooks.org/ebooks/${idPath}/downloads/${idPath.replace(/\//g, "_")}.epub?source=feed`;
         }
         
         results.push({

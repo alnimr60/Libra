@@ -112,7 +112,8 @@ export const DownloadProvider = ({ children, onBookDownloaded }: DownloadProvide
         bookMetadata: book,
         status: 'pending',
         progress: 0,
-        format
+        format,
+        downloadUrl: book.formats.find(f => f.type === format)?.downloadUrl
       }
     }));
 
