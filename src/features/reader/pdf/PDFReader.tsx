@@ -332,7 +332,14 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
-        onTouchEnd={() => { gestureMode.current = GestureMode.Idle; setCommittedScale(liveScale.get()); }}
+        onTouchEnd={(e) => { 
+          if (e.touches.length === 0 && gestureMode.current === GestureMode.PinchZooming) {
+            gestureMode.current = GestureMode.Idle;
+          }
+          if (e.touches.length === 0) {
+            setCommittedScale(liveScale.get());
+          }
+        }}
         onClick={(e) => {
           if (Date.now() - lastPanTime.current < 150) return;
           const selection = window.getSelection();
@@ -351,6 +358,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         ) : (
           <motion.div
             className="w-full h-full relative"
+            style={{ touchAction: 'none' }}
             onPanStart={handlePanStart}
             onPan={handlePanMove}
             onPanEnd={handlePanEnd}

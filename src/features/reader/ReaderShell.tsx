@@ -384,7 +384,7 @@ export default function ReaderShell({
                   </div>
                 </div>
               ) : (
-                <div className="w-full max-h-[40vh] overflow-y-auto no-scrollbar space-y-2">
+                <div className="w-full max-h-[40vh] overflow-y-auto no-scrollbar space-y-2" style={{ touchAction: 'pan-y' }}>
                   {bookmarks.length === 0 ? (
                     <div className="py-12 text-center opacity-30 text-[10px] font-mono uppercase tracking-widest">No Bookmarks</div>
                   ) : (
