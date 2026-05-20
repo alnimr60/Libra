@@ -5,6 +5,48 @@ import { BookSearchResult, ProviderResponse } from "./types";
 import axios from "axios";
 import crypto from "node:crypto";
 
+const SEARCH_PROVIDER_TIMEOUT_MS = 10000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function fetchDownloadStream(url: string, traceId: string, attempt = 1): Promise<any> {
+  try {
+    return await axios({
+      method: 'get',
+      url,
+      responseType: 'stream',
+      timeout: 45000,
+      maxRedirects: 10,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://archive.org/'
+      },
+      validateStatus: (status) => status < 500
+    } as any) as any;
+  } catch (err: any) {
+    const retryable = ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED'].includes(err.code) || /timeout/i.test(err.message || '');
+    if (attempt < 2 && retryable) {
+      console.warn(`[TRACE][${traceId}][FETCH_RETRY] attempt=${attempt} code=${err.code} message=${err.message}`);
+      return fetchDownloadStream(url, traceId, attempt + 1);
+    }
+    throw err;
+  }
+}
+
 export async function searchRoutes(fastify: FastifyInstance) {
   
   fastify.get("/search", async (request: FastifyRequest<{ Querystring: { q: string, page?: string } }>, reply) => {
@@ -25,7 +67,9 @@ export async function searchRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const resultsArray = await Promise.allSettled(providers.map(p => p.search(q, pageNum)));
+      const resultsArray = await Promise.allSettled(
+        providers.map(p => withTimeout(p.search(q, pageNum), SEARCH_PROVIDER_TIMEOUT_MS, p.name))
+      );
       
       const combinedResults: BookSearchResult[] = [];
       let totalCount = 0;
@@ -127,11 +171,7 @@ export async function searchRoutes(fastify: FastifyInstance) {
         return reply.code(404).send({ error: "Book not found" });
       }
 
-      let fileFormat = book.formats.find(f => f.type === format);
-      
-      if (!fileFormat && book.formats.length > 0) {
-        fileFormat = book.formats[0];
-      }
+      const fileFormat = book.formats.find(f => f.type === format);
 
       if (!fileFormat || !fileFormat.downloadUrl) {
         console.error(`[TRACE][${traceId}][FORMAT_UNAVAILABLE] ${format}`);
@@ -147,18 +187,17 @@ export async function searchRoutes(fastify: FastifyInstance) {
 
       try {
         console.log(`[TRACE][${traceId}][FETCH_START]`);
-        const response = await axios({
-          method: 'get',
-          url: finalAssetUrl,
-          responseType: 'stream',
-          timeout: 45000,
-          maxRedirects: 10,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://archive.org/'
-          },
-          validateStatus: (status) => status < 400
-        } as any) as any;
+        const response = await fetchDownloadStream(finalAssetUrl, traceId);
+
+        if (response.status >= 400) {
+          console.error(`[TRACE][${traceId}][UPSTREAM_STATUS] status=${response.status}`);
+          return reply.code(502).send({
+            error: "UPSTREAM_DOWNLOAD_FAILURE",
+            message: `Provider returned ${response.status} while fetching the file.`,
+            traceId,
+            originalUrl: finalAssetUrl
+          });
+        }
 
         const contentType = (response.headers["content-type"] || "").toLowerCase();
         const finalUrl = response.request.res.responseUrl || finalAssetUrl;
