@@ -95,9 +95,7 @@ export class OpenLibraryProvider implements IBookProvider {
   }
 
   private async mapResults(docs: any[]): Promise<BookSearchResult[]> {
-    const results: BookSearchResult[] = [];
-    
-    for (const doc of docs) {
+    const results = await Promise.all(docs.map(async (doc: any): Promise<BookSearchResult | null> => {
       const iaId = doc.ia ? doc.ia[0] : null;
       let formats: { type: "pdf" | "epub"; downloadUrl: string }[] = [];
       
@@ -130,9 +128,9 @@ export class OpenLibraryProvider implements IBookProvider {
       }
 
       const key = doc.key ? doc.key.replace("/works/", "").replace("/books/", "").replace("/editions/", "") : null;
-      if (!key) continue;
+      if (!key) return null;
 
-      results.push({
+      return {
         id: key,
         title: doc.title,
         author: Array.isArray(doc.author_name) ? doc.author_name.join(", ") : "Unknown",
@@ -141,8 +139,9 @@ export class OpenLibraryProvider implements IBookProvider {
         formats,
         source: this.name,
         publicDomain: doc.public_scan_b || false,
-      });
-    }
-    return results;
+      };
+    }));
+
+    return results.filter((result): result is BookSearchResult => result !== null);
   }
 }
