@@ -9,7 +9,6 @@ import { Book, Bookmark } from '../../../types';
 import { PDFTileEngine } from './PDFTileEngine';
 import { useReader } from '../ReaderContext';
 import ReaderShell from '../ReaderShell';
-import { usePDFViewport } from './hooks/usePDFViewport';
 
 interface PDFReaderProps {
   book: Book;
@@ -20,12 +19,23 @@ interface PDFReaderProps {
   onClose: () => void;
 }
 
+enum GestureMode {
+  Idle = 'Idle',
+  PinchZooming = 'PinchZooming',
+}
 
 export default function PDFReader({ book, initialPage, onPageChange, updateBook, onUpdateBookmarks, onClose }: PDFReaderProps) {
   const { direction, setDirection } = useReader();
+  
+  const gestureMode = useRef<GestureMode>(GestureMode.Idle);
+  const isAnimatingZoom = useRef(false);
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
+  const [committedScale, setCommittedScale] = useState(1.0);
+  const liveScale = useMotionValue(1.0);
+  const panX = useMotionValue(0);
+  const panY = useMotionValue(0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'single' | 'double'>(() => {
@@ -41,14 +51,22 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   });
   
   const readerContainerRef = useRef<HTMLDivElement>(null);
-  const {
-    committedScale,
-    liveScale,
-    panX,
-    panY,
-    handlers: { handleTouchStart, handleTouchMove, handleTouchEnd }
-  } = usePDFViewport({ readerContainerRef });
   const [readerDimensions, setReaderDimensions] = useState({ width: 0, height: 0 });
+  const pinchRef = useRef({ 
+    initialDist: 0, 
+    initialScale: 1, 
+    initialPanX: 0, 
+    initialPanY: 0, 
+    midpoint: { x: 0, y: 0 } 
+  });
+
+  useEffect(() => {
+    animate(liveScale, committedScale, { type: 'spring', stiffness: 300, damping: 30 });
+    if (committedScale <= 1.05) {
+      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+    }
+  }, [committedScale]);
 
   useEffect(() => {
     if (!readerContainerRef.current) return;
@@ -121,7 +139,36 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     onPageChange(Math.min(displayPage, numPages));
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && !isAnimatingZoom.current) {
+      gestureMode.current = GestureMode.PinchZooming;
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.pageX - t2.pageX, t1.pageY - t2.pageY);
+      if (!readerContainerRef.current) return;
+      const rect = readerContainerRef.current.getBoundingClientRect();
+      pinchRef.current = {
+        initialDist: dist,
+        initialScale: liveScale.get(),
+        initialPanX: panX.get(),
+        initialPanY: panY.get(),
+        midpoint: { x: (t1.clientX + t2.clientX) / 2 - (rect.left + rect.width / 2), y: (t1.clientY + t2.clientY) / 2 - (rect.top + rect.height / 2) }
+      };
+      liveScale.stop(); panX.stop(); panY.stop();
+    }
+  };
 
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (gestureMode.current === GestureMode.PinchZooming && e.touches.length === 2) {
+      const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+      const nextScale = Math.max(0.5, Math.min(6, pinchRef.current.initialScale * (dist / pinchRef.current.initialDist)));
+      liveScale.set(nextScale);
+      const sDelta = nextScale / pinchRef.current.initialScale;
+      const p = pinchRef.current.midpoint;
+      panX.set(p.x - (p.x - pinchRef.current.initialPanX) * sDelta);
+      panY.set(p.y - (p.y - pinchRef.current.initialPanY) * sDelta);
+    }
+  };
 
   const totalSheets = viewMode === 'double' ? Math.ceil(numPages / 2) : numPages;
   const progress = Math.round(((pageIndex + 1) / totalSheets) * 100);
@@ -145,7 +192,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         className="w-full h-full relative"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        onTouchEnd={() => { gestureMode.current = GestureMode.Idle; setCommittedScale(liveScale.get()); }}
       >
         {isLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-orange-500/40">
