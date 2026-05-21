@@ -13,11 +13,12 @@ interface PDFTileEngineProps {
   committedScale: number;
   dims: { width: number, height: number };
   isVisible: boolean;
+  animationLockRef: React.MutableRefObject<boolean>;
   sheetRelX: number;
 }
 
 export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({ 
-  pageNumber, pdf, width, height, panX, panY, committedScale, isVisible 
+  pageNumber, pdf, width, height, panX, panY, committedScale, isVisible, animationLockRef 
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -126,9 +127,14 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
   const drawHighRes = useCallback(async () => {
     if (!isVisible || !pdfPage || !containerRef.current || !canvasRef.current) return;
     
-    // We only need to redraw if zoomed in
+    // We only need to redraw if zoomed in, or if not animating layout
     if (committedScale <= 1.05) {
       canvasRef.current.style.opacity = '0';
+      return;
+    }
+
+    if (animationLockRef?.current) {
+      console.log("[TILE_SUPPRESSED] Supressing tile render during animation lock");
       return;
     }
 
@@ -219,7 +225,7 @@ export const PDFTileEngine: React.FC<PDFTileEngineProps> = React.memo(({
         console.error('[PDFTileEngine] High-res render error:', err.message || err);
       }
     }
-  }, [isVisible, pdfPage, committedScale, panX, panY, getOffscreen]);
+  }, [isVisible, pdfPage, committedScale, panX, panY, getOffscreen, animationLockRef]);
 
   const scheduleRender = useCallback(() => {
     clearTimeout(renderTimeout.current);

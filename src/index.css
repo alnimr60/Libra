@@ -81,6 +81,7 @@ body {
   z-index: 50;
   line-height: normal;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation !important;
   outline: none !important;
 }
 
@@ -92,6 +93,7 @@ body {
   user-select: text !important;
   -webkit-user-select: text !important;
   -webkit-tap-highlight-color: transparent !important;
+  touch-action: manipulation !important;
   box-sizing: border-box;
   display: inline;
   line-height: 1;

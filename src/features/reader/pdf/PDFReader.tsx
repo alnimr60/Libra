@@ -36,6 +36,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const lastTapInfo = useRef({ time: 0, x: 0, y: 0 });
   const touchStartInfo = useRef({ x: 0, y: 0 });
   const lastPanTime = useRef(0);
+  const lastActivityTime = useRef(Date.now());
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
@@ -66,6 +67,33 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     initialPanY: 0, 
     midpoint: { x: 0, y: 0 } 
   });
+
+  const forceResetGestureState = React.useCallback(() => {
+    console.log("[GESTURE_FORCE_RESET] gestureMode:", gestureMode.current);
+    gestureMode.current = GestureMode.Idle;
+    isDraggingRef.current = false;
+    if (isAnimatingZoom.current) {
+      console.log("[ANIMATION_UNLOCK] force reset");
+    }
+    isAnimatingZoom.current = false;
+    panX.stop();
+    panY.stop();
+    liveScale.stop();
+    setCommittedScale(liveScale.get());
+  }, [panX, panY, liveScale]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (
+        (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current || isDraggingRef.current) &&
+        (Date.now() - lastActivityTime.current > 1500)
+      ) {
+        console.log("[GESTURE_FORCE_RESET] Watchdog triggered");
+        forceResetGestureState();
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [forceResetGestureState]);
 
   useEffect(() => {
     animate(liveScale, committedScale, { type: 'spring', stiffness: 300, damping: 30 });
@@ -161,7 +189,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const handleDoubleTapZoom = (clientX: number, clientY: number) => {
     if (!readerContainerRef.current || isAnimatingZoom.current) return;
 
+    console.log("[DOUBLE_TAP_START]", "scale:", liveScale.get());
+    console.log("[ANIMATION_LOCK] Double tap zoom started");
     isAnimatingZoom.current = true;
+    lastActivityTime.current = Date.now();
+    
     liveScale.stop();
     panX.stop();
     panY.stop();
@@ -181,12 +213,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       );
     }
 
-    const config = { type: 'spring' as const, stiffness: 300, damping: 30 };
+    const config = { type: 'tween' as const, ease: 'easeOut', duration: 0.3 };
     animate(liveScale, targetScale, config);
     animate(panX, targetPan.x, config);
-    animate(panY, targetPan.y, {
-      ...config,
-      onComplete: () => {
+    animate(panY, targetPan.y, config).then(() => {
+      if (isAnimatingZoom.current) {
+        console.log("[DOUBLE_TAP_END]");
+        console.log("[ANIMATION_UNLOCK] Double tap zoom finished");
         setCommittedScale(targetScale);
         isAnimatingZoom.current = false;
       }
@@ -194,6 +227,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    lastActivityTime.current = Date.now();
     const target = e.target as HTMLElement;
     if (target.closest('button, input')) return;
 
@@ -218,7 +252,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    lastActivityTime.current = Date.now();
     if (e.touches.length === 2 && !isAnimatingZoom.current) {
+      console.log("[GESTURE_BEGIN] PinchZooming");
       gestureMode.current = GestureMode.PinchZooming;
       const t1 = e.touches[0];
       const t2 = e.touches[1];
@@ -237,6 +273,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    lastActivityTime.current = Date.now();
     if (gestureMode.current === GestureMode.PinchZooming && e.touches.length === 2) {
       e.preventDefault();
       const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
@@ -250,6 +287,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanStart = () => {
+    lastActivityTime.current = Date.now();
     if (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current) return;
     panX.stop();
     panY.stop();
@@ -257,6 +295,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanMove = (_: any, info: any) => {
+    lastActivityTime.current = Date.now();
     if (gestureMode.current === GestureMode.SelectingText || gestureMode.current === GestureMode.PinchZooming || isAnimatingZoom.current) return;
 
     const moveDist = Math.hypot(info.offset.x, info.offset.y);
@@ -265,6 +304,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     if (gestureMode.current === GestureMode.Idle && moveDist > 10) {
       const isHorizontal = Math.abs(info.offset.x) > Math.abs(info.offset.y);
       gestureMode.current = currentScale > 1.05 ? GestureMode.PanningZoomedPage : (isHorizontal ? GestureMode.SwipingPages : GestureMode.Idle);
+      console.log("[GESTURE_BEGIN]", gestureMode.current);
       isDraggingRef.current = gestureMode.current !== GestureMode.Idle;
     }
 
@@ -279,7 +319,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   };
 
   const handlePanEnd = (_: any, info: any) => {
+    lastActivityTime.current = Date.now();
     lastPanTime.current = Date.now();
+    console.log("[GESTURE_END] Pan ended");
 
     if (gestureMode.current === GestureMode.PanningZoomedPage) {
       const target = clampPan(panX.get() + info.velocity.x * 0.08, panY.get() + info.velocity.y * 0.08);
@@ -330,15 +372,24 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         className="w-full h-full relative"
         style={{ touchAction: 'none' }}
         onPointerDown={handlePointerDown}
+        onPointerCancel={() => {
+          console.log("[GESTURE_CANCEL] pointercancel");
+          forceResetGestureState();
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={(e) => { 
           if (e.touches.length === 0 && gestureMode.current === GestureMode.PinchZooming) {
+            console.log("[GESTURE_END] PinchZooming ended");
             gestureMode.current = GestureMode.Idle;
           }
           if (e.touches.length === 0) {
             setCommittedScale(liveScale.get());
           }
+        }}
+        onTouchCancel={(e) => {
+          console.log("[GESTURE_CANCEL] touchcancel");
+          forceResetGestureState();
         }}
         onClick={(e) => {
           if (Date.now() - lastPanTime.current < 150) return;
@@ -376,6 +427,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
                   virtualPage={smoothPage}
                   liveScale={liveScale}
                   committedScale={committedScale}
+                  animationLockRef={isAnimatingZoom}
                   containerDimensions={readerDimensions}
                   panX={panX}
                   panY={panY}
@@ -391,7 +443,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 }
 
 const ReaderSheet = React.memo(function ReaderSheet({ 
-  index, pdf, numPages, viewMode, direction, virtualPage, liveScale, committedScale, containerDimensions, panX, panY, baseWidth 
+  index, pdf, numPages, viewMode, direction, virtualPage, liveScale, committedScale, animationLockRef, containerDimensions, panX, panY, baseWidth 
 }: any) {
   const distance = useTransform(virtualPage, (v: number) => direction === 'rtl' ? v - index : index - v);
   const x = useTransform(distance, (d: number) => 100 * d);
@@ -413,30 +465,30 @@ const ReaderSheet = React.memo(function ReaderSheet({
           <>
             {direction === 'rtl' ? (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} animationLockRef={animationLockRef} direction={direction} panX={panX} panY={panY} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} animationLockRef={animationLockRef} direction={direction} panX={panX} panY={panY} />
               </>
             ) : (
               <>
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
-                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 1} width={baseWidth} numPages={numPages} committedScale={committedScale} animationLockRef={animationLockRef} direction={direction} panX={panX} panY={panY} />
+                <SpreadPage pdf={pdf} pageNumber={(index * 2) + 2} width={baseWidth} numPages={numPages} committedScale={committedScale} animationLockRef={animationLockRef} direction={direction} panX={panX} panY={panY} />
               </>
             )}
           </>
         ) : (
-          <PDFPage pageNumber={index + 1} pdf={pdf} width={baseWidth} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />
+          <PDFPage pageNumber={index + 1} pdf={pdf} width={baseWidth} committedScale={committedScale} animationLockRef={animationLockRef} direction={direction} panX={panX} panY={panY} />
         )}
       </motion.div>
     </motion.div>
   );
 });
 
-const SpreadPage = ({ pdf, pageNumber, width, numPages, committedScale, direction, panX, panY }: any) => {
+const SpreadPage = ({ pdf, pageNumber, width, numPages, committedScale, animationLockRef, direction, panX, panY }: any) => {
   if (pageNumber > numPages) return <div style={{ width, height: width * 1.414 }} className="bg-white/5" />;
-  return <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} committedScale={committedScale} direction={direction} panX={panX} panY={panY} />;
+  return <PDFPage pageNumber={pageNumber} pdf={pdf} width={width} committedScale={committedScale} animationLockRef={animationLockRef} direction={direction} panX={panX} panY={panY} />;
 };
 
-const PDFPage = ({ pageNumber, pdf, width, committedScale, direction, panX, panY }: any) => {
+const PDFPage = ({ pageNumber, pdf, width, committedScale, animationLockRef, direction, panX, panY }: any) => {
   const [pageSize, setPageSize] = useState({ width: width || 1, height: (width || 1) * 1.414 });
   const textLayerRef = useRef<HTMLDivElement>(null);
 
@@ -475,6 +527,7 @@ const PDFPage = ({ pageNumber, pdf, width, committedScale, direction, panX, panY
         height={height} 
         committedScale={committedScale}
         isVisible={true}
+        animationLockRef={animationLockRef}
         panX={panX}
         panY={panY}
         liveScale={useMotionValue(1)}
