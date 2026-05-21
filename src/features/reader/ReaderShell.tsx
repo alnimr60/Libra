@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Settings, Type, Languages, Check, 
   Bookmark as BookmarkIcon, Trash2, Navigation,
-  ChevronLeft, ChevronRight, Menu
+  ChevronLeft, ChevronRight, Menu, Minus, Plus, RotateCcw
 } from 'lucide-react';
 import { useSafeArea } from '../../components/SafeAreaProvider';
 import { cn } from '../../lib/utils';
@@ -25,6 +25,10 @@ interface ReaderShellProps {
   onToggleNav?: () => void;
   title: string;
   disableInteractionZones?: boolean;
+  zoomPercentage?: number;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetZoom?: () => void;
 }
 
 export default function ReaderShell({
@@ -41,7 +45,11 @@ export default function ReaderShell({
   onJumpToPage,
   onToggleNav,
   title,
-  disableInteractionZones = false
+  disableInteractionZones = false,
+  zoomPercentage,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom
 }: ReaderShellProps) {
   const { 
     theme, setTheme, 
@@ -172,6 +180,19 @@ export default function ReaderShell({
               </div>
 
               <div className="flex items-center gap-1">
+                {onZoomIn && (
+                  <div className="flex items-center gap-0.5 bg-black/5 dark:bg-white/5 rounded-full p-0.5 border border-black/5 dark:border-white/5 mx-0.5 sm:mx-1">
+                    <button onClick={onZoomOut} className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all">
+                      <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-60" />
+                    </button>
+                    <div className="w-8 sm:w-10 text-center text-[10px] sm:text-xs font-mono font-bold tracking-wide opacity-80 select-none cursor-pointer" onClick={onResetZoom}>
+                      {Math.round(zoomPercentage || 100)}%
+                    </div>
+                    <button onClick={onZoomIn} className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all">
+                      <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-60" />
+                    </button>
+                  </div>
+                )}
                 <button 
                   onClick={toggleBookmark}
                   className={cn(
@@ -217,27 +238,29 @@ export default function ReaderShell({
               theme === 'sepia' ? 'bg-[#f4ecd8]/80 border-[#433422]/10' : 
               'bg-white/80 border-zinc-200'
             )}>
-              <div className="max-w-xl mx-auto flex items-center gap-6">
-                <button onClick={onPrev} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10">
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-                
-                <div className="flex-1 flex flex-col items-center gap-2">
-                  <div className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-orange-500"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                    />
+              <div className="max-w-xl mx-auto flex flex-col gap-6">
+                <div className="flex items-center gap-6">
+                  <button onClick={onPrev} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10">
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                  
+                  <div className="flex-1 flex flex-col items-center gap-2">
+                    <div className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                      <motion.div 
+                        className="h-full bg-orange-500"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <span className="text-[8px] font-mono font-bold tracking-[0.2em] opacity-40 uppercase">
+                      {progress}% Progress
+                    </span>
                   </div>
-                  <span className="text-[8px] font-mono font-bold tracking-[0.2em] opacity-40 uppercase">
-                    {progress}% Progress
-                  </span>
-                </div>
 
-                <button onClick={onNext} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10">
-                  <ChevronRight className="w-6 h-6" />
-                </button>
+                  <button onClick={onNext} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10">
+                    <ChevronRight className="w-6 h-6" />
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

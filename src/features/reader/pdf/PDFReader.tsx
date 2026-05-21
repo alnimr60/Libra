@@ -43,9 +43,17 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const [numPages, setNumPages] = useState(0);
   const [committedScale, setCommittedScale] = useState(1.0);
+  const [hudScale, setHudScale] = useState(1.0);
   const liveScale = useMotionValue(1.0);
   const panX = useMotionValue(0);
   const panY = useMotionValue(0);
+
+  useEffect(() => {
+    const unsub = liveScale.onChange((latest) => {
+      setHudScale(latest);
+    });
+    return unsub;
+  }, [liveScale]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'single' | 'double'>(() => {
@@ -233,9 +241,9 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
     console.log(`[DOUBLE_TAP_TRANSACTION_START] currentScale: ${currentScale}, targetScale: ${targetScale}`);
     const config = { type: 'tween' as const, ease: 'easeOut', duration: 0.3 };
-    animate(liveScale, targetScale, config);
-    animate(panX, targetPan.x, config);
-    animate(panY, targetPan.y, config).then(() => {
+    animate(liveScale, targetScale as any, config as any);
+    animate(panX, targetPan.x as any, config as any);
+    animate(panY, targetPan.y as any, config as any).then(() => {
       if (isAnimatingZoom.current) {
         console.log("[DOUBLE_TAP_TRANSACTION_END]");
         console.log("[ANIMATION_UNLOCK] Double tap zoom finished");
@@ -246,6 +254,44 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         isAnimatingZoom.current = false;
       } else {
         console.log("[DOUBLE_TAP_TRANSACTION_CANCEL] interrupted");
+      }
+    });
+  };
+
+  const handleManualZoom = (deltaScale: number, isAbsolute: boolean = false) => {
+    if (isAnimatingZoom.current) return;
+    
+    const currentScale = liveScale.get();
+    let targetScale = isAbsolute ? deltaScale : currentScale + deltaScale;
+    targetScale = Math.max(0.5, Math.min(targetScale, 6));
+
+    console.log(`[ZOOM_BUTTON] currentScale: ${currentScale}, targetScale: ${targetScale}`);
+    isAnimatingZoom.current = true;
+    zoomStartTimeRef.current = Date.now();
+    lastActivityTime.current = Date.now();
+    
+    liveScale.stop();
+    panX.stop();
+    panY.stop();
+
+    let targetPan = { x: panX.get(), y: panY.get() };
+    if (targetScale <= 1.01) {
+      targetPan = { x: 0, y: 0 };
+    } else {
+      // Re-center relative to current pan
+      targetPan = clampPan(targetPan.x * (targetScale / currentScale), targetPan.y * (targetScale / currentScale), targetScale);
+    }
+
+    const config = { type: 'tween' as const, ease: 'easeOut', duration: 0.2 };
+    animate(liveScale, targetScale as any, config as any);
+    animate(panX, targetPan.x as any, config as any);
+    animate(panY, targetPan.y as any, config as any).then(() => {
+      if (isAnimatingZoom.current) {
+        liveScale.set(targetScale);
+        panX.set(targetPan.x);
+        panY.set(targetPan.y);
+        setCommittedScale(targetScale);
+        isAnimatingZoom.current = false;
       }
     });
   };
@@ -390,6 +436,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       onJumpToPage={(p) => handlePageChange(viewMode === 'double' ? Math.floor((p - 1) / 2) : p - 1)}
       title={book.title}
       disableInteractionZones
+      zoomPercentage={hudScale * 100}
+      onZoomIn={() => handleManualZoom(0.2, false)}
+      onZoomOut={() => handleManualZoom(-0.2, false)}
+      onResetZoom={() => handleManualZoom(1, true)}
     >
       <div 
         ref={readerContainerRef}
