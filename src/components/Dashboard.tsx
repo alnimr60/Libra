@@ -2,11 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Book, ReadingGoal, ReadingLog, GoalFrequency, LanguageCode } from '../types';
 import BookCarousel from './BookCarousel';
-import HorizontalBookRow from './HorizontalBookRow';
-import { useDownloads } from '../features/books/downloads/DownloadContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculatePagesPerDay, getDaysRemaining, cn, getPagesReadToday, getPagesReadThisWeek } from '../lib/utils';
-import { BookOpen, Calendar, Clock, Target, Plus, Trash2, Quote, Download } from 'lucide-react';
+import { BookOpen, Calendar, Clock, Target, Plus, Trash2, Quote } from 'lucide-react';
 import { useSafeArea } from './SafeAreaProvider';
 import { translations } from '../translations';
 
@@ -40,7 +38,6 @@ export default function Dashboard({
   const [tempPage, setTempPage] = useState(0);
   const [isAddGoalModalOpen, setIsAddGoalModalOpen] = useState(false);
   const insets = useSafeArea();
-  const { downloads } = useDownloads();
 
   const isRTL = ['ar', 'ur'].includes(language);
   const t = translations[language];
@@ -139,34 +136,7 @@ export default function Dashboard({
           />
         </div>
 
-        {/* Recently Added Section */}
-        <HorizontalBookRow 
-          title={(t as any).recentlyAdded || "Recently Added"} 
-          books={[...books].sort((a,b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()).slice(0, 5)}
-          onOpen={onOpenBook}
-          isRTL={isRTL}
-        />
-        
-        {Object.keys(downloads).length > 0 && (
-          <div className="px-6 mb-10">
-            <h3 className="text-xs font-mono uppercase tracking-widest text-orange-500 mb-4 flex items-center gap-2">
-              <Download className="w-3 h-3" />
-              {"Downloads"}
-            </h3>
-            {/* Similar structure to HorizontalBookRow but showing progress */}
-            <div className="flex gap-4 overflow-x-auto no-scrollbar">
-              {Object.values(downloads as Record<string, any>).map(d => (
-                <div key={d.id} className="w-24 flex-shrink-0 flex flex-col gap-2">
-                  <div className="w-24 h-36 bg-zinc-800 rounded-lg overflow-hidden relative">
-                    <div className="absolute inset-0 bg-orange-600/50" style={{ height: `${100 - d.progress}%`, top: 0 }} />
-                    <span className="absolute inset-0 flex items-center justify-center text-[10px] font-mono">{Math.round(d.progress)}%</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-400 truncate">{d.bookMetadata.title}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+
 
         {/* Book Info Panel */}
         <AnimatePresence>
