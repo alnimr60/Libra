@@ -37,8 +37,10 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   const touchStartInfo = useRef({ x: 0, y: 0 });
   const lastPanTime = useRef(0);
   const lastActivityTime = useRef(Date.now());
+  const zoomStartTimeRef = useRef(0);
   const fileDataId = book.fileDataId;
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
+
   const [numPages, setNumPages] = useState(0);
   const [committedScale, setCommittedScale] = useState(1.0);
   const liveScale = useMotionValue(1.0);
@@ -84,9 +86,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (
-        (gestureMode.current !== GestureMode.Idle || isAnimatingZoom.current || isDraggingRef.current) &&
-        (Date.now() - lastActivityTime.current > 1500)
+      const now = Date.now();
+      if (isAnimatingZoom.current && (now - zoomStartTimeRef.current > 1000)) {
+        console.log("[DOUBLE_TAP_FORCE_UNLOCK]");
+        forceResetGestureState();
+      } else if (
+        (gestureMode.current !== GestureMode.Idle || isDraggingRef.current) &&
+        (now - lastActivityTime.current > 1500)
       ) {
         console.log("[GESTURE_FORCE_RESET] Watchdog triggered");
         forceResetGestureState();
@@ -96,12 +102,23 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
   }, [forceResetGestureState]);
 
   useEffect(() => {
-    animate(liveScale, committedScale, { type: 'spring', stiffness: 300, damping: 30 });
-    if (committedScale <= 1.05) {
-      animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-      animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+    if (isAnimatingZoom.current) return;
+
+    if (Math.abs(liveScale.get() - committedScale) > 0.01) {
+      console.log(`[DOUBLE_TAP_RECONCILE] resolving desync: liveScale=${liveScale.get()} committedScale=${committedScale}`);
+      animate(liveScale, committedScale, { type: 'spring', stiffness: 300, damping: 30 });
+    } else {
+      liveScale.set(committedScale);
     }
-  }, [committedScale]);
+
+    if (committedScale <= 1.05) {
+      if (Math.abs(panX.get()) > 0.01) animate(panX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      else panX.set(0);
+      
+      if (Math.abs(panY.get()) > 0.01) animate(panY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      else panY.set(0);
+    }
+  }, [committedScale, liveScale, panX, panY]);
 
   useEffect(() => {
     if (!readerContainerRef.current) return;
@@ -192,6 +209,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     console.log("[DOUBLE_TAP_START]", "scale:", liveScale.get());
     console.log("[ANIMATION_LOCK] Double tap zoom started");
     isAnimatingZoom.current = true;
+    zoomStartTimeRef.current = Date.now();
     lastActivityTime.current = Date.now();
     
     liveScale.stop();
@@ -199,7 +217,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     panY.stop();
 
     const currentScale = liveScale.get();
-    const targetScale = currentScale <= 1.05 ? 2.5 : 1;
+    const targetScale = currentScale < 1.75 ? 2.5 : 1;
     let targetPan = { x: 0, y: 0 };
 
     if (targetScale > 1) {
@@ -213,15 +231,21 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
       );
     }
 
+    console.log(`[DOUBLE_TAP_TRANSACTION_START] currentScale: ${currentScale}, targetScale: ${targetScale}`);
     const config = { type: 'tween' as const, ease: 'easeOut', duration: 0.3 };
     animate(liveScale, targetScale, config);
     animate(panX, targetPan.x, config);
     animate(panY, targetPan.y, config).then(() => {
       if (isAnimatingZoom.current) {
-        console.log("[DOUBLE_TAP_END]");
+        console.log("[DOUBLE_TAP_TRANSACTION_END]");
         console.log("[ANIMATION_UNLOCK] Double tap zoom finished");
+        liveScale.set(targetScale);
+        panX.set(targetPan.x);
+        panY.set(targetPan.y);
         setCommittedScale(targetScale);
         isAnimatingZoom.current = false;
+      } else {
+        console.log("[DOUBLE_TAP_TRANSACTION_CANCEL] interrupted");
       }
     });
   };
@@ -373,7 +397,7 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
         style={{ touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onPointerCancel={() => {
-          console.log("[GESTURE_CANCEL] pointercancel");
+          console.log("[DOUBLE_TAP_POINTER_CANCEL] pointercancel");
           forceResetGestureState();
         }}
         onTouchStart={handleTouchStart}
