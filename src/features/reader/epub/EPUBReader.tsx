@@ -41,7 +41,24 @@ export default function EPUBReader({
   const renditionRef = useRef<Rendition | null>(null);
   const initializedRef = useRef(false);
 
-  const { theme, fontSize, direction } = useReader();
+  const { theme, fontSize, setFontSize, direction } = useReader();
+
+  const handleZoomIn = () => {
+    const next = Math.min(fontSize + 15, 300);
+    console.log(`[ZOOM_BUTTON_IN] targetScale: ${next}, liveScale: ${fontSize}, reader: EPUB`);
+    setFontSize(next);
+  };
+
+  const handleZoomOut = () => {
+    const next = Math.max(fontSize - 15, 50);
+    console.log(`[ZOOM_BUTTON_OUT] targetScale: ${next}, liveScale: ${fontSize}, reader: EPUB`);
+    setFontSize(next);
+  };
+
+  const handleZoomReset = () => {
+    console.log(`[ZOOM_BUTTON_RESET] targetScale: 100, liveScale: ${fontSize}, reader: EPUB`);
+    setFontSize(100);
+  };
 
   const themes = {
     light: { body: { color: "#18181b", background: "transparent" } },
@@ -297,39 +314,61 @@ export default function EPUBReader({
   const currentPage = Math.max(1, Math.ceil(progress));
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 300,
-        background: "white",
+    <ReaderShell
+      book={book}
+      title={book.title}
+      onClose={onClose}
+      currentPage={currentPage}
+      totalPages={100}
+      progress={progress}
+      onPageChange={() => {}}
+      onUpdateBookmarks={onUpdateBookmarks}
+      onPrev={() => renditionRef.current?.prev()}
+      onNext={() => renditionRef.current?.next()}
+      onJumpToPage={(p) => {
+        const perc = p / 100;
+        const cfi = bookRef.current?.locations.cfiFromPercentage(perc);
+        if (cfi) renditionRef.current?.display(cfi);
       }}
+      zoomPercentage={fontSize}
+      onZoomIn={handleZoomIn}
+      onZoomOut={handleZoomOut}
+      onResetZoom={handleZoomReset}
     >
-      {loading && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          Loading EPUB Engine
-        </div>
-      )}
       <div
-        ref={viewerRef}
         style={{
-          width: "100%",
-          height: "100%",
           position: "absolute",
           inset: 0,
-          overflow: "hidden",
+          zIndex: 1,
           background: "white",
         }}
-      />
-    </div>
+      >
+        {loading && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            Loading EPUB Engine
+          </div>
+        )}
+        <div
+          ref={viewerRef}
+          style={{
+            width: "100%",
+            height: "100%",
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            background: "transparent",
+          }}
+        />
+      </div>
+    </ReaderShell>
   );
 }
