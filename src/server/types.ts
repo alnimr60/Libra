@@ -2,6 +2,7 @@ export interface BookSearchResult {
   id: string;
   title: string;
   author: string;
+  authors?: string;
   coverUrl?: string;
   language?: string;
   description?: string;
@@ -11,7 +12,10 @@ export interface BookSearchResult {
     sizeBytes?: number;
   }[];
   source: string;
+  provider?: string;
   publicDomain: boolean;
+  downloadable?: boolean;
+  downloadUrl?: string;
 }
 
 export interface ProviderResponse {

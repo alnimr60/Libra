@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { providers } from "./providers";
 import { searchCache } from "./cache";
+import { filterAndRankResults } from "./relevance";
 import { BookSearchResult, ProviderResponse } from "./types";
 import axios from "axios";
 import crypto from "node:crypto";
@@ -84,12 +85,18 @@ export async function searchRoutes(fastify: FastifyInstance) {
           const data = res.value;
           totalCount += data.total || 0;
           for (const book of data.results) {
-            const key = `${book.title.toLowerCase()}|${book.author.toLowerCase()}`;
+            const safeTitle = (book.title || "Unknown").toLowerCase();
+            const safeAuthor = (book.author || "Unknown").toLowerCase();
+            const key = `${safeTitle}|${safeAuthor}`;
             if (!seen.has(key)) {
               seen.add(key);
               combinedResults.push(book);
             } else {
-              const existing = combinedResults.find(b => `${b.title.toLowerCase()}|${b.author.toLowerCase()}` === key);
+              const existing = combinedResults.find(b => {
+                const sT = (b.title || "Unknown").toLowerCase();
+                const sA = (b.author || "Unknown").toLowerCase();
+                return `${sT}|${sA}` === key;
+              });
               if (existing) {
                 const existingFormatTypes = new Set(existing.formats.map(f => f.type));
                 for (const format of book.formats) {
@@ -105,10 +112,13 @@ export async function searchRoutes(fastify: FastifyInstance) {
         }
       }
 
-      console.log(`[SEARCH_FINAL_RESULTS] count=${combinedResults.length}`);
+      // Apply relevance filtering and ranking
+      const filteredResults = filterAndRankResults(q, combinedResults);
+
+      console.log(`[SEARCH_FINAL_RESULTS] count=${filteredResults.length}`);
       
       const response: ProviderResponse = {
-        results: combinedResults,
+        results: filteredResults,
         total: totalCount,
         nextPageToken: String(pageNum + 1),
       };

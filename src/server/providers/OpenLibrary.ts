@@ -9,7 +9,7 @@ export class OpenLibraryProvider implements IBookProvider {
     const url = `https://openlibrary.org/search.json`;
     try {
       const { data } = await axios.get<any>(url, { 
-        params: { q: query, limit, page, has_fulltext: "true" }, 
+        params: { q: query, limit, page }, 
         timeout: 5000 
       });
       
@@ -121,7 +121,7 @@ export class OpenLibraryProvider implements IBookProvider {
             if (epubFile) {
               formats.push({ type: "epub", downloadUrl: `https://archive.org/download/${iaId}/${epubFile.name}` });
             }
-          } catch (e) {
+          } catch (e: any) {
             console.warn(`[OL_SEARCH_IA_METADATA_FAIL] iaId=${iaId}`, e.message);
           }
         }

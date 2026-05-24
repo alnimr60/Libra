@@ -7,8 +7,9 @@ export class InternetArchiveProvider implements IBookProvider {
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     const rows = 20;
     const url = `https://archive.org/advancedsearch.php`;
+    const sanitizedQuery = query.replace(/[()]/g, "").trim();
     const params = {
-      q: `(${query}) AND mediatype:(texts) AND -access-restricted-item:true`,
+      q: `(title:(${sanitizedQuery}) OR creator:(${sanitizedQuery})) AND mediatype:(texts) AND -access-restricted-item:true`,
       fl: "identifier,title,creator,description,language,publicdate",
       sort: "downloads desc",
       rows,
@@ -48,7 +49,7 @@ export class InternetArchiveProvider implements IBookProvider {
           if (epubFile) {
             formats.push({ type: "epub", downloadUrl: `https://archive.org/download/${id}/${epubFile.name}` });
           }
-        } catch (e) {
+        } catch (e: any) {
           console.warn(`[IA_SEARCH_METADATA_FAIL] id=${id}`, e.message);
           // If metadata fetch fails, we return no formats (Verified = 0)
         }
