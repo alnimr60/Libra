@@ -6,7 +6,7 @@ import { BookSearchResult, ProviderResponse } from "./types";
 import axios from "axios";
 import crypto from "node:crypto";
 
-const SEARCH_PROVIDER_TIMEOUT_MS = 10000;
+const SEARCH_PROVIDER_TIMEOUT_MS = 45000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {

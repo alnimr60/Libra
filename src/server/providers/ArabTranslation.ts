@@ -6,50 +6,48 @@ export class ArabTranslationProvider implements IBookProvider {
 
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     try {
-      const url = `https://caus.org.lb/api/search`;
-      const { data } = await axios.get<any>(url, {
-        params: { q: query, p: page },
-        timeout: 10000,
+      const url = `https://www.caus.org.lb/`;
+      const { data } = await axios.get<string>(url, {
+        params: { s: query },
+        timeout: 25000,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Referer": "https://www.caus.org.lb/"
+        }
       });
 
       console.log(`[PROVIDER_SEARCH] provider=${this.name} query="${query}"`);
 
-      if (!data || !data.results) return { results: [] };
+      const results: BookSearchResult[] = [];
+      // Basic regex for CAUS search results - matches product links and regular post links
+      const bookRegex = /<h3[^>]*class="[^"]*title[^"]*"[^>]*><a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/gs;
+      
+      let match;
+      while ((match = bookRegex.exec(data)) !== null) {
+        const productUrl = match[1];
+        const title = match[2].trim();
+        const id = productUrl.split('/').filter(Boolean).pop() || "unknown";
 
-      const results: BookSearchResult[] = data.results.map((book: any) => {
-        const normalizedTitle = (book.title || "").trim();
-        const normalizedAuthor = (book.author || "").trim();
-        const isDownloadable = !!book.public_download_url;
+        console.log(`[PROVIDER_RESULT_NORMALIZED] provider=${this.name} title="${title}"`);
 
-        console.log(`[PROVIDER_RESULT_NORMALIZED] provider=${this.name} title="${normalizedTitle}"`);
-
-        if (!isDownloadable) {
-           console.log(`[PROVIDER_EXTERNAL_ONLY] provider=${this.name} title="${normalizedTitle}" reason="No direct download available"`);
-        } else {
-           console.log(`[PROVIDER_BINARY_RESOLVED] provider=${this.name} title="${normalizedTitle}" mimetype="application/pdf"`);
-        }
-
-        return {
-          id: String(book.id),
-          title: normalizedTitle,
-          author: normalizedAuthor,
-          authors: normalizedAuthor,
+        results.push({
+          id,
+          title,
+          author: "Center for Arab Unity Studies",
+          authors: "Center for Arab Unity Studies",
           language: "ar",
-          coverUrl: book.cover_url,
-          formats: isDownloadable && book.public_download_url ? [
-            { type: "pdf", downloadUrl: book.public_download_url }
-          ] : [],
+          formats: [], // Scraper doesn't easily find download links on search page
           source: this.name,
           provider: this.name,
-          publicDomain: isDownloadable,
-          downloadable: isDownloadable,
-          downloadUrl: book.external_url || `https://caus.org.lb/book/${book.id}`
-        };
-      });
+          publicDomain: false,
+          downloadable: false,
+          downloadUrl: productUrl
+        });
+      }
 
       return {
         results,
-        nextPageToken: data.next ? String(page + 1) : undefined,
+        nextPageToken: results.length > 0 ? String(page + 1) : undefined,
       };
     } catch (e: any) {
       console.error(`[PROVIDER_BINARY_REJECTED] provider=${this.name} reason="${e.message}"`);

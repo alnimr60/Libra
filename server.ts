@@ -11,11 +11,11 @@ async function startServer() {
   const fastify = Fastify({ logger: true });
   const PORT = 3000;
 
-  fastify.setErrorHandler((error, request, reply) => {
+  fastify.setErrorHandler((error: any, request, reply) => {
     fastify.log.error(error);
     reply.status(500).send({ 
       error: "Internal Server Error", 
-      message: error.message,
+      message: error?.message || String(error),
       path: request.url
     });
   });
