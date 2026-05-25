@@ -81,34 +81,42 @@ export async function searchRoutes(fastify: FastifyInstance) {
         const res = resultsArray[i];
         const providerName = providers[i].name;
 
-        if (res.status === 'fulfilled') {
+        if (res.status === 'fulfilled' && res.value) {
           const data = res.value;
-          totalCount += data.total || 0;
-          for (const book of data.results) {
-            const safeTitle = (book.title || "Unknown").toLowerCase();
-            const safeAuthor = (book.author || "Unknown").toLowerCase();
-            const key = `${safeTitle}|${safeAuthor}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              combinedResults.push(book);
-            } else {
-              const existing = combinedResults.find(b => {
-                const sT = (b.title || "Unknown").toLowerCase();
-                const sA = (b.author || "Unknown").toLowerCase();
-                return `${sT}|${sA}` === key;
-              });
-              if (existing) {
-                const existingFormatTypes = new Set(existing.formats.map(f => f.type));
-                for (const format of book.formats) {
-                  if (!existingFormatTypes.has(format.type)) {
-                    existing.formats.push(format);
+          totalCount += (data.total || 0);
+          
+          if (Array.isArray(data.results)) {
+            for (const book of data.results) {
+              if (!book || !book.title) continue;
+              
+              const safeTitle = (book.title || "Unknown").toLowerCase();
+              const safeAuthor = (book.author || "Unknown").toLowerCase();
+              const key = `${safeTitle}|${safeAuthor}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                combinedResults.push(book);
+              } else {
+                const existing = combinedResults.find(b => {
+                  const sT = (b.title || "Unknown").toLowerCase();
+                  const sA = (b.author || "Unknown").toLowerCase();
+                  return `${sT}|${sA}` === key;
+                });
+                if (existing) {
+                  const existingFormatTypes = new Set(existing.formats?.map(f => f.type) || []);
+                  if (Array.isArray(book.formats)) {
+                    for (const format of book.formats) {
+                      if (!existingFormatTypes.has(format.type)) {
+                        if (!existing.formats) existing.formats = [];
+                        existing.formats.push(format);
+                      }
+                    }
                   }
                 }
               }
             }
           }
         } else {
-          console.error(`[SEARCH_PROVIDER_ERROR] ${providerName}:`, res.reason);
+          console.error(`[SEARCH_PROVIDER_ERROR] ${providerName}:`, res.status === 'rejected' ? res.reason : 'Empty response');
         }
       }
 
