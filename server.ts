@@ -11,10 +11,23 @@ async function startServer() {
   const fastify = Fastify({ logger: true });
   const PORT = 3000;
 
+  fastify.setErrorHandler((error, request, reply) => {
+    fastify.log.error(error);
+    reply.status(500).send({ 
+      error: "Internal Server Error", 
+      message: error.message,
+      path: request.url
+    });
+  });
+
   // Plugins
-  await fastify.register(cors);
+  await fastify.register(cors, {
+    origin: true, // Allow all origins in standalone mode
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  });
   await fastify.register(rateLimit, {
-    max: 100,
+    max: 200, // Slightly more relaxed for standalone
     timeWindow: "1 minute",
   });
   await fastify.register(middie);
