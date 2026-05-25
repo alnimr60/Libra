@@ -6,39 +6,38 @@ export class DDBProvider implements IBookProvider {
 
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     try {
-      const url = `https://api.deutsche-digitale-bibliothek.de/search`;
-      const { data } = await axios.get<any>(url, {
+      const url = `https://services.dnb.de/sru/dnb`;
+      const { data } = await axios.get<string>(url, {
         params: {
-          query: `title:(${query}) OR person:(${query})`,
-          offset: (page - 1) * 20,
-          rows: 20,
+          version: "1.1",
+          operation: "searchRetrieve",
+          query: `tit="${query}" OR per="${query}"`,
+          startRecord: (page - 1) * 20 + 1,
+          maximumRecords: 20,
         },
-        timeout: 10000,
-        headers: {
-          // A valid API key would be required in reality
-          "Authorization": `Bearer DUMMY_API_KEY`
-        }
+        timeout: 15000,
       });
 
       console.log(`[PROVIDER_SEARCH] provider=${this.name} query="${query}"`);
 
-      if (!data || !data.results || !data.results.docs) return { results: [] };
-
-      const results: BookSearchResult[] = data.results.docs.map((book: any) => {
-        const title = book.title || "Unbekannter Titel";
-        const author = book.subtitle || ""; // Usually author in subtitle
+      const results: BookSearchResult[] = [];
+      // Parse SRU XML response (using regex for simplicity in this environment)
+      const recordRegex = /<dc:title>(.*?)<\/dc:title>.*?<dc:creator>(.*?)<\/dc:creator>.*?<dc:identifier>(.*?)<\/dc:identifier>/gs;
+      
+      let match;
+      while ((match = recordRegex.exec(data)) !== null) {
+        const title = match[1].trim();
+        const author = match[2].trim();
+        const identifier = match[3].trim();
         
+        // Extract ID from identifier if it's a DDB link
+        const idMatch = identifier.match(/item\/([A-Z0-9]+)/);
+        const id = idMatch ? idMatch[1] : identifier;
+
         console.log(`[PROVIDER_RESULT_NORMALIZED] provider=${this.name} title="${title}"`);
-        
-        // If external links are present
-        const hasExternal = book.providerUrl;
 
-        if (!hasExternal) {
-           console.log(`[PROVIDER_EXTERNAL_ONLY] provider=${this.name} title="${title}" reason="Only metadata available"`);
-        }
-
-        return {
-          id: String(book.id),
+        results.push({
+          id,
           title,
           author,
           authors: author,
@@ -48,13 +47,13 @@ export class DDBProvider implements IBookProvider {
           provider: this.name,
           publicDomain: true,
           downloadable: false,
-          downloadUrl: book.providerUrl || `https://www.deutsche-digitale-bibliothek.de/item/${book.id}`
-        };
-      });
+          downloadUrl: identifier.startsWith("http") ? identifier : `https://www.deutsche-digitale-bibliothek.de/item/${id}`
+        });
+      }
 
       return {
         results,
-        nextPageToken: data.results.docs.length > 0 ? String(page + 1) : undefined,
+        nextPageToken: results.length > 0 ? String(page + 1) : undefined,
       };
     } catch (e: any) {
        console.error(`[PROVIDER_BINARY_REJECTED] provider=${this.name} reason="${e.message}"`);

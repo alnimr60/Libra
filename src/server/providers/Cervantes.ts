@@ -6,42 +6,48 @@ export class CervantesProvider implements IBookProvider {
 
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     try {
-      const url = `https://data.cervantesvirtual.com/api/v1/search`;
-      const { data } = await axios.get<any>(url, {
-        params: { q: query, page: page },
+      const url = `https://www.cervantesvirtual.com/buscador/`;
+      const { data } = await axios.get<string>(url, {
+        params: { q: query, 'p': page }, // Cervantes often uses p or page
         timeout: 10000,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
       });
 
       console.log(`[PROVIDER_SEARCH] provider=${this.name} query="${query}"`);
 
-      if (!data || !data.results) return { results: [] };
-
-      const results: BookSearchResult[] = data.results.map((book: any) => {
-        const title = book.title || "Unknown";
-        const author = book.author || "Unknown";
+      const results: BookSearchResult[] = [];
+      // Example regex for Cervantes search results
+      // <a href="/obra/el-quijote-1234">El Quijote</a> ... by <a ...>Cervantes</a>
+      const bookRegex = /href="\/obra\/([^"]+)"[^>]*>([^<]+)<\/a>/gs;
+      
+      let match;
+      while ((match = bookRegex.exec(data)) !== null) {
+        const id = match[1];
+        const title = match[2].trim();
 
         console.log(`[PROVIDER_RESULT_NORMALIZED] provider=${this.name} title="${title}"`);
 
-        return {
-          id: String(book.id),
+        results.push({
+          id,
           title,
-          author,
-          authors: author,
+          author: "Unknown Author", // Scraper enhancement needed for authors
+          authors: "Unknown Author",
           language: "es",
           formats: [
-             { type: "epub", downloadUrl: `https://data.cervantesvirtual.com/manifestation/${book.id}/epub` },
-             { type: "pdf", downloadUrl: `https://data.cervantesvirtual.com/manifestation/${book.id}/pdf` }
+             { type: "pdf", downloadUrl: `https://www.cervantesvirtual.com/obra/${id}.pdf` }
           ],
           source: this.name,
           provider: this.name,
           publicDomain: true,
           downloadable: true,
-        };
-      });
+        });
+      }
 
       return {
         results,
-        nextPageToken: data.results.length > 0 ? String(page + 1) : undefined,
+        nextPageToken: results.length > 0 ? String(page + 1) : undefined,
       };
     } catch (e: any) {
       console.error(`[PROVIDER_BINARY_REJECTED] provider=${this.name} reason="${e.message}"`);

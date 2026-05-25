@@ -7,7 +7,7 @@ export class ProjectGutenbergProvider implements IBookProvider {
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     const url = `https://gutendex.com/books`;
     try {
-      const { data } = await axios.get<any>(url, { params: { search: query, page }, timeout: 15000 });
+      const { data } = await axios.get<any>(url, { params: { search: query, page }, timeout: 40000 });
       if (!data || !data.results) return { results: [] };
 
       const results = this.mapResults(data.results);

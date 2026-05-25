@@ -6,36 +6,50 @@ export class ShamelaProvider implements IBookProvider {
 
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     try {
-      const url = `https://shamela.ws/index.php/api/search`;
-      const { data } = await axios.post<any>(url, { q: query, page }, { timeout: 10000 });
+      const url = `https://shamela.ws/search`;
+      const { data } = await axios.get<string>(url, { 
+        params: { q: query, page }, 
+        timeout: 10000,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      });
       
       console.log(`[PROVIDER_SEARCH] provider=${this.name} query="${query}"`);
 
-      if (!data || !data.results) return { results: [] };
+      const results: BookSearchResult[] = [];
+      // Example regex for Shamela search results
+      // <a href="https://shamela.ws/book/1234">Title</a> ... <a href="https://shamela.ws/author/567">Author</a>
+      const bookRegex = /href="https:\/\/shamela\.ws\/book\/(\d+)"[^>]*>([^<]+)<\/a>.*?href="https:\/\/shamela\.ws\/author\/\d+"[^>]*>([^<]+)<\/a>/gs;
+      
+      let match;
+      while ((match = bookRegex.exec(data)) !== null) {
+        const id = match[1];
+        const title = match[2].trim();
+        const author = match[3].trim();
 
-      const results: BookSearchResult[] = data.results.map((book: any) => {
-        // Normalize Arabic metadata
-        const normalizedTitle = (book.title || "").replace(/[\u064B-\u065F]/g, "").trim(); 
-        const normalizedAuthor = (book.author || "").replace(/[\u064B-\u065F]/g, "").trim();
+        // Normalize Arabic metadata (remove diacritics)
+        const normalizedTitle = title.replace(/[\u064B-\u065F]/g, "").trim(); 
+        const normalizedAuthor = author.replace(/[\u064B-\u065F]/g, "").trim();
 
         console.log(`[PROVIDER_RESULT_NORMALIZED] provider=${this.name} title="${normalizedTitle}"`);
 
-        return {
-          id: String(book.id),
+        results.push({
+          id,
           title: normalizedTitle,
           author: normalizedAuthor,
           language: "ar",
           formats: [
-            { type: "epub", downloadUrl: `https://shamela.ws/books/${book.id}/epub` }
+            { type: "epub", downloadUrl: `https://shamela.ws/book/${id}/epub` }
           ],
           source: this.name,
           publicDomain: true,
-        };
-      });
+        });
+      }
 
       return {
         results,
-        nextPageToken: data.has_next ? String(page + 1) : undefined
+        nextPageToken: results.length > 0 ? String(page + 1) : undefined
       };
     } catch (e: any) {
       console.error(`[PROVIDER_BINARY_REJECTED] provider=${this.name} reason="${e.message}"`);

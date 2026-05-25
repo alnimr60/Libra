@@ -7,10 +7,20 @@ export class HindawiProvider implements IBookProvider {
   async search(query: string, page: number = 1): Promise<ProviderResponse> {
     try {
       // Prioritize exact Arabic titles and exact authors
+      // Hindawi search URL often uses /books/ as prefix or a specific search endpoint
       const url = `https://www.hindawi.org/search/`;
       const { data } = await axios.get<string>(url, {
-        params: { q: query, p: page },
-        timeout: 10000,
+        params: { q: query },
+        timeout: 15000,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+          "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+          "Referer": "https://www.hindawi.org/",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+          "DNT": "1",
+        }
       });
 
       // We'll simulate metadata extraction parsing to adhere to the requirements
