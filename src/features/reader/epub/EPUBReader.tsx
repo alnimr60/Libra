@@ -67,7 +67,7 @@ export default function EPUBReader({
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
   const [toc, setToc] = useState<NavItem[]>([]);
-  const [location, setLocation] = useState<any>(null);
+  const [currentCfi, setCurrentCfi] = useState<string | null>(book.currentCfi || null);
   const [progress, setProgress] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [totalPages, setTotalPages] = useState(100); // EPUB pages are dynamic, we use it for slider
@@ -258,19 +258,16 @@ export default function EPUBReader({
           throw new Error('EPUB viewer container is not mounted.');
         }
 
-        // Wait for ePub book to parse structures using our timeout guard (only external async calls)
-        await withTimeout(epubBook.ready, 30000, "[EPUB_BOOK_READY]");
-        console.log("[EPUB_READY] EPUB book parsed structures successfully.");
-
-        // TOC extraction
-        try {
-          const navigation = (await withTimeout(epubBook.loaded.navigation, 8000, "[EPUB_NAVIGATION_READY]")) as any;
-          if (!isCancelled) {
-            setToc(navigation.toc || []);
-          }
-        } catch (e) {
-          console.warn("[EPUB_NAVIGATION_ERROR] Optional navigation loading timed out/failed:", e);
-        }
+        // Trigger non-blocking Table of Contents / Navigation parsing
+        epubBook.loaded.navigation
+          .then((navigation: any) => {
+            if (!isCancelled) {
+              setToc(navigation.toc || []);
+            }
+          })
+          .catch((e: any) => {
+            console.warn("[EPUB_NAVIGATION_ERROR] Optional navigation loading failed:", e);
+          });
 
         if (isCancelled) return;
 
@@ -304,17 +301,18 @@ export default function EPUBReader({
 
         rendition.on('relocated', (location: any) => {
           if (isCancelled) return;
-          console.log("[EPUB_RELOCATED] cfi:", location?.start?.cfi, "percentage:", location?.start?.percentage);
-          setLocation(location);
+          const cfiStr = location?.start?.cfi || '';
+          console.log("[EPUB_RELOCATED] cfi:", cfiStr, "percentage:", location?.start?.percentage);
+          setCurrentCfi(cfiStr);
           const perc = location?.start?.percentage || 0;
           setProgress(Math.round(perc * 100));
 
           // Calculate approximate location index from total locations
           const totalLocs = (epubBook.locations as any).total || 100;
-          const currentLocIndex = (epubBook.locations as any).locationFromCfi(location?.start?.cfi) as any;
+          const currentLocIndex = (epubBook.locations as any).locationFromCfi(cfiStr) as any;
           const approxPage = typeof currentLocIndex === 'number' && currentLocIndex >= 0 ? currentLocIndex + 1 : Math.max(1, Math.ceil(perc * totalLocs));
 
-          onPageChange(approxPage, location?.start?.cfi);
+          onPageChange(approxPage, cfiStr);
         });
 
         // Load Cached Locations if present to enable performance-neutral pagination/seeking instantly
@@ -343,7 +341,11 @@ export default function EPUBReader({
         // Generate Locations asynchronously in the background so it never blocks or deadlocks display
         if (!(epubBook.locations as any).total) {
           console.log("[EPUB_LOCATIONS_GENERATING_START] Generating book path locations in background...");
-          (epubBook.locations as any).generate(2048)
+          epubBook.ready
+            .then(() => {
+              if (isCancelled) return;
+              return (epubBook.locations as any).generate(2048);
+            })
             .then(() => {
               if (isCancelled) return;
               const totalGenerated = (epubBook.locations as any).total || 100;
@@ -421,8 +423,8 @@ export default function EPUBReader({
   }, [theme, applyTheme, isReady]);
 
   const locationsObj = bookRef.current ? (bookRef.current.locations as any) : null;
-  const currentLocIndex = (locationsObj && location)
-    ? locationsObj.locationFromCfi(location.start.cfi) as any
+  const currentLocIndex = (locationsObj && currentCfi)
+    ? locationsObj.locationFromCfi(currentCfi) as any
     : -1;
   const currentPage = typeof currentLocIndex === 'number' && currentLocIndex >= 0 ? currentLocIndex + 1 : Math.max(1, Math.ceil((progress / 100) * totalPages));
 
