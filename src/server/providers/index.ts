@@ -3,7 +3,6 @@ import { ProjectGutenbergProvider } from "./ProjectGutenberg";
 import { OpenLibraryProvider } from "./OpenLibrary";
 import { InternetArchiveProvider } from "./InternetArchive";
 import { StandardEbooksProvider } from "./StandardEbooks";
-import { HindawiProvider } from "./Hindawi";
 import { ShamelaProvider } from "./Shamela";
 import { ArabTranslationProvider } from "./ArabTranslation";
 import { GallicaProvider } from "./Gallica";
@@ -16,7 +15,6 @@ export const providers: IBookProvider[] = [
   new OpenLibraryProvider(),
   new InternetArchiveProvider(),
   new StandardEbooksProvider(),
-  new HindawiProvider(),
   new ShamelaProvider(),
   new ArabTranslationProvider(),
   new GallicaProvider(),

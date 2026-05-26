@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ePub from 'epubjs';
 import { Book, ReadingStatus, LanguageCode } from '../types';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -8,6 +9,132 @@ import { cn } from '../lib/utils';
 import { set } from 'idb-keyval';
 
 import { translations } from '../translations';
+
+interface EPUBMetadata {
+  title: string;
+  author: string;
+  language: string;
+  coverUrl?: string;
+  identifier: string;
+  description: string;
+  direction: 'ltr' | 'rtl';
+  directionDetected: boolean;
+  totalPages: number;
+}
+
+function validateEpubBinary(buffer: ArrayBuffer) {
+  if (!buffer || buffer.byteLength < 4) {
+    console.warn("[EPUB_BINARY_REJECTED] Uint8Array too small or empty");
+    throw new Error("Invalid or empty file data.");
+  }
+  
+  const view = new Uint8Array(buffer);
+  const magic0 = view[0];
+  const magic1 = view[1];
+  
+  if (magic0 === 0x50 && magic1 === 0x4B) { // 'P' 'K'
+    console.log("[EPUB_MAGIC_VALID] Valid ZIP/EPUB binary magic bytes detected.");
+  } else {
+    console.warn("[EPUB_MAGIC_INVALID] Invalid magic bytes. Expected PK, got:", magic0, magic1);
+    let previewText = "";
+    try {
+      const decoder = new TextDecoder("utf-8");
+      previewText = decoder.decode(view.slice(0, 100)).trim();
+    } catch (_) {}
+    console.warn("[EPUB_BINARY_REJECTED] Preview of invalid file content:", previewText);
+    
+    if (previewText.toLowerCase().includes("<html") || previewText.toLowerCase().includes("<!doctype html")) {
+      throw new Error("HTML webpage or provider redirect received. Expected a valid EPUB document archive.");
+    }
+    if (previewText.toLowerCase().includes("<?xml")) {
+      throw new Error("XML document received. Expected a valid EPUB document archive.");
+    }
+    throw new Error("Invalid file content. The file is not a valid zip/EPUB archive.");
+  }
+}
+
+async function extractEPUBMetadata(arrayBuffer: ArrayBuffer): Promise<EPUBMetadata> {
+  validateEpubBinary(arrayBuffer);
+  
+  const epubBook = ePub(arrayBuffer) as any;
+  await epubBook.ready;
+
+  let title = 'Untitled Book';
+  let author = '';
+  let language = 'en';
+  let coverUrl: string | undefined = undefined;
+  let identifier = '';
+  let description = '';
+  let direction: 'ltr' | 'rtl' = 'ltr';
+  let directionDetected = false;
+
+  const meta = epubBook.package?.metadata;
+  if (meta) {
+    if (meta.title) {
+      title = typeof meta.title === 'string' ? meta.title : (meta.title.title || JSON.stringify(meta.title));
+    }
+    if (meta.creator) {
+      author = typeof meta.creator === 'string' ? meta.creator : (meta.creator.creator || JSON.stringify(meta.creator));
+    }
+    if (meta.language) {
+      language = typeof meta.language === 'string' ? meta.language : (meta.language.language || 'en');
+    }
+    if (meta.identifier) {
+      identifier = typeof meta.identifier === 'string' ? meta.identifier : (meta.identifier.identifier || '');
+    }
+    if (meta.description) {
+      description = typeof meta.description === 'string' ? meta.description : '';
+    }
+    if (meta.direction) {
+      direction = meta.direction === 'rtl' ? 'rtl' : 'ltr';
+      directionDetected = true;
+    }
+  }
+
+  // Cover extraction via CoverUrl promise
+  try {
+    const coverUrlPromise = epubBook.coverUrl();
+    if (coverUrlPromise) {
+      const resolved = await coverUrlPromise;
+      if (resolved) {
+        const res = await fetch(resolved);
+        const blob = await res.blob();
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+        });
+        reader.readAsDataURL(blob);
+        coverUrl = await base64Promise;
+      }
+    }
+  } catch (coverErr) {
+    console.warn("Failed to extract EPUB cover:", coverErr);
+  }
+
+  let totalPages = 100;
+  if (epubBook.spine) {
+    totalPages = Math.max(10, epubBook.spine.length * 8);
+  }
+
+  try {
+    epubBook.destroy();
+  } catch (e) {
+    console.warn("Error destroying dynamic EPUB book representation:", e);
+  }
+
+  return {
+    title,
+    author,
+    language,
+    coverUrl,
+    identifier,
+    description,
+    direction,
+    directionDetected,
+    totalPages
+  };
+}
 
 interface AddBookModalProps {
   isOpen: boolean;
@@ -55,45 +182,17 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
     try {
       if (files.length === 1) {
         const file = files[0];
-        if (file.type !== 'application/pdf') {
-          alert('Please upload a PDF file.');
+        const isPDF = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+        const isEPUB = file.name.toLowerCase().endsWith('.epub') || file.type === 'application/epub+zip';
+
+        if (!isPDF && !isEPUB) {
+          alert('Please upload a PDF or EPUB file.');
           return;
         }
 
         const arrayBuffer = await file.arrayBuffer();
-        const metadata = await extractPDFMetadata(file); 
-        
-        const fileId = `pdf_${crypto.randomUUID()}`;
-        await set(fileId, arrayBuffer);
 
-        // Auto-detect language via sampled text
-        let sampleText = '';
-        try {
-          sampleText = await extractPDFSampleText(file);
-        } catch (e) {
-          console.warn("Failed to sample text for language detection", e);
-        }
-        const direction = detectDirectionFromText(sampleText);
-
-        setFormData(prev => ({
-          ...prev,
-          title: file.name.replace('.pdf', ''),
-          totalPages: metadata.pageCount,
-          coverUrl: metadata.coverUrl,
-          fileDataId: fileId,
-          readingDirection: direction,
-          directionDetected: !!sampleText,
-          status: 'To-Be-Read'
-        }));
-        setStep(2);
-      } else {
-        for (const file of Array.from(files)) {
-          if (file.type !== 'application/pdf') {
-            console.warn(`Skipping non-PDF file: ${file.name}`);
-            continue;
-          }
-
-          const arrayBuffer = await file.arrayBuffer();
+        if (isPDF) {
           const metadata = await extractPDFMetadata(file); 
           
           const fileId = `pdf_${crypto.randomUUID()}`;
@@ -108,27 +207,118 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
           }
           const direction = detectDirectionFromText(sampleText);
 
-          const newBook: Book = {
-            id: crypto.randomUUID(),
-            title: file.name.replace('.pdf', ''),
+          setFormData(prev => ({
+            ...prev,
+            title: file.name.replace(/\.pdf$/i, ''),
             author: '',
             totalPages: metadata.pageCount,
-            currentPage: 0,
-            status: 'To-Be-Read',
-            tags: [],
-            readingDirection: direction,
-            directionDetected: !!sampleText,
             coverUrl: metadata.coverUrl,
             fileDataId: fileId,
-            addedAt: new Date().toISOString(),
-          };
-          onAdd(newBook);
+            readingDirection: direction,
+            directionDetected: !!sampleText,
+            fileName: file.name,
+            status: 'To-Be-Read'
+          }));
+        } else {
+          // EPUB handling
+          const fileId = `epub_${crypto.randomUUID()}`;
+          await set(fileId, arrayBuffer);
+
+          const metadata = await extractEPUBMetadata(arrayBuffer);
+
+          setFormData(prev => ({
+            ...prev,
+            title: metadata.title,
+            author: metadata.author,
+            totalPages: metadata.totalPages,
+            coverUrl: metadata.coverUrl,
+            fileDataId: fileId,
+            readingDirection: metadata.direction,
+            directionDetected: metadata.directionDetected,
+            fileName: file.name,
+            language: metadata.language,
+            identifier: metadata.identifier,
+            description: metadata.description,
+            status: 'To-Be-Read'
+          }));
+        }
+        setStep(2);
+      } else {
+        for (const file of Array.from(files)) {
+          const isPDF = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+          const isEPUB = file.name.toLowerCase().endsWith('.epub') || file.type === 'application/epub+zip';
+
+          if (!isPDF && !isEPUB) {
+            console.warn(`Skipping unsupported file type: ${file.name}`);
+            continue;
+          }
+
+          const arrayBuffer = await file.arrayBuffer();
+
+          if (isPDF) {
+            const metadata = await extractPDFMetadata(file); 
+            
+            const fileId = `pdf_${crypto.randomUUID()}`;
+            await set(fileId, arrayBuffer);
+
+            // Auto-detect language via sampled text
+            let sampleText = '';
+            try {
+              sampleText = await extractPDFSampleText(file);
+            } catch (e) {
+              console.warn("Failed to sample text for language detection", e);
+            }
+            const direction = detectDirectionFromText(sampleText);
+
+            const newBook: Book = {
+              id: crypto.randomUUID(),
+              title: file.name.replace(/\.pdf$/i, ''),
+              author: '',
+              totalPages: metadata.pageCount,
+              currentPage: 0,
+              status: 'To-Be-Read',
+              tags: [],
+              readingDirection: direction,
+              directionDetected: !!sampleText,
+              coverUrl: metadata.coverUrl,
+              fileDataId: fileId,
+              fileName: file.name,
+              addedAt: new Date().toISOString(),
+            };
+            onAdd(newBook);
+          } else {
+            // EPUB handling in bulk
+            const fileId = `epub_${crypto.randomUUID()}`;
+            await set(fileId, arrayBuffer);
+
+            const metadata = await extractEPUBMetadata(arrayBuffer);
+
+            const newBook: Book = {
+              id: crypto.randomUUID(),
+              title: metadata.title,
+              author: metadata.author,
+              totalPages: metadata.totalPages,
+              currentPage: 0,
+              status: 'To-Be-Read',
+              tags: [],
+              readingDirection: metadata.direction,
+              directionDetected: metadata.directionDetected,
+              coverUrl: metadata.coverUrl,
+              fileDataId: fileId,
+              fileName: file.name,
+              language: metadata.language,
+              identifier: metadata.identifier,
+              description: metadata.description,
+              addedAt: new Date().toISOString(),
+            };
+            onAdd(newBook);
+          }
         }
         onClose();
       }
     } catch (error) {
-      console.error('Failed to parse PDFs:', error);
-      alert('Error reading some PDF files.');
+      console.error('Failed to parse book files:', error);
+      alert('Error reading some book files.');
     } finally {
       setIsLoading(false);
     }
@@ -192,7 +382,11 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
       directionDetected: formData.directionDetected,
       coverUrl: formData.coverUrl,
       fileDataId: formData.fileDataId,
+      fileName: formData.fileName,
       deadline: formData.deadline,
+      language: formData.language,
+      identifier: formData.identifier,
+      description: formData.description,
       addedAt: new Date().toISOString(),
     };
 
@@ -244,7 +438,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
               >
                 <div className="text-center space-y-2">
                   <p className={cn("text-sm opacity-60", isRTL && "font-bold")}>
-                    {t.uploadPDF}
+                    {t.uploadPDF.replace(/PDF/g, "PDF / EPUB")}
                   </p>
                 </div>
 
@@ -252,7 +446,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                   onClick={() => fileInputRef.current?.click()}
                   className="aspect-video border-2 border-dashed border-black/10 dark:border-white/10 rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group"
                 >
-                  <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" multiple onChange={handleFileChange} />
+                  <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,.epub" multiple onChange={handleFileChange} />
                   {isLoading ? (
                     <Loader2 className="w-12 h-12 animate-spin opacity-40" />
                   ) : (
@@ -261,7 +455,7 @@ export default function AddBookModal({ isOpen, onClose, onAdd, language = 'en' }
                         <Upload className="w-8 h-8" />
                       </div>
                       <span className={cn("text-sm font-medium", isRTL && "font-bold")}>
-                        {t.dropPDF}
+                        {t.dropPDF.replace(/PDFs?/gi, "PDF / EPUB")}
                       </span>
                     </>
                   )}

@@ -10,7 +10,7 @@ export class OpenLibraryProvider implements IBookProvider {
     try {
       const { data } = await axios.get<any>(url, { 
         params: { q: query, limit, page }, 
-        timeout: 5000 
+        timeout: 20000 
       });
       
       if (!data || !data.docs) return { results: [] };
@@ -32,10 +32,10 @@ export class OpenLibraryProvider implements IBookProvider {
     try {
       console.log(`[OPEN_LIBRARY_METADATA_FETCH] id=${id}`);
       const query = `key:"/works/${id}" OR key:"/books/${id}" OR key:"/editions/${id}"`;
-      const { data } = await axios.get<any>(url, { params: { q: query, limit: 1 }, timeout: 5000 });
+      const { data } = await axios.get<any>(url, { params: { q: query, limit: 1 }, timeout: 15000 });
       
       if (!data || !data.docs || data.docs.length === 0) {
-        const fallbackRes = await axios.get<any>(url, { params: { q: id, limit: 1 }, timeout: 5000 });
+        const fallbackRes = await axios.get<any>(url, { params: { q: id, limit: 1 }, timeout: 10000 });
         if (!fallbackRes.data || !fallbackRes.data.docs || fallbackRes.data.docs.length === 0) {
           return null;
         }
@@ -68,7 +68,7 @@ export class OpenLibraryProvider implements IBookProvider {
 
   private async resolveIAFormats(iaId: string): Promise<{ type: "pdf" | "epub"; downloadUrl: string }[]> {
     try {
-      const { data } = await axios.get<any>(`https://archive.org/metadata/${iaId}`, { timeout: 5000 });
+      const { data } = await axios.get<any>(`https://archive.org/metadata/${iaId}`, { timeout: 10000 });
       if (!data || !data.files) return [];
       
       const formats: { type: "pdf" | "epub"; downloadUrl: string }[] = [];
@@ -104,7 +104,7 @@ export class OpenLibraryProvider implements IBookProvider {
         if (canDownload) {
           // Resolve actual filenames from IA metadata to avoid fabrication
           try {
-            const metaRes = await axios.get<any>(`https://archive.org/metadata/${iaId}`, { timeout: 3000 });
+            const metaRes = await axios.get<any>(`https://archive.org/metadata/${iaId}`, { timeout: 10000 });
             const files = metaRes.data?.files || [];
             
             const pdfFile = files.find((f: any) => 

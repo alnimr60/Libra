@@ -18,7 +18,7 @@ export class InternetArchiveProvider implements IBookProvider {
     };
 
     try {
-      const { data } = await axios.get<any>(url, { params, timeout: 5000 });
+      const { data } = await axios.get<any>(url, { params, timeout: 20000 });
       if (!data?.response?.docs) {
         return { results: [], total: 0 };
       }
@@ -32,7 +32,7 @@ export class InternetArchiveProvider implements IBookProvider {
         let formats: { type: "pdf" | "epub"; downloadUrl: string }[] = [];
         
         try {
-          const metaRes = await axios.get<any>(`https://archive.org/metadata/${id}`, { timeout: 3000 });
+          const metaRes = await axios.get<any>(`https://archive.org/metadata/${id}`, { timeout: 10000 });
           const files = metaRes.data?.files || [];
           
           const pdfFile = files.find((f: any) => 
@@ -80,7 +80,7 @@ export class InternetArchiveProvider implements IBookProvider {
   async getBookDetails(id: string): Promise<BookSearchResult | null> {
     const url = `https://archive.org/metadata/${id}`;
     try {
-      const { data } = await axios.get<any>(url, { timeout: 8000 });
+      const { data } = await axios.get<any>(url, { timeout: 15000 });
       if (!data || !data.metadata) return null;
 
       const doc = data.metadata;

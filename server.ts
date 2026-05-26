@@ -60,20 +60,22 @@ async function startServer() {
     });
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    console.log(`[PRODUCTION_MODE] Serving static files from ${distPath}`);
 
     if (fs.existsSync(distPath)) {
-      fastify.register(import("@fastify/static"), {
+      await fastify.register(import("@fastify/static"), {
         root: distPath,
-        wildcard: false,
+        wildcard: true, // Allow fallback for SPA
       });
 
-      fastify.setNotFoundHandler((req, reply) => {
-        if (req.url.startsWith('/api')) {
-          reply.code(404).send({ error: 'Not Found' });
-        } else {
-          reply.sendFile('index.html');
+      fastify.setNotFoundHandler(async (req, reply) => {
+        if (req.url.startsWith("/api")) {
+          return reply.code(404).send({ error: "API route not found" });
         }
+        return reply.sendFile("index.html");
       });
+    } else {
+      console.warn("[PRODUCTION_MODE] dist folder not found! Static files will not be served.");
     }
   }
 

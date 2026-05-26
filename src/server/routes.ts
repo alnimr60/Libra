@@ -6,7 +6,7 @@ import { BookSearchResult, ProviderResponse } from "./types";
 import axios from "axios";
 import crypto from "node:crypto";
 
-const SEARCH_PROVIDER_TIMEOUT_MS = 45000;
+const SEARCH_PROVIDER_TIMEOUT_MS = 120000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -30,7 +30,7 @@ async function fetchDownloadStream(url: string, traceId: string, attempt = 1): P
       method: 'get',
       url,
       responseType: 'stream',
-      timeout: 45000,
+      timeout: 60000,
       maxRedirects: 10,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
