@@ -31,6 +31,10 @@ export interface Book {
   addedAt: string; // ISO date string
   lastReadAt?: string; // ISO date string
   currentCfi?: string; // For EPUB persistence
+  language?: string; // EPUB language
+  identifier?: string; // EPUB Identifier
+  description?: string; // EPUB description
+  locations?: string; // Serialized epubjs locations
 }
 
 export interface ReadingLog {
