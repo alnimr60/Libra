@@ -174,6 +174,8 @@ export default function EPUBReader({
   }, [direction, isReady]);
 
   // ResizeObserver to detect stable non-zero scale and dimension transitions
+  const lastDimensionsRef = useRef<{ width: number; height: number } | null>(null);
+
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
@@ -182,8 +184,12 @@ export default function EPUBReader({
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
-          console.log(`[EPUB_CONTAINER_READY] Dimensions detected: ${width}x${height}`);
-          setDimensions({ width, height });
+          const last = lastDimensionsRef.current;
+          if (!last || Math.abs(last.width - width) > 1 || Math.abs(last.height - height) > 1) {
+            lastDimensionsRef.current = { width, height };
+            console.log(`[EPUB_CONTAINER_READY] Dimensions updated: ${width}x${height}`);
+            setDimensions({ width, height });
+          }
         }
       }
     });
@@ -253,12 +259,12 @@ export default function EPUBReader({
         }
 
         // Wait for ePub book to parse structures using our timeout guard (only external async calls)
-        await withTimeout(epubBook.ready, 12000, "[EPUB_BOOK_READY]");
+        await withTimeout(epubBook.ready, 30000, "[EPUB_BOOK_READY]");
         console.log("[EPUB_READY] EPUB book parsed structures successfully.");
 
         // TOC extraction
         try {
-          const navigation = (await withTimeout(epubBook.loaded.navigation, 5000, "[EPUB_NAVIGATION_READY]")) as any;
+          const navigation = (await withTimeout(epubBook.loaded.navigation, 8000, "[EPUB_NAVIGATION_READY]")) as any;
           if (!isCancelled) {
             setToc(navigation.toc || []);
           }
@@ -281,11 +287,11 @@ export default function EPUBReader({
 
         // Register event handlers
         rendition.on("rendered", (section: any) => {
-          console.log("[EPUB_RENDERED]", section);
+          console.log("[EPUB_RENDERED] section index:", section?.index);
         });
 
         rendition.on("displayed", (section: any) => {
-          console.log("[EPUB_DISPLAYED]", section);
+          console.log("[EPUB_DISPLAYED] section index:", section?.index);
         });
 
         rendition.on("started", () => {
@@ -293,22 +299,22 @@ export default function EPUBReader({
         });
 
         rendition.on("layout", (layout: any) => {
-          console.log("[EPUB_LAYOUT]", layout);
+          console.log("[EPUB_LAYOUT] width:", layout?.width);
         });
 
         rendition.on('relocated', (location: any) => {
           if (isCancelled) return;
-          console.log("[EPUB_RELOCATED]", location);
+          console.log("[EPUB_RELOCATED] cfi:", location?.start?.cfi, "percentage:", location?.start?.percentage);
           setLocation(location);
-          const perc = location.start.percentage || 0;
+          const perc = location?.start?.percentage || 0;
           setProgress(Math.round(perc * 100));
 
           // Calculate approximate location index from total locations
           const totalLocs = (epubBook.locations as any).total || 100;
-          const currentLocIndex = (epubBook.locations as any).locationFromCfi(location.start.cfi) as any;
+          const currentLocIndex = (epubBook.locations as any).locationFromCfi(location?.start?.cfi) as any;
           const approxPage = typeof currentLocIndex === 'number' && currentLocIndex >= 0 ? currentLocIndex + 1 : Math.max(1, Math.ceil(perc * totalLocs));
 
-          onPageChange(approxPage, location.start.cfi);
+          onPageChange(approxPage, location?.start?.cfi);
         });
 
         // Load Cached Locations if present to enable performance-neutral pagination/seeking instantly
@@ -323,37 +329,9 @@ export default function EPUBReader({
           }
         }
 
-        // Generate Locations if not present
-        if (!(epubBook.locations as any).total) {
-          console.log("[EPUB_LOCATIONS_GENERATING_START] Generating book path locations...");
-          await withTimeout((epubBook.locations as any).generate(1024), 15000, "[EPUB_LOCATIONS_GENERATED]");
-          console.log("[EPUB_LOCATIONS_GENERATED] Location paths successfully drawn.", (epubBook.locations as any).total);
-          
-          if (!isCancelled) {
-            // Save generated locations back to Book model inside database cache
-            try {
-              const serialized = (epubBook.locations as any).save();
-              if (serialized) {
-                console.log("[EPUB_LOCATIONS_CACHE] Storing locations cache to storage, length:", serialized.length);
-                updateBook({
-                  ...book,
-                  locations: serialized,
-                  totalPages: (epubBook.locations as any).total || 100
-                });
-              }
-            } catch (err) {
-              console.warn("Could not cache generated locations:", err);
-            }
-          }
-        }
-
-        if ((epubBook.locations as any).total) {
-          setTotalPages((epubBook.locations as any).total);
-        }
-
         const savedCfi = book.currentCfi;
         console.log("[EPUB_DISPLAY_START] Displaying CFI=" + savedCfi);
-        await withTimeout(rendition.display(savedCfi || undefined), 8000, "[EPUB_DISPLAY_SUCCESS]");
+        await withTimeout(rendition.display(savedCfi || undefined), 15000, "[EPUB_DISPLAY_SUCCESS]");
         console.log("[EPUB_DISPLAY_SUCCESS] Rendition content shown.");
 
         if (isCancelled) return;
@@ -361,6 +339,36 @@ export default function EPUBReader({
         setLoading(false);
         setStage('READY');
         console.log("[EPUB_READY] EPUB Engine is fully ready.");
+
+        // Generate Locations asynchronously in the background so it never blocks or deadlocks display
+        if (!(epubBook.locations as any).total) {
+          console.log("[EPUB_LOCATIONS_GENERATING_START] Generating book path locations in background...");
+          (epubBook.locations as any).generate(2048)
+            .then(() => {
+              if (isCancelled) return;
+              const totalGenerated = (epubBook.locations as any).total || 100;
+              console.log("[EPUB_LOCATIONS_GENERATED] Location paths successfully drawn in background. total:", totalGenerated);
+              setTotalPages(totalGenerated);
+              
+              try {
+                const serialized = (epubBook.locations as any).save();
+                if (serialized) {
+                  console.log("[EPUB_LOCATIONS_CACHE] Storing locations cache to storage, length:", serialized.length);
+                  updateBook({
+                    ...book,
+                    locations: serialized,
+                    totalPages: totalGenerated
+                  });
+                }
+              } catch (err) {
+                console.warn("Could not cache generated locations:", err);
+              }
+            })
+            .catch((err: any) => {
+              console.warn("[EPUB_LOCATIONS_GENERATED_ERR] Failed to generate locations in background:", err);
+            });
+        }
+
       } catch (e: any) {
         console.error("[EPUB_FAIL]", e);
         if (!isCancelled) {
