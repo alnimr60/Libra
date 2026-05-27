@@ -40,7 +40,12 @@ export default function BookCarousel({ books, selectedIndex, onChange, onOpen, s
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
         const cappedWidth = Math.min(1200, entry.contentRect.width);
-        setWidth(cappedWidth);
+        setTimeout(() => {
+          setWidth(prev => {
+            if (Math.abs(prev - cappedWidth) < 1) return prev;
+            return cappedWidth;
+          });
+        }, 0);
       }
     });
     

@@ -40,6 +40,11 @@ const getDebugContext = () => {
 };
 
 window.addEventListener('error', (event) => {
+  // Ignore benign ResizeObserver loop limit errors
+  if (event.message?.includes('ResizeObserver loop')) {
+    return;
+  }
+  
   console.error('[GlobalError]', {
     message: event.message,
     source: event.filename,
