@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type ReaderTheme = 'light' | 'dark' | 'sepia';
 
+export type ReadingMode = 'paginated' | 'scrolled';
+
 interface ReaderContextType {
   theme: ReaderTheme;
   setTheme: (theme: ReaderTheme) => void;
@@ -11,6 +13,8 @@ interface ReaderContextType {
   setShowControls: (show: boolean) => void;
   direction: 'ltr' | 'rtl';
   setDirection: (dir: 'ltr' | 'rtl') => void;
+  readingMode: ReadingMode;
+  setReadingMode: (mode: ReadingMode) => void;
 }
 
 const ReaderContext = createContext<ReaderContextType | undefined>(undefined);
@@ -25,13 +29,15 @@ export function ReaderProvider({ children, initialDirection = 'ltr' }: { childre
   const [fontSize, setFontSize] = useState(100);
   const [showControls, setShowControls] = useState(true);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>(initialDirection);
+  const [readingMode, setReadingMode] = useState<ReadingMode>('paginated');
 
   return (
     <ReaderContext.Provider value={{
       theme, setTheme,
       fontSize, setFontSize,
       showControls, setShowControls,
-      direction, setDirection
+      direction, setDirection,
+      readingMode, setReadingMode
     }}>
       {children}
     </ReaderContext.Provider>

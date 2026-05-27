@@ -133,9 +133,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        window.requestAnimationFrame(() => {
-          setReaderDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
-        });
+        const { width: newWidth, height: newHeight } = entry.contentRect;
+        setTimeout(() => {
+          setReaderDimensions(prev => {
+            if (Math.abs(prev.width - newWidth) < 1 && Math.abs(prev.height - newHeight) < 1) return prev;
+            return { width: newWidth, height: newHeight };
+          });
+        }, 0);
       }
     });
     observer.observe(readerContainerRef.current);
@@ -186,6 +190,18 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const virtualPage = useMotionValue(pageIndex);
   const smoothPage = useSpring(virtualPage, { stiffness: 450, damping: 45, mass: 0.8 });
+
+  // Camera X tracking (visual position of the sheet carousel)
+  const cameraX = useMotionValue(0);
+
+  useEffect(() => {
+    const unsub = smoothPage.onChange((v) => {
+      // Logic for camera movement between pages is physically identical for RTL/LTR here, 
+      // the reading direction interpretation happened in handlePanMove/handlePageChange.
+      // However, distance calculation inside ReaderSheet handles the actual offsets.
+    });
+    return unsub;
+  }, [smoothPage]);
 
   useEffect(() => {
     animate(virtualPage, pageIndex, { type: 'spring', stiffness: 450, damping: 45 });
@@ -298,8 +314,13 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
   const handlePointerDown = (e: React.PointerEvent) => {
     lastActivityTime.current = Date.now();
+    
+    // Prevent interaction if target is a UI element
     const target = e.target as HTMLElement;
-    if (target.closest('button, input')) return;
+    if (target.closest('button, input, .hud-overlay')) return;
+
+    // Reset logic if gesture was stuck
+    if (gestureMode.current !== GestureMode.Idle && !e.isPrimary) return;
 
     const isText = !!target.closest('.textLayer span');
     touchStartInfo.current = { x: e.clientX, y: e.clientY };
@@ -309,8 +330,11 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     const dy = e.clientY - lastTapInfo.current.y;
     const dist = Math.hypot(dx, dy);
 
+    // Double tap zoom logic
     if (!isText && now - lastTapInfo.current.time < 300 && dist < 20) {
-      e.preventDefault();
+      if (e.pointerType === 'touch') {
+        e.preventDefault();
+      }
       window.getSelection()?.removeAllRanges();
       handleDoubleTapZoom(e.clientX, e.clientY);
       lastTapInfo.current = { time: 0, x: 0, y: 0 };
@@ -319,6 +343,19 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
 
     lastTapInfo.current = { time: now, x: e.clientX, y: e.clientY };
     gestureMode.current = isText ? GestureMode.SelectingText : GestureMode.Idle;
+    
+    // Handle secondary pointer for pinch
+    if (e.pointerType === 'touch' && !e.isPrimary && !isAnimatingZoom.current) {
+       console.log("[GESTURE_BEGIN] Potential Pinch (multitouch)");
+       // Note: Actual pinch detection happens in onTouchStart for simplicity or via tracking pointers.
+       // Given the request for Pointer Events, we'll favor onTouchStart/Move for pinch if they are more reliable for multi-touch, 
+       // but we must ENSURE they don't conflict.
+    }
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent) => {
+    console.log("[POINTER_CANCEL] Resetting state");
+    forceResetGestureState();
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -443,12 +480,15 @@ export default function PDFReader({ book, initialPage, onPageChange, updateBook,
     >
       <div 
         ref={readerContainerRef}
-        className="w-full h-full relative"
+        className="w-full h-full relative overflow-hidden"
         style={{ touchAction: 'none' }}
         onPointerDown={handlePointerDown}
-        onPointerCancel={() => {
-          console.log("[DOUBLE_TAP_POINTER_CANCEL] pointercancel");
-          forceResetGestureState();
+        onPointerCancel={handlePointerCancel}
+        onPointerUp={(e) => {
+          if (e.pointerType === 'touch' && e.isPrimary && gestureMode.current === GestureMode.PinchZooming) {
+            gestureMode.current = GestureMode.Idle;
+            setCommittedScale(liveScale.get());
+          }
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -528,11 +568,24 @@ const ReaderSheet = React.memo(function ReaderSheet({
 
   return (
     <motion.div
-      style={{ opacity, zIndex, x, rotateY, perspective: 2000 } as any}
+      style={{ 
+        opacity, 
+        zIndex, 
+        perspective: 2000,
+        // Visual physical transform for page transition
+        x: useTransform(distance, (d: number) => `${100 * d}%`),
+        rotateY
+      } as any}
       className={cn("absolute inset-0 flex items-center justify-center")}
     >
       <motion.div 
-        style={{ scale: useTransform([liveScale, tScale], ([s, ts]: any) => s * ts), x: panX, y: panY } as any}
+        style={{ 
+          // Combine zoom scale and transition scaling into one property
+          scale: useTransform([liveScale, tScale], ([s, ts]: any) => s * ts), 
+          // Local sheet transforms (panning)
+          translateX: panX, 
+          translateY: panY 
+        } as any}
         className={cn("flex gap-0 shadow-2xl origin-center", viewMode === 'double' ? "flex-row" : "flex-col")}
       >
         {viewMode === 'double' ? (
@@ -608,7 +661,7 @@ const PDFPage = ({ pageNumber, pdf, width, committedScale, animationLockRef, dir
         dims={{ width, height }}
         sheetRelX={0}
       />
-      <div ref={textLayerRef} dir={direction} className="textLayer absolute inset-0" />
+      <div ref={textLayerRef} className="textLayer absolute inset-0" />
     </div>
   );
 };

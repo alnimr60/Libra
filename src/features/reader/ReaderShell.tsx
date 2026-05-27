@@ -29,6 +29,7 @@ interface ReaderShellProps {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onResetZoom?: () => void;
+  centerClickThrough?: boolean;
 }
 
 export default function ReaderShell({
@@ -49,13 +50,15 @@ export default function ReaderShell({
   zoomPercentage,
   onZoomIn,
   onZoomOut,
-  onResetZoom
+  onResetZoom,
+  centerClickThrough = false
 }: ReaderShellProps) {
   const { 
     theme, setTheme, 
     fontSize, setFontSize, 
     showControls, setShowControls,
-    direction, setDirection 
+    direction, setDirection,
+    readingMode, setReadingMode
   } = useReader();
   
   const insets = useSafeArea();
@@ -63,20 +66,18 @@ export default function ReaderShell({
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
   const [navTab, setNavTab] = useState<'pages' | 'bookmarks'>('pages');
 
-  // Tap-zone conflict prevention refs
-  const tapStartPos = useRef({ x: 0, y: 0 });
+  // Unified Pointer Tracking
+  const pointerStartPos = useRef({ x: 0, y: 0 });
 
-  const handleZoneTouchStart = (e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    tapStartPos.current = { x: touch.clientX, y: touch.clientY };
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Only handle primary pointer for zone clicks
+    if (e.isPrimary) {
+      pointerStartPos.current = { x: e.clientX, y: e.clientY };
+    }
   };
 
-  const handleZoneMouseDown = (e: React.MouseEvent) => {
-    tapStartPos.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handleZoneClick = (e: React.MouseEvent, action: () => void) => {
-    const dist = Math.hypot(e.clientX - tapStartPos.current.x, e.clientY - tapStartPos.current.y);
+  const handleZoneClick = (e: React.PointerEvent | React.MouseEvent, action: () => void) => {
+    const dist = Math.hypot(e.clientX - pointerStartPos.current.x, e.clientY - pointerStartPos.current.y);
     if (dist < 10) {
       action();
     }
@@ -98,7 +99,8 @@ export default function ReaderShell({
     }
   };
 
-  const handleToggleControlsClick = (e: React.MouseEvent) => {
+  const handleToggleControlsClick = (e: React.PointerEvent) => {
+    if (!e.isPrimary) return;
     if ((e.target as HTMLElement).closest('button, input, .hud-overlay')) return;
     handleZoneClick(e, () => setShowControls(!showControls));
   };
@@ -106,43 +108,54 @@ export default function ReaderShell({
   return (
     <div 
       className={cn(
-        "fixed inset-0 z-[300] flex flex-col transition-colors duration-500 overflow-hidden select-none",
+        "fixed inset-0 z-[300] flex flex-col transition-colors duration-500 overflow-hidden",
         theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : 
         theme === 'sepia' ? 'bg-[#f4ecd8] text-[#433422]' : 
         'bg-white text-zinc-900'
       )}
-      onTouchStart={handleZoneTouchStart}
-      onMouseDown={handleZoneMouseDown}
-      onClick={handleToggleControlsClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={e => {
+        if (disableInteractionZones) return;
+        handleToggleControlsClick(e);
+      }}
     >
       {/* Background layer */}
       <div className="absolute inset-0 z-0" />
 
       {/* Content Renderer Wrapper */}
-      <div className="flex-1 relative z-10">
+      <div className="flex-1 min-h-0 relative z-10">
         {children}
       </div>
 
       {/* Interaction Zones (Overlays) */}
       {!disableInteractionZones && (
-        <div className="absolute inset-0 z-20 pointer-events-none flex">
+        <div className="absolute inset-0 z-20 pointer-events-none flex select-none">
           <div 
-            className="w-1/4 h-full pointer-events-auto cursor-pointer" 
-            onTouchStart={handleZoneTouchStart}
-            onMouseDown={handleZoneMouseDown}
-            onClick={(e) => { e.stopPropagation(); handleZoneClick(e, onPrev); }} 
+            className={cn(
+              "h-full pointer-events-auto cursor-pointer opacity-0",
+              centerClickThrough ? "w-8 md:w-10" : "w-1/4"
+            )}
+            style={{ touchAction: 'manipulation' }}
+            onPointerDown={handlePointerDown}
+            onPointerUp={(e) => { e.stopPropagation(); handleZoneClick(e, onPrev); }} 
           />
           <div 
-            className="flex-1 h-full pointer-events-auto" 
-            onTouchStart={handleZoneTouchStart}
-            onMouseDown={handleZoneMouseDown}
-            onClick={(e) => { e.stopPropagation(); handleZoneClick(e, () => setShowControls(!showControls)); }} 
+            className={cn(
+              "flex-1 h-full opacity-0",
+              centerClickThrough ? "pointer-events-none" : "pointer-events-auto"
+            )}
+            style={{ touchAction: 'manipulation' }}
+            onPointerDown={handlePointerDown}
+            onPointerUp={(e) => { e.stopPropagation(); handleZoneClick(e, () => setShowControls(!showControls)); }} 
           />
           <div 
-            className="w-1/4 h-full pointer-events-auto cursor-pointer" 
-            onTouchStart={handleZoneTouchStart}
-            onMouseDown={handleZoneMouseDown}
-            onClick={(e) => { e.stopPropagation(); handleZoneClick(e, onNext); }} 
+            className={cn(
+              "h-full pointer-events-auto cursor-pointer opacity-0",
+              centerClickThrough ? "w-8 md:w-10" : "w-1/4"
+            )}
+            style={{ touchAction: 'manipulation' }}
+            onPointerDown={handlePointerDown}
+            onPointerUp={(e) => { e.stopPropagation(); handleZoneClick(e, onNext); }} 
           />
         </div>
       )}
@@ -307,6 +320,24 @@ export default function ReaderShell({
                           t === 'dark' ? "bg-black border-zinc-700" : 
                           "bg-[#f4ecd8] border-[#d8ccaf]"
                         )} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-widest opacity-40">Reading Mode</span>
+                  <div className="flex gap-2">
+                    {(['paginated', 'scrolled'] as const).map(m => (
+                      <button 
+                        key={m}
+                        onClick={() => setReadingMode(m)}
+                        className={cn(
+                          "flex-1 h-12 rounded-xl transition-all border-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          readingMode === m ? "border-orange-500 bg-orange-500/5 text-orange-500" : "border-transparent bg-black/5 dark:bg-white/5 opacity-60"
+                        )}
+                      >
+                        {m}
                       </button>
                     ))}
                   </div>
