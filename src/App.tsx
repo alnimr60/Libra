@@ -176,10 +176,7 @@ export default function App() {
       <DownloadProvider onBookDownloaded={addBook}>
         <ReaderProvider>
           <div 
-            className={cn(
-              "min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-200 flex flex-col",
-              activeBookId ? "overflow-visible" : "overflow-hidden"
-            )}
+            className="h-screen w-screen overflow-hidden overscroll-none bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans transition-colors duration-200 flex flex-col"
             dir={isRTL ? "rtl" : "ltr"}
           >
           {/* Dynamic Background Atmosphere */}
