@@ -57,8 +57,7 @@ export default function ReaderShell({
     theme, setTheme, 
     fontSize, setFontSize, 
     showControls, setShowControls,
-    direction, setDirection,
-    readingMode, setReadingMode
+    direction, setDirection
   } = useReader();
   
   const insets = useSafeArea();
@@ -127,38 +126,7 @@ export default function ReaderShell({
         {children}
       </div>
 
-      {/* Interaction Zones (Overlays) */}
-      {!disableInteractionZones && (
-        <div className="absolute inset-0 z-20 pointer-events-none flex select-none">
-          <div 
-            className={cn(
-              "h-full pointer-events-auto cursor-pointer opacity-0",
-              centerClickThrough ? "w-8 md:w-10" : "w-1/4"
-            )}
-            style={{ touchAction: 'manipulation' }}
-            onPointerDown={handlePointerDown}
-            onPointerUp={(e) => { e.stopPropagation(); handleZoneClick(e, onPrev); }} 
-          />
-          <div 
-            className={cn(
-              "flex-1 h-full opacity-0",
-              centerClickThrough ? "pointer-events-none" : "pointer-events-auto"
-            )}
-            style={{ touchAction: 'manipulation' }}
-            onPointerDown={handlePointerDown}
-            onPointerUp={(e) => { e.stopPropagation(); handleZoneClick(e, () => setShowControls(!showControls)); }} 
-          />
-          <div 
-            className={cn(
-              "h-full pointer-events-auto cursor-pointer opacity-0",
-              centerClickThrough ? "w-8 md:w-10" : "w-1/4"
-            )}
-            style={{ touchAction: 'manipulation' }}
-            onPointerDown={handlePointerDown}
-            onPointerUp={(e) => { e.stopPropagation(); handleZoneClick(e, onNext); }} 
-          />
-        </div>
-      )}
+
 
       {/* Top HUD */}
       <AnimatePresence>
@@ -325,23 +293,7 @@ export default function ReaderShell({
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-widest opacity-40">Reading Mode</span>
-                  <div className="flex gap-2">
-                    {(['paginated', 'scrolled'] as const).map(m => (
-                      <button 
-                        key={m}
-                        onClick={() => setReadingMode(m)}
-                        className={cn(
-                          "flex-1 h-12 rounded-xl transition-all border-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                          readingMode === m ? "border-orange-500 bg-orange-500/5 text-orange-500" : "border-transparent bg-black/5 dark:bg-white/5 opacity-60"
-                        )}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
