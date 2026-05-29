@@ -11,6 +11,8 @@ interface ReaderContextType {
   setShowControls: (show: boolean) => void;
   direction: 'ltr' | 'rtl';
   setDirection: (dir: 'ltr' | 'rtl') => void;
+  twoPageView: boolean;
+  setTwoPageView: (val: boolean) => void;
 }
 
 const ReaderContext = createContext<ReaderContextType | undefined>(undefined);
@@ -25,13 +27,15 @@ export function ReaderProvider({ children, initialDirection = 'ltr' }: { childre
   const [fontSize, setFontSize] = useState(100);
   const [showControls, setShowControls] = useState(true);
   const [direction, setDirection] = useState<'ltr' | 'rtl'>(initialDirection);
+  const [twoPageView, setTwoPageView] = useState(false);
 
   return (
     <ReaderContext.Provider value={{
       theme, setTheme,
       fontSize, setFontSize,
       showControls, setShowControls,
-      direction, setDirection
+      direction, setDirection,
+      twoPageView, setTwoPageView
     }}>
       {children}
     </ReaderContext.Provider>
