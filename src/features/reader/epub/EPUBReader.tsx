@@ -53,6 +53,34 @@ interface NavItem {
   subitems?: NavItem[];
 }
 
+function findActiveChapter(tocList: NavItem[], sectionHref: string): NavItem | null {
+  if (!sectionHref) return null;
+  
+  const norm = (h: string) => {
+    if (!h) return '';
+    const parts = h.split('#');
+    // Normalize href by stripping anchor, leading slashes, and parent paths
+    return parts[0].replace(/^\/|^\.\.\//, '').trim();
+  };
+
+  const normalizedSection = norm(sectionHref);
+
+  const search = (items: NavItem[]): NavItem | null => {
+    for (const item of items) {
+      if (norm(item.href) === normalizedSection) {
+        return item;
+      }
+      if (item.subitems && item.subitems.length > 0) {
+        const found = search(item.subitems);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  return search(tocList);
+}
+
 export default function EPUBReader({ 
   book, 
   initialPage,
@@ -72,7 +100,13 @@ export default function EPUBReader({
   const [isReady, setIsReady] = useState(false);
   const isReadyRef = useRef(false);
   const startupLockRef = useRef(true);
-  const [totalPages, setTotalPages] = useState(100); 
+  const [locationsTotalPages, setLocationsTotalPages] = useState(100); 
+
+  // Chapter tracking states for Percentage-of-Chapter UI
+  const [chapterTitle, setChapterTitle] = useState<string>('');
+  const [chapterPage, setChapterPage] = useState<number | undefined>(undefined);
+  const [chapterTotalPages, setChapterTotalPages] = useState<number | undefined>(undefined);
+  const [currentSectionIndex, setCurrentSectionIndex] = useState<number | null>(null);
 
   // Pipeline execution stages
   type EPUBStage = 'WAITING_CONTAINER' | 'WAITING_LAYOUT' | 'CREATING_RENDITION' | 'DISPLAYING' | 'READY' | 'FAILED';
@@ -89,7 +123,7 @@ export default function EPUBReader({
   const lastEmittedCfiRef = useRef<string | null>(null);
   const displayAttemptsRef = useRef(0);
 
-  const { theme, fontSize, setFontSize, direction, showControls, setShowControls } = useReader();
+  const { theme, fontSize, setFontSize, direction, showControls, setShowControls, twoPageView } = useReader();
   const showControlsRef = useRef(showControls);
 
   const settledTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -189,30 +223,18 @@ export default function EPUBReader({
 
       rendition.themes.default({
         'html': {
-          'height': 'auto !important',
-          'min-height': '100% !important',
-          'max-height': 'none !important',
-          'margin': '0 !important',
-          'padding': '0 !important',
           'box-sizing': 'border-box !important',
-          'overflow-y': 'auto !important',
-          'overflow-x': 'hidden !important',
-          'position': 'relative !important'
+          'position': 'relative !important',
+          'touch-action': 'pan-x !important'
         },
         'body': {
-          'height': 'auto !important',
-          'min-height': '100% !important',
-          'max-height': 'none !important',
-          'margin': '0 !important',
-          'padding': '0 24px !important',
           'box-sizing': 'border-box !important',
-          'overflow-y': 'auto !important',
-          'overflow-x': 'hidden !important',
           'position': 'relative !important',
           'font-family': 'Inter, system-ui, sans-serif !important',
           'line-height': '1.8 !important',
           'direction': isRTL ? 'rtl !important' : 'ltr !important',
-          'text-align': 'justify !important'
+          'text-align': 'justify !important',
+          'touch-action': 'pan-x !important'
         },
         '*, *::before, *::after': {
           'box-sizing': 'border-box !important'
@@ -223,7 +245,8 @@ export default function EPUBReader({
         },
         'img': { 
           'max-width': '100% !important',
-          'height': 'auto !important'
+          'max-height': '80% !important',
+          'object-fit': 'contain'
         }
       });
     } catch (e) {
@@ -440,15 +463,15 @@ export default function EPUBReader({
 
     let rendition: Rendition | null = null;
     try {
-      console.log(`[EPUB_LIFECYCLE] Creating rendition in continuous scroll mode. Dimensions:`, dimensions);
+      console.log(`[EPUB_LIFECYCLE] Creating rendition in paginated mode. Dimensions:`, dimensions);
 
       rendition = epubBook.renderTo(viewer, {
-        width: '100%',
-        height: '100%',
-        flow: 'scrolled',
-        manager: 'continuous',
-        spread: 'none',
-        allowScriptedContent: true
+        width: dimensions.width,
+        height: dimensions.height,
+        flow: 'paginated',
+        manager: 'default',
+        spread: twoPageView ? 'both' : 'none',
+        margins: 40
       });
       renditionRef.current = rendition;
 
@@ -464,33 +487,23 @@ export default function EPUBReader({
           style.id = "epub-layout-stabilizer";
           
           style.textContent = `
-            html, body {
-              margin: 0 !important;
-              padding: 0 !important;
+            html {
               box-sizing: border-box !important;
-              position: relative !important;
-              overflow-x: hidden !important;
-              height: auto !important;
-              min-height: 100% !important;
-              max-height: none !important;
-              overflow-y: auto !important;
-              -webkit-text-size-adjust: 100% !important;
-              -webkit-overflow-scrolling: touch !important;
+              touch-action: pan-x !important;
             }
             body {
-              padding: 0 24px !important; 
+              position: relative !important;
+              -webkit-text-size-adjust: 100% !important;
+              -webkit-overflow-scrolling: none !important;
+              touch-action: pan-x !important;
               font-family: Inter, system-ui, sans-serif !important;
               line-height: 1.8 !important;
               text-align: justify !important;
-              display: block !important;
-              visibility: visible !important;
             }
             * {
               box-sizing: border-box !important;
             }
             p, div, section, article, figure, blockquote {
-              margin-top: 0 !important;
-              margin-bottom: 0.8em !important;
               max-height: none !important;
               break-inside: auto !important;
               page-break-inside: auto !important;
@@ -507,12 +520,14 @@ export default function EPUBReader({
           `;
           doc.head.appendChild(style);
 
-          // Force iframe styling to remain stable & allowed to expand naturally with content
+          // Force iframe styling to remain stable & allowed to fit naturally with page size
           const iframe = contents.iframe || doc.defaultView?.frameElement;
           if (iframe) {
+            iframe.style.setProperty('height', '100%', 'important');
+            iframe.style.setProperty('width', '100%', 'important');
+            iframe.style.setProperty('max-height', '100%', 'important');
+            iframe.style.setProperty('overflow', 'hidden', 'important');
             Object.assign(iframe.style, {
-              height: '100%',
-              width: '100%',
               position: 'relative',
               margin: '0',
               padding: '0',
@@ -526,100 +541,75 @@ export default function EPUBReader({
           const containerH = container ? container.clientHeight : 0;
           console.log(`[EPUB_LAYOUT_CONTAINER] width: ${containerW}, height: ${containerH}`);
 
-          const docEl = doc.documentElement;
-          const bodyEl = doc.body;
-
-          const scrollH = docEl.scrollHeight || bodyEl.scrollHeight;
-          const clientH = docEl.clientHeight || bodyEl.clientHeight;
-
-          console.log(`[EPUB_LAYOUT_BODY] scrollHeight: ${scrollH}, clientHeight: ${clientH}`);
-
-          // Register scroll tracking event listener inside iframe
-          const handleInternalScroll = () => {
-            const scrollTop = docEl.scrollTop || bodyEl.scrollTop || 0;
-            const scrollH = docEl.scrollHeight || bodyEl.scrollHeight || 1;
-            const clientH = docEl.clientHeight || bodyEl.clientHeight || 1;
-            const progressPerc = Math.max(0, Math.min(1, scrollTop / (scrollH - clientH || 1)));
-
-            console.log(`[EPUB_INTERNAL_SCROLL] scrollTop: ${scrollTop}, progress: ${progressPerc}`);
-            
-            // Forward scroll position to epub.js rendition tracking to keep continuous manager aligned
-            try {
-              if (typeof rendition.currentLocation === 'function') {
-                rendition.currentLocation();
-              }
-            } catch (e) {
-              console.warn("[EPUB_SCROLL_CURRENT_LOCATION_ERR]", e);
+          // Register swipe gesture tracking event listeners inside iframe
+          let touchStartX = 0;
+          let touchStartY = 0;
+          doc.addEventListener('touchstart', (e: TouchEvent) => {
+            if (e.touches.length > 0) {
+              touchStartX = e.touches[0].clientX;
+              touchStartY = e.touches[0].clientY;
             }
+          }, { passive: false });
 
-            // Fallback / precise element-level CFI tracking
-            if (!startupLockRef.current) {
-              let foundElement: Element | null = null;
-              const x = Math.min(80, (docEl.clientWidth || bodyEl.clientWidth) / 4 || 80);
-              
-              // Scan top area coordinates to locate visible elements
-              for (let y = 10; y < 300; y += 35) {
-                const el = doc.elementFromPoint(x, y);
-                if (el && el.tagName && !['HTML', 'BODY', 'IFRAME'].includes(el.tagName)) {
-                  foundElement = el;
-                  break;
+          doc.addEventListener('touchmove', (e: TouchEvent) => {
+            if (e.touches.length === 1) {
+              const dx = Math.abs(e.touches[0].clientX - touchStartX);
+              const dy = Math.abs(e.touches[0].clientY - touchStartY);
+              if (dy > dx && dy > 5) {
+                if (e.cancelable) {
+                  e.preventDefault();
                 }
               }
+            }
+          }, { passive: false });
+
+          doc.addEventListener('touchend', (e: TouchEvent) => {
+            if (e.changedTouches.length > 0) {
+              const touchEndX = e.changedTouches[0].clientX;
+              const touchEndY = e.changedTouches[0].clientY;
               
-              if (!foundElement) {
-                foundElement = doc.elementFromPoint(40, 40);
-              }
-
-              if (foundElement) {
-                try {
-                  const cfi = contents.cfiFromElement(foundElement);
-                  if (cfi && typeof cfi === 'string' && cfi.startsWith('epubcfi(')) {
-                    setCurrentCfi(cfi);
-                    setProgress(Math.round(progressPerc * 100));
-
-                    let currentLocIndex = -1;
-                    const totalLocs = (epubBook.locations as any)?.total || 0;
-                    const hasLocs = epubBook.locations && (epubBook.locations as any).cfis && (epubBook.locations as any).cfis.length > 0;
-                    if (hasLocs) {
-                      try {
-                        currentLocIndex = (epubBook.locations as any).locationFromCfi(cfi);
-                      } catch (_) {}
-                    }
-                    const approxPage = typeof currentLocIndex === 'number' && currentLocIndex >= 0 
-                      ? currentLocIndex + 1 
-                      : Math.max(1, Math.ceil(progressPerc * (totalLocs || 100)));
-
-                    if (relocatedTimerRef.current) clearTimeout(relocatedTimerRef.current);
-                    relocatedTimerRef.current = setTimeout(() => {
-                      if (isMountedRef.current && !startupLockRef.current) {
-                        console.log("[EPUB_SCROLL_PERSIST] Emitting persistent cfi update:", cfi);
-                        onPageChange(approxPage, cfi);
-                      }
-                    }, 500);
+              const dx = touchEndX - touchStartX;
+              const dy = touchEndY - touchStartY;
+              
+              if (Math.abs(dx) > 40 && Math.abs(dy) < 80) {
+                const isRTL = direction === 'rtl';
+                if (dx < 0) {
+                  // Swipe left
+                  if (isRTL) {
+                    console.log("[EPUB_SWIPE_PREV] Swiped left in RTL, calling prev()");
+                    rendition.prev();
+                  } else {
+                    console.log("[EPUB_SWIPE_NEXT] Swiped left in LTR, calling next()");
+                    rendition.next();
                   }
-                } catch (err) {
-                  console.warn("[EPUB_CFI_ERROR]", err);
+                } else {
+                  // Swipe right
+                  if (isRTL) {
+                    console.log("[EPUB_SWIPE_NEXT] Swiped right in RTL, calling next()");
+                    rendition.next();
+                  } else {
+                    console.log("[EPUB_SWIPE_PREV] Swiped right in LTR, calling prev()");
+                    rendition.prev();
+                  }
                 }
               }
             }
-          };
+          }, { passive: true });
 
-          doc.addEventListener('scroll', handleInternalScroll, { passive: true });
-
-          // Register tap vs scroll detection
+          // Register tap vs swipe/drag detection
           doc.addEventListener('pointerdown', (e: PointerEvent) => {
              pointerDownPos.current = { x: e.clientX, y: e.clientY };
           });
 
           // Register center click handler to toggle HUD controls
           doc.addEventListener('click', (event: MouseEvent) => {
-            // Track movement delta to distinguish taps from scrolls
+            // Track movement delta to distinguish taps from swipes/drags
             const down = pointerDownPos.current;
             if (down) {
                const dx = Math.abs(event.clientX - down.x);
                const dy = Math.abs(event.clientY - down.y);
                if (dx > 10 || dy > 10) {
-                 console.log("[EPUB_CLICK_REJECTED] Movement detected, likely scroll or drag.");
+                 console.log("[EPUB_CLICK_REJECTED] Movement detected, likely swipe or drag.");
                  return;
                }
             }
@@ -628,7 +618,7 @@ export default function EPUBReader({
             const win = contents.window || doc.defaultView;
             const selection = win ? win.getSelection() : null;
             if (selection && selection.toString().trim().length > 0) {
-              return;
+               return;
             }
 
             console.log("[EPUB_CLICK_HUD_TOGGLE] Click action inside iframe document, toggling HUD.");
@@ -652,10 +642,6 @@ export default function EPUBReader({
         console.log("[EPUB_DRAG] Internal drag detected.");
       });
 
-      rendition.on("scrolled", (location: any) => {
-        console.log("[EPUB_SCROLLED] Scroll position updated:", location);
-      });
-
       rendition.on("started", () => {
         console.log("[EPUB_STARTED]");
       });
@@ -670,14 +656,8 @@ export default function EPUBReader({
         const cfiStr = location?.start?.cfi || '';
         if (!cfiStr) return;
         
-        // Skip outward sync during STARTUP LOCK window
-        if (startupLockRef.current) {
-          console.log("[EPUB_RELOCATED] Startup Lock Active: Suppressing outward progress sync. CFI:", cfiStr);
-          return;
-        }
-
-        // Skip emission during startup or if it's the exact same CFI as last time
-        if (cfiStr === lastEmittedCfiRef.current) {
+        // Skip emission during startup or if it's the exact same CFI as last time (but allow initial load)
+        if (cfiStr === lastEmittedCfiRef.current && !startupLockRef.current) {
           return;
         }
 
@@ -688,28 +668,71 @@ export default function EPUBReader({
         const perc = location?.start?.percentage || 0;
         setProgress(Math.round(perc * 100));
 
-        // Calculate location index safely
-        let currentLocIndex = -1;
-        const totalLocs = (epubBook.locations as any)?.total || 0;
-        const hasLocations = epubBook.locations && (epubBook.locations as any).cfis && (epubBook.locations as any).cfis.length > 0;
-        
-        if (hasLocations) {
+        // Extract and set chapter title & progress within current section
+        const startHref = location?.start?.href || '';
+        const spineIndex = location?.start?.index;
+        const dispPage = location?.start?.displayed?.page;
+        const dispTotal = location?.start?.displayed?.total;
+
+        if (typeof spineIndex === 'number') {
+          setCurrentSectionIndex(spineIndex);
+        } else {
+          setCurrentSectionIndex(null);
+        }
+
+        if (typeof dispPage === 'number') {
+          setChapterPage(dispPage);
+        } else {
+          setChapterPage(undefined);
+        }
+        if (typeof dispTotal === 'number') {
+          setChapterTotalPages(dispTotal);
+        } else {
+          setChapterTotalPages(undefined);
+        }
+
+        // Resolve chapter title from TOC or Spine fallback
+        const activeCh = findActiveChapter(toc, startHref);
+        if (activeCh) {
+          setChapterTitle(activeCh.label);
+        } else {
           try {
-            currentLocIndex = (epubBook.locations as any).locationFromCfi(cfiStr);
-          } catch (e) {
-            console.warn("[EPUB_LOCATION_ERROR] Error resolving CFI to index:", e);
+            if (typeof spineIndex === 'number' && epubBook?.spine) {
+              const sectionObj = epubBook.spine.get(spineIndex);
+              if (sectionObj && sectionObj.href) {
+                const activeBySpine = findActiveChapter(toc, sectionObj.href);
+                if (activeBySpine) {
+                  setChapterTitle(activeBySpine.label);
+                } else {
+                  setChapterTitle(`Chapter ${spineIndex + 1}`);
+                }
+              } else {
+                setChapterTitle(`Chapter ${spineIndex + 1}`);
+              }
+            } else {
+              setChapterTitle('');
+            }
+          } catch (err) {
+            setChapterTitle(typeof spineIndex === 'number' ? `Chapter ${spineIndex + 1}` : '');
           }
         }
-        const approxPage = typeof currentLocIndex === 'number' && currentLocIndex >= 0 
-          ? currentLocIndex + 1 
-          : Math.max(1, Math.ceil(perc * (totalLocs || 100)));
+
+        // Calculate stable percentage-based progress safely
+        const progressVal = location.start.percentage !== undefined ? location.start.percentage : 0;
+        const globalPage = Math.round(progressVal * locationsTotalPages);
+
+        // Skip outward sync during STARTUP LOCK window
+        if (startupLockRef.current) {
+          console.log("[EPUB_RELOCATED] Startup Lock Active: Suppressing outward progress sync but local UI states updated.");
+          return;
+        }
 
         // DEBOUNCE PERSISTENCE: Use 500ms to avoid database/parent feedback loops during active scrolling
         if (relocatedTimerRef.current) clearTimeout(relocatedTimerRef.current);
         relocatedTimerRef.current = setTimeout(() => {
           if (isMountedRef.current && !startupLockRef.current) {
             console.log("[EPUB_SYNC_PERSIST] Emitting persistent cfi update:", cfiStr);
-            onPageChange(approxPage, cfiStr);
+            onPageChange(globalPage, cfiStr);
           }
         }, 500);
       });
@@ -719,7 +742,7 @@ export default function EPUBReader({
         try {
           console.log("[EPUB_LOCATIONS_LOAD_START] Reading locations from cache.");
           (epubBook.locations as any).load(book.locations);
-          setTotalPages((epubBook.locations as any).total);
+          setLocationsTotalPages((epubBook.locations as any).total);
           console.log("[EPUB_LOCATIONS_LOAD_SUCCESS] Loaded cached locations count:", (epubBook.locations as any).total);
         } catch (err) {
           console.warn("[EPUB_LOCATIONS_LOAD_FAILED] Stale/invalid locations cache:", err);
@@ -833,13 +856,13 @@ export default function EPUBReader({
             epubBook.ready
               .then(() => {
                 if (isCancelled) return;
-                return (epubBook.locations as any).generate(2048);
+                return (epubBook.locations as any).generate(1024);
               })
               .then(() => {
                 if (isCancelled) return;
                 const totalGenerated = (epubBook.locations as any).total || 100;
                 console.log("[EPUB_LOCATIONS_GENERATED] Location paths successfully drawn in background. total:", totalGenerated);
-                setTotalPages(totalGenerated);
+                setLocationsTotalPages(totalGenerated);
                 
                 try {
                   const locationsObj = epubBook.locations as any;
@@ -850,7 +873,7 @@ export default function EPUBReader({
                       updateBook({
                         ...book,
                         locations: serialized,
-                        totalPages: totalGenerated
+                        totalPages: 1
                       });
                     }
                   }
@@ -929,7 +952,7 @@ export default function EPUBReader({
       }
       renditionRef.current = null;
     };
-  }, [epubBook, !!dimensions]); // Only restart rendition if book changes or dimensions go from invalid to valid
+  }, [epubBook, !!dimensions, twoPageView]); // Only restart rendition if book, dimensions, or spread changes
 
 
       // --- EFFECT 3: Rendition Resizer ---
@@ -956,9 +979,23 @@ export default function EPUBReader({
 
   // Handle zoom changes
   useEffect(() => {
-    if (renditionRef.current && isReady) {
+    const rendition = renditionRef.current;
+    if (rendition && isReady) {
       try {
-        renditionRef.current.themes.fontSize(`${fontSize}%`);
+        const location = (rendition.currentLocation() as any)?.start?.cfi;
+        console.log(`[EPUB_ZOOM] Registering font size ${fontSize}%, preserving CFI location:`, location);
+        
+        // STEP 1: trigger reflow
+        rendition.themes.fontSize(`${fontSize}%`);
+
+        // STEP 2: allow epub.js layout engine to recompute
+        setTimeout(() => {
+          if (location && isMountedRef.current && renditionRef.current) {
+            renditionRef.current.display(location).catch(err => {
+              console.warn("[EPUB_ZOOM_REDISPLAY_ERROR]", err);
+            });
+          }
+        }, 100);
       } catch (e) {
         console.warn("[EPUB_ZOOM_ERROR]", e);
       }
@@ -969,82 +1006,76 @@ export default function EPUBReader({
     if (isReady && isMountedRef.current) applyTheme(theme);
   }, [theme, applyTheme, isReady]);
 
-  const locationsObj = bookRef.current ? (bookRef.current.locations as any) : null;
-  let currentLocIndex = -1;
-  const hasLocations = locationsObj && locationsObj.cfis && locationsObj.cfis.length > 0;
-  
-  if (hasLocations && currentCfi) {
-    try {
-      currentLocIndex = locationsObj.locationFromCfi(currentCfi) as any;
-    } catch (e) {
-      console.warn("[EPUB_UI_LOCATION_ERROR] Error resolving currentCfi for UI:", e);
-    }
-  }
-  const currentPage = typeof currentLocIndex === 'number' && currentLocIndex >= 0 
-    ? currentLocIndex + 1 
-    : Math.max(1, Math.ceil((progress / 100) * (totalPages || 100)));
+  // Screen-Based Page Counting (Zoom-Aware)
+  const isCalculatingPages = !isReady || typeof chapterPage !== 'number' || typeof chapterTotalPages !== 'number';
+  const currentPage = typeof chapterPage === 'number' ? chapterPage : 1;
+  const totalPages = typeof chapterTotalPages === 'number' ? chapterTotalPages : 1;
 
   const handleJumpToPage = useCallback((p: number) => {
-    const bookObj = bookRef.current;
+    const bookObj = epubBook; // Use epubBook state which is updated correctly
     if (!bookObj || !renditionRef.current || !isMountedRef.current) return;
 
-    console.log(`[EPUB_JUMP] Jumping to page ${p} of ${totalPages}`);
-    const percentage = p / (totalPages || 100);
+    console.log(`[EPUB_JUMP] Jumping to page ${p} of ${chapterTotalPages || 100} in chapter index ${currentSectionIndex}`);
+
+    if (typeof currentSectionIndex === 'number' && typeof chapterTotalPages === 'number') {
+      try {
+        const section = bookObj.spine.get(currentSectionIndex);
+        if (section) {
+          // Direct Section Percentage Jumping:
+          // A section has chapterTotalPages screens. page p is at (p - 1) / chapterTotalPages percentage.
+          const pct = Math.max(0, Math.min(1, (p - 1) / (chapterTotalPages || 1)));
+          const sectionCfi = section.cfiFromPercentage(pct);
+          if (sectionCfi) {
+            console.log(`[EPUB_JUMP_SECTION] Direct cfiFromPercentage resolved for section ${currentSectionIndex}, page ${p} (pct: ${pct}):`, sectionCfi);
+            renditionRef.current.display(sectionCfi).catch(err => {
+              console.warn("[EPUB_JUMP_SECTION_DISPLAY_FAIL] Displays target percentage CFI failed.", err);
+              renditionRef.current?.display();
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("[EPUB_JUMP_SECTION_ERR] Error jumping within current section:", err);
+      }
+    }
+
+    // Fallback: If section percentage jumping is not available, try the old locations fallback
     const locationsObj = bookObj.locations as any;
     const hasLocations = locationsObj && locationsObj.cfis && locationsObj.cfis.length > 0;
-    
-    const cfi = (hasLocations && typeof locationsObj.cfiFromPercentage === 'function') 
-      ? locationsObj.cfiFromPercentage(percentage) 
-      : undefined;
+    let cfi: string | undefined = undefined;
+
+    if (hasLocations && typeof locationsObj.cfiFromIndex === 'function') {
+      try {
+        const locIndex = Math.max(0, Math.min(p - 1, (locationsObj.total || 1) - 1));
+        cfi = locationsObj.cfiFromIndex(locIndex);
+        console.log(`[EPUB_JUMP_FALLBACK] CFI from locations index ${locIndex}:`, cfi);
+      } catch (err) {
+        console.warn("[EPUB_JUMP_INDEX_FAIL] Failed to get CFI from location index:", err);
+      }
+    }
 
     if (cfi && typeof cfi === 'string') {
-      // Validate CFI before jump
       try {
         const spine = bookObj.spine as any;
         if (spine && typeof spine.get === 'function') {
           const section = spine.get(cfi);
           if (section && section.href) {
-            renditionRef.current.display(cfi).catch(e => {
-              console.warn("[EPUB_JUMP_DISPLAY_FAIL] Target CFI display failed, falling back to simple display.", e);
+            renditionRef.current.display(cfi).catch(() => {
               renditionRef.current?.display();
             });
           } else {
-            console.warn("[EPUB_JUMP_INVALID] Target CFI is invalid or missing href:", cfi);
             renditionRef.current.display().catch(() => {});
           }
         } else {
           renditionRef.current.display(cfi).catch(() => {});
         }
       } catch (e) {
-        console.warn("[EPUB_JUMP_ERROR] Error validating CFI before jump:", e);
         renditionRef.current.display().catch(() => {});
       }
     } else {
-      // Fallback to location index
-      try {
-        const locations = bookObj.locations as any;
-        const spine = bookObj.spine as any;
-        const locIndex = Math.max(0, Math.min(p - 1, ((locations?.total || 1) as number) - 1));
-        const locationCfi = (locations && typeof locations.cfiFromIndex === 'function' && locations.cfis) 
-          ? locations.cfiFromIndex(locIndex) 
-          : undefined;
-
-        if (locationCfi && spine && typeof spine.get === 'function') {
-           const section = spine.get(locationCfi);
-           if (section && section.href) {
-             renditionRef.current.display(locationCfi).catch(() => renditionRef.current?.display());
-           } else {
-             renditionRef.current.display().catch(() => {});
-           }
-        } else {
-           renditionRef.current.display().catch(() => {});
-        }
-      } catch (err) {
-        console.error("Jump to page failed:", err);
-        renditionRef.current.display().catch(() => {});
-      }
+      renditionRef.current.display().catch(() => {});
     }
-  }, [totalPages]);
+  }, [epubBook, currentSectionIndex, chapterTotalPages]);
 
   // --- EFFECT 4: Render Diagnostics ---
   useEffect(() => {
@@ -1080,6 +1111,10 @@ export default function EPUBReader({
       currentPage={currentPage}
       totalPages={totalPages}
       progress={progress}
+      isCalculatingPages={isCalculatingPages}
+      chapterTitle={chapterTitle}
+      chapterPage={chapterPage}
+      chapterTotalPages={chapterTotalPages}
       onPageChange={handleJumpToPage}
       onUpdateBookmarks={onUpdateBookmarks}
       onPrev={() => {
@@ -1210,15 +1245,19 @@ export default function EPUBReader({
 
             <div
               ref={viewerRef}
-              className="epub-viewer-viewport overflow-hidden"
+              className="epub-viewer-viewport"
               style={{
-                width: "100%",
-                height: "100%",
+                width: dimensions ? `${dimensions.width}px` : "100%",
+                height: dimensions ? `${dimensions.height}px` : "100%",
                 position: "absolute",
-                inset: 0,
+                left: "50%",
+                top: "50%",
+                transform: "translate(-50%, -50%)",
                 background: themeStyles.bg,
-                WebkitOverflowScrolling: "touch",
-                touchAction: 'pan-y'
+                overflow: "hidden",
+                maxWidth: "100%",
+                maxHeight: "100%",
+                touchAction: "none"
               }}
             />
           </>

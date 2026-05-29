@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Settings, Type, Languages, Check, 
   Bookmark as BookmarkIcon, Trash2, Navigation,
-  ChevronLeft, ChevronRight, Menu, Minus, Plus, RotateCcw
+  ChevronLeft, ChevronRight, Menu, Minus, Plus, RotateCcw,
+  BookOpen
 } from 'lucide-react';
 import { useSafeArea } from '../../components/SafeAreaProvider';
 import { cn } from '../../lib/utils';
@@ -14,8 +15,8 @@ interface ReaderShellProps {
   book: Book;
   onClose: () => void;
   children: React.ReactNode;
-  currentPage: number;
-  totalPages: number;
+  currentPage: number | string;
+  totalPages: number | string;
   progress: number;
   onPageChange: (page: number) => void;
   onUpdateBookmarks: (bookmarks: Bookmark[]) => void;
@@ -30,6 +31,11 @@ interface ReaderShellProps {
   onZoomOut?: () => void;
   onResetZoom?: () => void;
   centerClickThrough?: boolean;
+  isCalculatingPages?: boolean;
+  chapterTitle?: string;
+  chapterPage?: number;
+  chapterTotalPages?: number;
+  chapterProgress?: number;
 }
 
 export default function ReaderShell({
@@ -51,13 +57,19 @@ export default function ReaderShell({
   onZoomIn,
   onZoomOut,
   onResetZoom,
-  centerClickThrough = false
+  centerClickThrough = false,
+  isCalculatingPages = false,
+  chapterTitle,
+  chapterPage,
+  chapterTotalPages,
+  chapterProgress
 }: ReaderShellProps) {
   const { 
     theme, setTheme, 
     fontSize, setFontSize, 
     showControls, setShowControls,
-    direction, setDirection
+    direction, setDirection,
+    twoPageView, setTwoPageView
   } = useReader();
   
   const insets = useSafeArea();
@@ -83,9 +95,10 @@ export default function ReaderShell({
   };
 
   const bookmarks = book.bookmarks || [];
-  const isBookmarked = bookmarks.some(bm => bm.page === currentPage);
+  const isBookmarked = typeof currentPage === 'number' && bookmarks.some(bm => bm.page === currentPage);
 
   const toggleBookmark = () => {
+    if (typeof currentPage !== 'number') return;
     if (isBookmarked) {
       onUpdateBookmarks(bookmarks.filter(bm => bm.page !== currentPage));
     } else {
@@ -187,7 +200,9 @@ export default function ReaderShell({
                   onClick={() => setIsNavigatorOpen(true)}
                   className="px-3 py-1.5 rounded-full bg-black/5 dark:bg-white/5 hover:bg-black/10 transition-all flex items-center gap-2"
                 >
-                  <span className="text-[10px] font-mono font-bold">{currentPage} / {totalPages}</span>
+                  <span className="text-[10px] font-mono font-bold">
+                    {isCalculatingPages ? `Calculating (${progress}%)` : `${currentPage} / ${totalPages}`}
+                  </span>
                   <Navigation className="w-3 h-3 opacity-40" />
                 </button>
                 <button 
@@ -219,7 +234,40 @@ export default function ReaderShell({
               theme === 'sepia' ? 'bg-[#f4ecd8]/80 border-[#433422]/10' : 
               'bg-white/80 border-zinc-200'
             )}>
-              <div className="max-w-xl mx-auto flex flex-col gap-6">
+              <div className="max-w-xl mx-auto flex flex-col gap-5">
+                {chapterTitle && (
+                  <div className="flex flex-col gap-1.5 items-center pb-3 border-b border-black/5 dark:border-white/5">
+                    <span className="text-xs font-serif font-bold tracking-wide text-center truncate max-w-sm sm:max-w-md opacity-80">
+                      {chapterTitle}
+                    </span>
+                    {typeof chapterPage === 'number' && typeof chapterTotalPages === 'number' && chapterTotalPages > 0 ? (
+                      <div className="flex items-center gap-2.5 w-full max-w-[240px] justify-center">
+                        <div className="flex-1 h-0.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-orange-400 transition-all duration-300"
+                            style={{ width: `${(chapterPage / chapterTotalPages) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] font-mono opacity-50 select-none whitespace-nowrap">
+                          Page {chapterPage} of {chapterTotalPages}
+                        </span>
+                      </div>
+                    ) : chapterProgress !== undefined ? (
+                      <div className="flex items-center gap-2.5 w-full max-w-[240px] justify-center">
+                        <div className="flex-1 h-0.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-orange-400 transition-all duration-300"
+                            style={{ width: `${chapterProgress}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] font-mono opacity-50 select-none whitespace-nowrap">
+                          {Math.round(chapterProgress)}% of chapter
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+                
                 <div className="flex items-center gap-6">
                   <button onClick={onPrev} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10">
                     <ChevronLeft className="w-6 h-6" />
@@ -311,7 +359,7 @@ export default function ReaderShell({
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-black/5 dark:border-white/5">
+                <div className="pt-4 border-t border-black/5 dark:border-white/5 space-y-3">
                   <button 
                     onClick={() => setDirection(direction === 'ltr' ? 'rtl' : 'ltr')}
                     className="w-full flex items-center justify-between p-3 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 transition-all font-mono"
@@ -323,6 +371,23 @@ export default function ReaderShell({
                     <div className="w-8 h-4 bg-orange-500/20 rounded-full relative">
                       <motion.div 
                         animate={{ x: direction === 'rtl' ? 16 : 4 }}
+                        className="absolute top-1 w-2 h-2 bg-orange-500 rounded-full"
+                      />
+                    </div>
+                  </button>
+
+                  <button 
+                    onClick={() => setTwoPageView(!twoPageView)}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 transition-all font-mono"
+                    id="toggle-two-page-view"
+                  >
+                    <div className="flex items-center gap-3">
+                      <BookOpen className="w-4 h-4 opacity-50" />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">Two-Page Spread</span>
+                    </div>
+                    <div className="w-8 h-4 bg-orange-500/20 rounded-full relative">
+                      <motion.div 
+                        animate={{ x: twoPageView ? 16 : 4 }}
                         className="absolute top-1 w-2 h-2 bg-orange-500 rounded-full"
                       />
                     </div>
@@ -373,19 +438,34 @@ export default function ReaderShell({
 
               {navTab === 'pages' ? (
                 <div className="w-full flex flex-col items-center gap-12 py-4">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-9xl font-serif text-white tracking-tighter leading-none">{currentPage}</span>
-                    <span className="text-xl font-serif text-white/20">/ {totalPages}</span>
-                  </div>
+                  {isCalculatingPages ? (
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <span className="text-4xl font-serif text-white tracking-tight text-center leading-normal">Calculating layout...</span>
+                      <span className="text-xl font-mono text-white/40">{progress}% processed</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-9xl font-serif text-white tracking-tighter leading-none">{currentPage}</span>
+                      <span className="text-xl font-serif text-white/20">/ {totalPages}</span>
+                    </div>
+                  )}
                   <div className="w-full space-y-4">
                     <input 
-                      type="range" min={1} max={totalPages} value={currentPage}
-                      onChange={(e) => onJumpToPage(parseInt(e.target.value))}
-                      className="w-full h-1 bg-white/10 rounded-full appearance-none accent-white cursor-pointer"
+                      type="range" 
+                      min={1} 
+                      max={isCalculatingPages ? 100 : (totalPages as number)} 
+                      value={isCalculatingPages ? progress : (currentPage as number)}
+                      onChange={(e) => {
+                        if (!isCalculatingPages) {
+                          onJumpToPage(parseInt(e.target.value));
+                        }
+                      }}
+                      disabled={isCalculatingPages}
+                      className="w-full h-1 bg-white/10 rounded-full appearance-none accent-white cursor-pointer disabled:opacity-50"
                     />
                     <div className="flex justify-between text-[8px] font-mono text-white/20 uppercase tracking-widest px-1">
-                      <span>Start</span>
-                      <span>End</span>
+                      <span>{isCalculatingPages ? "Wait" : "Start"}</span>
+                      <span>{isCalculatingPages ? "Ready" : "End"}</span>
                     </div>
                   </div>
                 </div>
@@ -424,6 +504,19 @@ export default function ReaderShell({
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Subtle Running Footer when controls are hidden */}
+      {!showControls && !isCalculatingPages && (
+        <div className="absolute bottom-3 left-0 right-0 z-20 flex justify-between items-center px-6 pointer-events-none select-none">
+          <span className="text-[9px] font-sans opacity-25 truncate max-w-[180px] sm:max-w-xs md:max-w-md">
+            {chapterTitle || title}
+          </span>
+          <span className="text-[9px] font-mono opacity-25">
+            {typeof chapterPage === 'number' && typeof chapterTotalPages === 'number' && chapterTotalPages > 0 
+              ? `Ch. ${chapterPage}/${chapterTotalPages}` 
+              : `${progress}%`}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

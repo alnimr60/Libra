@@ -67,6 +67,15 @@
   margin-bottom: var(--msp-bottom);
 }
 
+html,
+body,
+#root {
+  overflow: hidden;
+  height: 100vh;
+  max-height: 100vh;
+  overscroll-behavior: none;
+}
+
 body {
   @apply antialiased transition-colors duration-200;
 }
